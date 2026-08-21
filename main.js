@@ -29,7 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-const API_URL = 'https://furniture-web-61ir.onrender.com';
+const API_URL = 'https://modern-koncept.onrender.com';
 
 // =============================================================================
 // TOAST NOTIFICATION SYSTEM
