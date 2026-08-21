@@ -690,8 +690,8 @@ async function handleInventorySubmit(event) {
       showToast(result.message, 'success');
       hideModal('stockModal');
       loadInventoryList();
-      if (window.location.pathname.includes('staff.html')) loadStaffInventoryList();
-      if (window.location.pathname.includes('manager.html')) loadManagerInventoryList();
+      if (window.location.pathname.includes('staff')) loadStaffInventoryList();
+      if (window.location.pathname.includes('manager')) loadManagerInventoryList();
     } else showToast('❌ ' + result.message, 'error');
   } catch (error) { showToast('❌ Failed to save inventory', 'error'); }
 }
@@ -954,8 +954,8 @@ async function updateDeliveryStatus(deliveryId) {
     const result = await API.updateDeliveryStatus(deliveryId, newStatus);
     if (result.success) {
       showToast('✓ Delivery status updated successfully', 'success');
-      if (window.location.pathname.includes('staff.html')) loadStaffDeliveryList();
-      else if (window.location.pathname.includes('manager.html')) loadManagerDeliveryList();
+      if (window.location.pathname.includes('staff')) loadStaffDeliveryList();
+      else if (window.location.pathname.includes('manager')) loadManagerDeliveryList();
     } else showToast('❌ ' + result.message, 'error');
   } catch (error) { showToast('❌ Failed to update status', 'error'); }
 }
@@ -1645,9 +1645,9 @@ function initDashboardTabs() {
       const targetModule = document.getElementById(targetTab + 'Module');
       if (targetModule) {
         targetModule.classList.add('active');
-        const isAdmin = window.location.pathname.includes('admin.html');
-        const isStaff = window.location.pathname.includes('staff.html');
-        const isManager = window.location.pathname.includes('manager.html');
+        const isAdmin = window.location.pathname.includes('admin');
+        const isStaff = window.location.pathname.includes('staff');
+        const isManager = window.location.pathname.includes('manager');
         if (targetTab === 'furniture') loadFurnitureList();
         else if (targetTab === 'business') loadBusinessInfo();
         else if (targetTab === 'inventory' && isAdmin) loadInventoryList();
@@ -1681,7 +1681,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initModalCloseButtons();
 
   // ---- ADMIN PAGE ----
-  if (window.location.pathname.includes('admin.html')) {
+  if (window.location.pathname.includes('admin')) {
     const user = JSON.parse(sessionStorage.getItem('currentUser') || '{}');
     const adminNameEl = document.getElementById('adminName');
     if (adminNameEl && user.name) adminNameEl.textContent = user.name;
@@ -1715,7 +1715,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ---- STAFF PAGE ----
-  if (window.location.pathname.includes('staff.html')) {
+  if (window.location.pathname.includes('staff')) {
     const user = JSON.parse(sessionStorage.getItem('currentUser') || '{}');
     const staffNameEl = document.getElementById('staffName');
     if (staffNameEl && user.name) staffNameEl.textContent = user.name;
@@ -1766,7 +1766,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ---- MANAGER PAGE ----
-  if (window.location.pathname.includes('manager.html')) {
+  if (window.location.pathname.includes('manager')) {
     const user = JSON.parse(sessionStorage.getItem('currentUser') || '{}');
     const managerNameEl = document.getElementById('managerName');
     if (managerNameEl && user.name) managerNameEl.textContent = user.name;
@@ -1829,17 +1829,17 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ---- LOGIN PAGE ----
-  if (window.location.pathname.includes('login.html')) {
+  if (window.location.pathname.includes('login')) {
     const loginForm = document.getElementById('loginForm');
     if (loginForm) loginForm.addEventListener('submit', handleLogin);
     const signupForm = document.getElementById('signupForm');
     if (signupForm) signupForm.addEventListener('submit', handleSignup);
   }
 
-  if (window.location.pathname.includes('about.html')) loadAboutPageContent();
-  if (window.location.pathname.includes('contact.html')) loadContactPageContent();
-  if (window.location.pathname.includes('furniture-list.html')) { loadPublicFurnitureList(); initFurnitureListFilters(); }
-  if (window.location.pathname.includes('furniture-detail.html')) {
+  if (window.location.pathname.includes('about')) loadAboutPageContent();
+  if (window.location.pathname.includes('contact')) loadContactPageContent();
+  if (window.location.pathname.includes('furniture-list')) { loadPublicFurnitureList(); initFurnitureListFilters(); }
+  if (window.location.pathname.includes('furniture-detail')) {
     loadFurnitureDetail();
 
     const visualizeBtn = document.getElementById('visualizeBtn');
@@ -1887,7 +1887,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
    
   // ---- AI VISUALIZATION PAGE ----
-if (window.location.pathname.includes('ai-visualization.html')) {
+if (window.location.pathname.includes('ai-visualization')) {
     initVisualizationPage();
 }
 
@@ -1918,7 +1918,7 @@ if (window.location.pathname.includes('customer-support')) {
 });
 
 // Add "Create Account" button to Staff Module (Admin)
-if (window.location.pathname.includes('admin.html')) {
+if (window.location.pathname.includes('admin')) {
   setTimeout(() => {
     const staffModule = document.getElementById('staffModule');
     if (staffModule && !document.getElementById('addStaffAccountBtn')) {
