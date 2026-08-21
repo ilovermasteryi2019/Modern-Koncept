@@ -21,18 +21,14 @@ function generateRefCode() {
   return `DEL-${year}-${random}`;
 }
 
-
-
 // =============================================================================
 // AUTH
 // =============================================================================
 app.post('/signup', async (req, res) => {
   const { name, email, password } = req.body;
   if (!name || !email || !password) return res.status(400).json({ success: false, message: 'All fields are required' });
-
   const { data: existing } = await db.from('users').select('id').eq('email', email).single();
   if (existing) return res.status(400).json({ success: false, message: 'Email already exists' });
-
   const { data, error } = await db.from('users').insert({ name, email, password, role: 'staff' }).select().single();
   if (error) return res.status(500).json({ success: false, message: 'Failed to create account' });
   res.status(201).json({ success: true, message: 'Account created successfully', userId: data.id });
@@ -41,7 +37,6 @@ app.post('/signup', async (req, res) => {
 app.post('/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ success: false, message: 'Email and password are required' });
-
   const { data, error } = await db.from('users').select('id,name,email,role').eq('email', email).eq('password', password).single();
   if (error || !data) return res.status(401).json({ success: false, message: 'Invalid email or password' });
   res.json({ success: true, message: 'Login successful', user: { id: data.id, name: data.name, email: data.email, role: data.role || 'staff' } });
@@ -65,7 +60,6 @@ app.get('/products/:id', async (req, res) => {
 app.post('/add-product', async (req, res) => {
   const { name, category, price, material, dimensions, description, image } = req.body;
   if (!name || !category || !price) return res.status(400).json({ success: false, message: 'Name, category, and price are required' });
-
   const { data, error } = await db.from('furniture').insert({ name, category, price, material: material || '', dimensions: dimensions || '', description: description || '', image: image || '' }).select().single();
   if (error) return res.status(500).json({ success: false, message: 'Failed to add furniture' });
   res.status(201).json({ success: true, message: 'Furniture added successfully', id: data.id });
@@ -96,7 +90,6 @@ app.get('/inventory', async (req, res) => {
 app.post('/inventory', async (req, res) => {
   const { name, category, quantity } = req.body;
   if (!name || !category || quantity === undefined) return res.status(400).json({ success: false, message: 'Name, category, and quantity are required' });
-
   const { data, error } = await db.from('inventory').insert({ name, category, quantity }).select().single();
   if (error) return res.status(500).json({ success: false, message: 'Failed to add inventory item' });
   res.status(201).json({ success: true, message: 'Inventory item added successfully', id: data.id });
@@ -145,7 +138,6 @@ app.post('/deliveries', async (req, res) => {
   const { customer_name, contact_number, address, product, status, delivery_type, delivery_date } = req.body;
   if (!customer_name || !address) return res.status(400).json({ success: false, message: 'Customer name and address are required' });
   const ref_code = generateRefCode();
-
   const { data, error } = await db.from('deliveries').insert({ ref_code, customer_name, contact_number: contact_number || null, address, product: product || 'N/A', status: status || 'Pending', delivery_type: delivery_type || 'Outbound', delivery_date: delivery_date || null }).select().single();
   if (error) return res.status(500).json({ success: false, message: 'Failed to create delivery' });
   res.status(201).json({ success: true, message: 'Delivery created successfully', id: data.id, ref_code });
@@ -185,7 +177,6 @@ app.get('/sales', async (req, res) => {
 app.post('/sales', async (req, res) => {
   const { customer_name, product_name, amount, sale_date } = req.body;
   if (!customer_name || !product_name || !amount) return res.status(400).json({ success: false, message: 'Customer name, product name, and amount are required' });
-
   const { data, error } = await db.from('sales').insert({ customer_name, product_name, amount, sale_date: sale_date || new Date() }).select().single();
   if (error) return res.status(500).json({ success: false, message: 'Failed to add sales record' });
   res.status(201).json({ success: true, message: 'Sales record added successfully', id: data.id });
@@ -230,7 +221,6 @@ app.get('/reviews', async (req, res) => {
 app.post('/reviews', async (req, res) => {
   const { product_name, reviewer_name, rating, review_text, review_date } = req.body;
   if (!product_name || !reviewer_name || !rating || !review_text) return res.status(400).json({ success: false, message: 'All fields are required' });
-
   const { data, error } = await db.from('reviews').insert({ product_name, reviewer_name, rating, review_text, review_date: review_date || new Date() }).select().single();
   if (error) return res.status(500).json({ success: false, message: 'Failed to add review' });
   res.status(201).json({ success: true, message: 'Review added successfully', id: data.id });
@@ -254,7 +244,6 @@ app.get('/business-info', async (req, res) => {
 app.post('/business-info', async (req, res) => {
   const { hero_title, hero_description, story, mission, return_policy, warranty_policy, delivery_policy, payment_policy } = req.body;
   const { data: existing } = await db.from('business_info').select('id').eq('id', 1).single();
-
   if (!existing) {
     const { error } = await db.from('business_info').insert({ id: 1, hero_title, hero_description, story, mission, return_policy, warranty_policy, delivery_policy, payment_policy });
     if (error) return res.status(500).json({ success: false, message: 'Failed to save business info' });
@@ -267,14 +256,13 @@ app.post('/business-info', async (req, res) => {
 
 app.get('/contact-info', async (req, res) => {
   const { data, error } = await db.from('contact_info').select('*').eq('id', 1).single();
-  if (error || !data) return res.json({ success: true, data: { phone: '+1 234 567 8900', email: 'info@eclfurniture.com', address: '123 Furniture Street', business_hours: 'Mon-Sat: 9:00 AM - 6:00 PM' } });
+  if (error || !data) return res.json({ success: true, data: { phone: '(044) 796-1234', email: 'info@eclfurniture.com', address: 'REAL BLDG 1 JP RIZAL STREET Poblacion Sta Maria Bulacan', business_hours: 'Mon-Sat: 9:00 AM - 6:00 PM' } });
   res.json({ success: true, data });
 });
 
 app.post('/contact-info', async (req, res) => {
   const { phone, email, address, business_hours } = req.body;
   const { data: existing } = await db.from('contact_info').select('id').eq('id', 1).single();
-
   if (!existing) {
     const { error } = await db.from('contact_info').insert({ id: 1, phone, email, address, business_hours });
     if (error) return res.status(500).json({ success: false, message: 'Failed to save contact info' });
@@ -298,10 +286,8 @@ app.post('/staff', async (req, res) => {
   const { name, email, password, role } = req.body;
   if (!name || !email || !password) return res.status(400).json({ success: false, message: 'Name, email, and password are required' });
   const accountRole = role === 'manager' ? 'manager' : 'staff';
-
   const { data: existing } = await db.from('users').select('id').eq('email', email).single();
   if (existing) return res.status(400).json({ success: false, message: 'Email already exists' });
-
   const { data, error } = await db.from('users').insert({ name, email, password, role: accountRole }).select().single();
   if (error) return res.status(500).json({ success: false, message: 'Failed to create account' });
   res.status(201).json({ success: true, message: `${accountRole.charAt(0).toUpperCase() + accountRole.slice(1)} account created successfully`, id: data.id });
@@ -314,7 +300,7 @@ app.delete('/staff/:id', async (req, res) => {
 });
 
 // =============================================================================
-// CHATBOT Q&A MANAGEMENT
+// CHATBOT Q&A
 // =============================================================================
 app.get('/chatbot', async (req, res) => {
   const { data, error } = await db.from('chatbot_qa').select('*').order('category').order('created_at', { ascending: false });
@@ -325,7 +311,6 @@ app.get('/chatbot', async (req, res) => {
 app.post('/chatbot', async (req, res) => {
   const { question, answer, category } = req.body;
   if (!question || !answer) return res.status(400).json({ success: false, message: 'Question and answer are required' });
-
   const { data, error } = await db.from('chatbot_qa').insert({ question, answer, category: category || 'General' }).select().single();
   if (error) return res.status(500).json({ success: false, message: 'Failed to add Q&A' });
   res.status(201).json({ success: true, message: 'Q&A added successfully', id: data.id });
@@ -356,7 +341,6 @@ app.get('/inquiries', async (req, res) => {
 app.post('/inquiries', async (req, res) => {
   const { customer_name, email, phone, subject, message } = req.body;
   if (!customer_name || !email || !message) return res.status(400).json({ success: false, message: 'Name, email, and message are required' });
-
   const { data, error } = await db.from('customer_inquiries').insert({ customer_name, email, phone: phone || null, subject: subject || 'General', message }).select().single();
   if (error) return res.status(500).json({ success: false, message: 'Failed to submit inquiry' });
   res.status(201).json({ success: true, message: 'Inquiry submitted successfully', id: data.id });
@@ -388,7 +372,6 @@ app.get('/feedback', async (req, res) => {
 app.post('/feedback', async (req, res) => {
   const { customer_name, email, product_name, rating, feedback_text } = req.body;
   if (!customer_name || !feedback_text) return res.status(400).json({ success: false, message: 'Name and feedback are required' });
-
   const { data, error } = await db.from('customer_feedback').insert({ customer_name, email: email || null, product_name: product_name || null, rating: rating || 3, feedback_text }).select().single();
   if (error) return res.status(500).json({ success: false, message: 'Failed to submit feedback' });
   res.status(201).json({ success: true, message: 'Feedback submitted successfully', id: data.id });
@@ -401,98 +384,40 @@ app.delete('/feedback/:id', async (req, res) => {
 });
 
 // =============================================================================
-// AI VISUALIZATION — Gemini 2.5 Flash Image ("Nano Banana") Multimodal Editing
+// AI VISUALIZATION — Gemini
 // =============================================================================
 app.post('/api/visualize', async (req, res) => {
   try {
     const { furnitureId, style, roomImage, placementInstructions } = req.body;
+    if (!furnitureId || !roomImage) return res.status(400).json({ success: false, message: 'Furniture ID and room image are required.' });
+    if (!placementInstructions || !placementInstructions.trim()) return res.status(400).json({ success: false, message: 'Please describe where to place the furniture.' });
+    if (!process.env.GEMINI_API_KEY) return res.status(500).json({ success: false, message: 'GEMINI_API_KEY is missing in .env configuration.' });
 
-    if (!furnitureId || !roomImage) {
-      return res.status(400).json({ success: false, message: 'Furniture ID and room image are required.' });
+    const { data: furniture, error: furnitureError } = await db.from('furniture').select('*').eq('id', furnitureId).single();
+    if (furnitureError || !furniture) return res.status(404).json({ success: false, message: 'Furniture item not found.' });
+
+    const cleanBase64 = roomImage.replace(/^data:image\/\w+;base64,/, '');
+    const prompt = `You are an expert AI interior designer. Edit the uploaded room photo by adding this product: ${furniture.name} (${furniture.description || 'Modern design item'}, Material: ${furniture.material || 'Premium finish'}). Style: ${style || 'Modern'}. Placement: ${placementInstructions.trim()}. Generate a photorealistic edited version with the product naturally placed, matching existing lighting and perspective.`;
+
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: [prompt, { inlineData: { mimeType: 'image/jpeg', data: cleanBase64 } }],
+        config: { responseModalities: ['IMAGE', 'TEXT'] }
+      });
+      const parts = response.candidates?.[0]?.content?.parts || [];
+      const imagePart = parts.find(p => p.inlineData);
+      if (!imagePart) return res.status(500).json({ success: false, message: 'Gemini did not return an image. Try again.' });
+      return res.json({ success: true, image: `data:${imagePart.inlineData.mimeType || 'image/png'};base64,${imagePart.inlineData.data}`, furnitureName: furniture.name });
+    } catch (aiError) {
+      console.error('❌ [Gemini] Error:', aiError.message);
+      return res.status(500).json({ success: false, message: 'Gemini processing failed. Please try again.' });
     }
-    if (!placementInstructions || !placementInstructions.trim()) {
-      return res.status(400).json({ success: false, message: 'Please describe where to place the furniture.' });
-    }
-    if (!process.env.GEMINI_API_KEY) {
-      return res.status(500).json({ success: false, message: 'GEMINI_API_KEY is missing in .env configuration.' });
-    }
-
-    db.query('SELECT * FROM furniture WHERE id = ?', [furnitureId], async (err, results) => {
-      if (err) return res.status(500).json({ success: false, message: 'Database error occurred.' });
-      if (!results.length) return res.status(404).json({ success: false, message: 'Furniture item not found.' });
-
-      const furniture = results[0];
-      const cleanBase64 = roomImage.replace(/^data:image\/\w+;base64,/, '');
-
-      const prompt = `
-        You are an expert AI interior designer for ModernKoncept MART.
-        Edit the uploaded room photo by adding this product into the scene:
-        - Product Name: ${furniture.name}
-        - Description: ${furniture.description || 'Modern design item'}
-        - Material: ${furniture.material || 'Premium finish'}
-
-        User preferences:
-        - Chosen Aesthetic Style: ${style || 'Modern'}
-        - Placement Cues: ${placementInstructions.trim()}
-
-        Generate a photorealistic edited version of the room photo with the product
-        naturally placed inside it, matching the room's existing lighting, shadows,
-        and perspective. Keep the rest of the room unchanged.
-      `;
-
-      try {
-        console.log(`🤖 [Gemini 2.5 Flash Image] Generating visualization for: "${furniture.name}"`);
-
-        // responseModalities must include IMAGE, or the model only returns text
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash-image',
-          contents: [
-            prompt,
-            {
-              inlineData: {
-                mimeType: 'image/jpeg',
-                data: cleanBase64
-              }
-            }
-          ],
-          config: {
-            responseModalities: ['IMAGE', 'TEXT']
-          }
-        });
-
-        // The generated image comes back as an inlineData part, not response.text
-        const parts = response.candidates?.[0]?.content?.parts || [];
-        const imagePart = parts.find(p => p.inlineData);
-
-        if (!imagePart) {
-          console.error('❌ [Gemini] No image part in response — got only text:', response.text);
-          return res.status(500).json({ success: false, message: 'Gemini did not return an image. Try again.' });
-        }
-
-        const resultBase64 = imagePart.inlineData.data;
-        const resultMime = imagePart.inlineData.mimeType || 'image/png';
-
-        console.log('✅ [Gemini] Multimodal image edit complete!');
-
-        return res.json({
-          success: true,
-          image: `data:${resultMime};base64,${resultBase64}`,
-          furnitureName: furniture.name
-        });
-
-      } catch (aiError) {
-        console.error('❌ [Gemini] API Execution Failure:', aiError.message);
-        return res.status(500).json({ success: false, message: 'Gemini processing failed. Please try again.' });
-      }
-    });
-
   } catch (err) {
     console.error('❌ Unexpected Error:', err.message);
     return res.status(500).json({ success: false, message: 'Unexpected server error.' });
   }
 });
-
-
 
 // =============================================================================
 // START SERVER
@@ -501,5 +426,4 @@ app.listen(PORT, () => {
   console.log('==============================================');
   console.log(`🚀 Server is running on http://localhost:${PORT}`);
   console.log('==============================================');
-  
-}); 
+});
