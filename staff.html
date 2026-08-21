@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Staff Dashboard - ecl FURNITURE MART</title>
+  <link rel="stylesheet" href="styles.css">
+   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    .dashboard-header {
+      background: white;
+      padding: 1.5rem 0;
+      border-bottom: 2px solid #e5e7eb;
+      margin-bottom: 2rem;
+    }
+    
+    .dashboard-nav {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    
+    .dashboard-tab {
+      padding: 0.75rem 1.5rem;
+      background: white;
+      border: 2px solid #e5e7eb;
+      border-radius: 0.5rem;
+      cursor: pointer;
+      font-weight: 500;
+      color: #4b5563;
+      transition: all 0.2s;
+    }
+    
+    .dashboard-tab:hover {
+      border-color: #DC143C;
+      color: #DC143C;
+    }
+    
+    .dashboard-tab.active {
+      background: #DC143C;
+      color: white;
+      border-color: #DC143C;
+    }
+    
+    .dashboard-module {
+      display: none;
+    }
+    
+    .dashboard-module.active {
+      display: block;
+    }
+    
+    .stock-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    
+    .stock-status {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    
+    .stock-status.in-stock {
+      background: #d1fae5;
+      color: #065f46;
+    }
+    
+    .stock-status.low-stock {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    
+    .qty-control {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    
+    .qty-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 0.375rem;
+      border: 2px solid #DC143C;
+      background: white;
+      color: #DC143C;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .qty-btn:hover {
+      background: #DC143C;
+      color: white;
+    }
+    
+    .qty-display {
+      min-width: 40px;
+      text-align: center;
+      font-weight: 600;
+      color: #111827;
+    }
+    
+    .table-container {
+      overflow-x: auto;
+      margin-top: 1rem;
+    }
+    
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    
+    th {
+      background: #f9fafb;
+      padding: 0.75rem;
+      text-align: left;
+      font-weight: 600;
+      color: #111827;
+      border-bottom: 2px solid #e5e7eb;
+      font-size: 0.875rem;
+    }
+    
+    td {
+      padding: 0.75rem;
+      border-bottom: 1px solid #e5e7eb;
+      color: #4b5563;
+      font-size: 0.875rem;
+    }
+    
+    .action-btn {
+      padding: 0.375rem 0.75rem;
+      border-radius: 0.375rem;
+      border: none;
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .action-btn.edit {
+      background: rgba(220, 20, 60, 0.1);
+      color: #DC143C;
+    }
+    
+    .action-btn.edit:hover {
+      background: #DC143C;
+      color: white;
+    }
+    
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    
+    .modal.active {
+      display: flex;
+    }
+    
+    .modal-content {
+      background: white;
+      border-radius: 0.75rem;
+      max-width: 600px;
+      width: 100%;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 20px 25px rgba(0, 0, 0, 0.15);
+    }
+    
+    .modal-header {
+      padding: 1.5rem;
+      border-bottom: 2px solid #e5e7eb;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    
+    .modal-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #111827;
+    }
+    
+    .modal-close {
+      width: 32px;
+      height: 32px;
+      border-radius: 0.375rem;
+      border: none;
+      background: #f3f4f6;
+      color: #4b5563;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .modal-close:hover {
+      background: #e5e7eb;
+    }
+    
+    .modal-body {
+      padding: 1.5rem;
+    }
+    
+    .summary-card {
+      background: linear-gradient(135deg, #DC143C 0%, #A80728 100%);
+      color: white;
+      padding: 1.5rem;
+      border-radius: 0.75rem;
+      margin-bottom: 1.5rem;
+    }
+    
+    .summary-value {
+      font-size: 2.5rem;
+      font-weight: 700;
+      margin-bottom: 0.25rem;
+    }
+    
+    .summary-label {
+      font-size: 0.875rem;
+      opacity: 0.9;
+    }
+    /* TOAST NOTIFICATION SYSTEM */
+/* ============================================= */
+.toast-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.toast {
+  min-width: 300px;
+  max-width: 400px;
+  padding: 16px 20px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  pointer-events: all;
+  animation: slideIn 0.3s ease-out;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.toast.removing {
+  animation: slideOut 0.3s ease-out forwards;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(400px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOut {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(400px);
+    opacity: 0;
+  }
+}
+
+.toast-icon {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+.toast-message {
+  flex: 1;
+  line-height: 1.4;
+}
+
+.toast-close {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+  font-size: 18px;
+  line-height: 1;
+  padding: 0;
+}
+
+.toast-close:hover {
+  opacity: 1;
+}
+
+/* Toast Types */
+.toast.success {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+}
+
+.toast.error {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  color: white;
+}
+
+.toast.warning {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: white;
+}
+
+.toast.info {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: white;
+}
+
+  </style>
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="header-container">
+      <div style="cursor: pointer;" data-navigate="index.html">
+        <img src="logo.jpg" alt="ECL Furniture Mart" class="logo">
+      </div>
+
+      <button class="staff-login" id="logoutBtn">
+         Logout
+      </button>
+    </div>
+  </header>
+
+  <!-- Dashboard Header -->
+  <section class="dashboard-header">
+    <div style="max-width: 1280px; margin: 0 auto; padding: 0 1.5rem;">
+      <div style="margin-bottom: 1.5rem;">
+        <h1 style="font-size: 2rem; font-weight: 700; color: #111827; margin-bottom: 0.25rem;">Staff Dashboard</h1>
+        <p style="color: #4b5563;">Welcome, <span id="staffName">Staff</span></p>
+      </div>
+      
+      <div class="dashboard-nav">
+        <button class="dashboard-tab active" data-tab="inventory">Inventory</button>
+        <button class="dashboard-tab" data-tab="reviews">Successful Purchase</button>
+        <button class="dashboard-tab" data-tab="delivery">Delivery</button>
+        <button class="dashboard-tab" data-tab="sales">Sales Records</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Main Content -->
+  <section class="section" style="padding-top: 0;">
+    
+    <!-- Inventory Module -->
+    <div id="inventoryModule" class="dashboard-module active">
+      <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Inventory Management</h2>
+      
+      
+      
+      <!-- Alert from staff (visible only to admin) -->
+      <div id="staffAlerts" class="alert alert-info hidden" style="margin-bottom: 1.5rem;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="16" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+        </svg>
+        <span>Stock levels updated by staff</span>
+      </div>
+      
+      <div class="card">
+        <div id="inventoryList">
+          <!-- Inventory items will be loaded here -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Product Reviews Module -->
+    <div id="reviewsModule" class="dashboard-module">
+      <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Successful Purchase</h2>
+      
+        <div class="card" style="margin-bottom: 1.5rem;">
+        <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">Add New Succesful Purchase</h3>
+        <form id="staffReviewForm">
+          <div class="form-group">
+            <label class="form-label">Product Name</label>
+            <input type="text" id="reviewProduct" class="form-input" placeholder="Enter product name" required>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Text</label>
+            <textarea id="reviewText" class="form-textarea" rows="4" placeholder="Write a description here..." required></textarea>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Date</label>
+            <input type="date" id="staffReviewDate" class="form-input" required>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Image Attachment (Optional)</label>
+            <input type="file" id="reviewImage" class="form-input" accept="image/*">
+            <div id="reviewImagePreview" style="margin-top: 1rem; display: none;">
+              <img id="reviewImagePreviewImg" src="" alt="Preview" style="max-width: 200px; max-height: 200px; border-radius: 0.375rem; border: 2px solid #e5e7eb;">
+            </div>
+          </div>
+          
+          <button type="submit" class="btn btn-accent">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            Add Successful Purchase
+          </button>
+        </form>
+      </div>
+      
+      <div class="card">
+        <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">Recent Posts</h3>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Product</th>
+                <th>Description</th>
+                <th>Date</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="staffReviewsList">
+              <!-- Reviews will be loaded here -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Delivery Module -->
+    <div id="deliveryModule" class="dashboard-module">
+      <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Delivery Management</h2>
+       <!-- Delivery Metrics Panel -->
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+    <div class="summary-card" style="background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);">
+      <div class="summary-label">Pending</div>
+      <div class="summary-value" id="staffDeliveryPendingCount">0</div>
+    </div>
+    
+    <div class="summary-card" style="background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);">
+      <div class="summary-label">Processing</div>
+      <div class="summary-value" id="staffDeliveryProcessingCount">0</div>
+    </div>
+    
+    <div class="summary-card" style="background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);">
+      <div class="summary-label">In Transit</div>
+      <div class="summary-value" id="staffDeliveryInTransitCount">0</div>
+    </div>
+    
+    <div class="summary-card" style="background: linear-gradient(135deg, #34d399 0%, #10b981 100%);">
+      <div class="summary-label">Delivered</div>
+      <div class="summary-value" id="staffDeliveryDeliveredCount">0</div>
+    </div>
+  </div>
+  
+      <div class="card">
+        <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">Delivery Schedules</h3>
+        <div class="table-container">
+         <table>
+  <thead>
+    <tr>
+      <th>Reference Code</th>
+      <th>Customer</th>
+      <th>Contact Number</th>
+      <th>Address</th>
+      <th>Product</th>
+      <th>Status</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody id="staffDeliveryList">
+    <!-- Deliveries will be loaded here -->
+  </tbody>
+</table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sales Records Module -->
+     <!-- Sales Records Module -->
+    <div id="salesModule" class="dashboard-module">
+      <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Sales Records & Analysis</h2>
+      
+      <!-- Sales Overview Cards -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
+        <!-- Total Sales Card -->
+        <div class="summary-card">
+          <div class="summary-label">Total Sales</div>
+          <div class="summary-value" id="staffTotalSales">₱0.00</div>
+        </div>
+        
+        <!-- Total Records Card -->
+        <div class="summary-card">
+          <div class="summary-label">Total Records</div>
+          <div class="summary-value" id="staffTotalRecords">0</div>
+        </div>
+        
+        <!-- Average Sale Card -->
+        <div class="summary-card">
+          <div class="summary-label">Average Sale</div>
+          <div class="summary-value" id="staffAverageSale">₱0.00</div>
+        </div>
+      </div>
+      
+      <!-- Charts Section -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
+        <!-- Revenue Updates (Bar Chart) -->
+        <div class="card">
+          <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">Revenue</h3>
+          <canvas id="staffRevenueBarChart" style="max-height: 300px;"></canvas>
+        </div>
+        
+        <!-- Monthly Sales Trend (Line Chart) -->
+        <div class="card">
+          <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">Monthly Sales Trend</h3>
+          <canvas id="staffSalesLineChart" style="max-height: 300px;"></canvas>
+        </div>
+      </div>
+      
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">Add New Sales Record</h3>
+        <form id="staffSalesForm">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Customer Name</label>
+              <input type="text" id="salesCustomer" class="form-input" placeholder="Enter customer name" required>
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">Product</label>
+              <input type="text" id="salesProduct" class="form-input" placeholder="Enter product name" required>
+            </div>
+          </div>
+          
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Amount (₱)</label>
+              <input type="number" id="salesAmount" class="form-input" placeholder="0.00" min="0" step="0.01" required>
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">Date</label>
+              <input type="date" id="salesDate" class="form-input" required>
+            </div>
+          </div>
+          
+          <button type="submit" class="btn btn-accent">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            Add Sales Record
+          </button>
+        </form>
+      </div>
+      
+      <div class="card">
+        <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">Sales Records</h3>
+        <p style="font-size: 0.875rem; color: #6b7280; margin-bottom: 1rem;">Note: Staff can add and edit records, but cannot delete them</p>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Customer</th>
+                <th>Product</th>
+                <th>Amount</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="staffSalesList">
+              <!-- Sales records will be loaded here -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-container">
+      <div>
+        <img src="logo.jpg" alt="ECL Furniture Mart" class="logo" style="margin-bottom: 0.5rem;">
+        <p class="footer-text">Quality furniture for your home</p>
+      </div>
+      <div style="text-align: right;">
+        <p class="footer-text">© 2022 ECL FURNITURE MART. All rights reserved.</p>
+        <p class="footer-text">REAL BLDG 1 JP RIZAL STREET Poblacion Sta Maria Bulacan, Philippines, 3022</p>
+        <p class="footer-text">Phone: (044) 796-1234 | Email: info@eclfurniture.com</p>
+        <p class="footer-text">
+          Follow us on 
+          <a href="https://www.facebook.com/profile.php?id=100063684260619" target="_blank" style="color:#4b5563; text-decoration: underline;">Facebook</a>
+        </p>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Edit Sales Modal -->
+  <div id="editSalesModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title">Edit Sales Record</h3>
+        <button class="modal-close" data-close-modal="editSalesModal">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <form id="editStaffSalesForm">
+          <input type="hidden" id="editSalesId">
+          <div class="form-group">
+            <label class="form-label">Customer Name</label>
+            <input type="text" id="editSalesCustomer" class="form-input" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Product</label>
+            <input type="text" id="editSalesProduct" class="form-input" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Amount (₱)</label>
+            <input type="number" id="editSalesAmount" class="form-input" min="0" step="0.01" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Date</label>
+            <input type="date" id="editSalesDate" class="form-input" required>
+          </div>
+          <div style="display: flex; gap: 0.75rem;">
+            <button type="submit" class="btn btn-accent" style="flex: 1;">Save Changes</button>
+            <button type="button" class="btn btn-secondary" data-close-modal="editSalesModal" style="flex: 1;">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Staff Stock Modal -->
+  <div id="staffStockModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title" id="staffStockModalTitle">Add New Stock Item</h3>
+        <button class="modal-close" data-close-modal="staffStockModal">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <form id="staffStockForm">
+          <input type="hidden" id="staffStockId">
+          <div class="form-group">
+            <label class="form-label">Item Name</label>
+            <input type="text" id="staffStockName" class="form-input" placeholder="Enter item name" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Category</label>
+            <select id="staffStockCategory" class="form-input" required>
+              <option value="">Select category</option>
+              <option value="Sofa">Sofa</option>
+              <option value="Table">Table</option>
+              <option value="Chair">Chair</option>
+              <option value="Bed">Bed</option>
+              <option value="Cabinet">Cabinet</option>
+              <option value="Desk">Desk</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Quantity</label>
+            <input type="number" id="staffStockQuantity" class="form-input" placeholder="0" min="0" required>
+          </div>
+          <div style="display: flex; gap: 0.75rem;">
+            <button type="submit" class="btn btn-accent" style="flex: 1;">Save Item</button>
+            <button type="button" class="btn btn-secondary" data-close-modal="staffStockModal" style="flex: 1;">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Inventory Modal -->
+<div id="editInventoryModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 class="modal-title">Edit Inventory Item</h3>
+      <button class="modal-close" data-close-modal="editInventoryModal">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <form id="editInventoryForm">
+        <input type="hidden" id="editInventoryId">
+        <div class="form-group">
+          <label class="form-label">Item Name</label>
+          <input type="text" id="editInventoryName" class="form-input" disabled style="background-color: #f3f4f6; cursor: not-allowed;">
+          <small style="color: #6b7280; font-size: 0.875rem;">Item name cannot be edited</small>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Category</label>
+          <select id="editInventoryCategory" class="form-input" required>
+            <option value="">Select category</option>
+            <option value="Sofa">Sofa</option>
+            <option value="Table">Table</option>
+            <option value="Chair">Chair</option>
+            <option value="Bed">Bed</option>
+            <option value="Cabinet">Cabinet</option>
+            <option value="Desk">Desk</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Quantity</label>
+          <input type="number" id="editInventoryQuantity" class="form-input" min="0" required>
+          <small style="color: #6b7280; font-size: 0.875rem;">
+            Stock Status: <strong><span id="stockPreview">-</span></strong>
+          </small>
+        </div>
+        <div style="display: flex; gap: 0.75rem;">
+          <button type="submit" class="btn btn-accent" style="flex: 1;">Save Changes</button>
+          <button type="button" class="btn btn-secondary" data-close-modal="editInventoryModal" style="flex: 1;">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Toast Container -->
+<div id="toastContainer" class="toast-container"></div>
+  <script src="main.js"></script>
+</body>
+</html>

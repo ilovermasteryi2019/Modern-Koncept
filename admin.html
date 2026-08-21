@@ -1,0 +1,1288 @@
+admin.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Dashboard - ecl FURNITURE MART</title>
+  <link rel="stylesheet" href="styles.css">
+ <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    .dashboard-header {
+      background: white;
+      padding: 1.5rem 0;
+      border-bottom: 2px solid #e5e7eb;
+      margin-bottom: 2rem;
+    }
+    
+    .dashboard-nav {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    
+    .dashboard-tab {
+      padding: 0.75rem 1.5rem;
+      background: white;
+      border: 2px solid #e5e7eb;
+      border-radius: 0.5rem;
+      cursor: pointer;
+      font-weight: 500;
+      color: #4b5563;
+      transition: all 0.2s;
+      font-size: 0.875rem;
+    }
+    
+    .dashboard-tab:hover {
+      border-color: #DC143C;
+      color: #DC143C;
+    }
+    
+    .dashboard-tab.active {
+      background: #DC143C;
+      color: white;
+      border-color: #DC143C;
+    }
+    
+    .dashboard-module {
+      display: none;
+    }
+    
+    .dashboard-module.active {
+      display: block;
+    }
+    
+    .stock-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    
+    .stock-status {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    
+    .stock-status.in-stock {
+      background: #d1fae5;
+      color: #065f46;
+    }
+    
+    .stock-status.low-stock {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    
+    .table-container {
+      overflow-x: auto;
+      margin-top: 1rem;
+    }
+    
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    
+    th {
+      background: #f9fafb;
+      padding: 0.75rem;
+      text-align: left;
+      font-weight: 600;
+      color: #111827;
+      border-bottom: 2px solid #e5e7eb;
+      font-size: 0.875rem;
+      white-space: nowrap;
+    }
+    
+    td {
+      padding: 0.75rem;
+      border-bottom: 1px solid #e5e7eb;
+      color: #4b5563;
+      font-size: 0.875rem;
+    }
+    
+    .action-btn {
+      padding: 0.5rem;
+      border-radius: 0.375rem;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-right: 0.5rem;
+      background: transparent;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .action-btn.edit {
+      color: #DC143C;
+    }
+    
+    .action-btn.edit:hover {
+      background: rgba(220, 20, 60, 0.1);
+      color: #DC143C;
+    }
+    
+    .action-btn.delete {
+      color: #ef4444;
+    }
+    
+    .action-btn.delete:hover {
+      background: rgba(239, 68, 68, 0.1);
+      color: #ef4444;
+    }
+    
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    
+    .modal.active {
+      display: flex;
+    }
+    
+    .modal-content {
+      background: white;
+      border-radius: 0.75rem;
+      max-width: 700px;
+      width: 100%;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 20px 25px rgba(0, 0, 0, 0.15);
+    }
+    
+    .modal-header {
+      padding: 1.5rem;
+      border-bottom: 2px solid #e5e7eb;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    
+    .modal-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #111827;
+    }
+    
+    .modal-close {
+      width: 32px;
+      height: 32px;
+      border-radius: 0.375rem;
+      border: none;
+      background: #f3f4f6;
+      color: #4b5563;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .modal-close:hover {
+      background: #e5e7eb;
+    }
+    
+    .modal-body {
+      padding: 1.5rem;
+    }
+    
+    .summary-card {
+      background: linear-gradient(135deg, #DC143C 0%, #A80728 100%);
+      color: white;
+      padding: 1.5rem;
+      border-radius: 0.75rem;
+      margin-bottom: 1.5rem;
+    }
+    
+    .summary-value {
+      font-size: 2.5rem;
+      font-weight: 700;
+      margin-bottom: 0.25rem;
+    }
+    
+    .summary-label {
+      font-size: 0.875rem;
+      opacity: 0.9;
+    }
+
+    .notification-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 20px;
+      height: 20px;
+      padding: 0 6px;
+      background: #ef4444;
+      color: white;
+      font-size: 0.75rem;
+      font-weight: 700;
+      border-radius: 9999px;
+      margin-left: 0.5rem;
+    }
+
+    .search-toolbar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    .search-toolbar .form-group {
+      margin-bottom: 0;
+    }
+
+    .table-container table tbody tr:hover {
+      background: #f8fbfc;
+    }
+
+    .table-container table tbody .no-data-row td {
+      text-align: center;
+      color: #6b7280;
+      padding: 2rem;
+    }
+    /* TOAST NOTIFICATION SYSTEM */
+/* ============================================= */
+.toast-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.toast {
+  min-width: 300px;
+  max-width: 400px;
+  padding: 16px 20px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  pointer-events: all;
+  animation: slideIn 0.3s ease-out;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.toast.removing {
+  animation: slideOut 0.3s ease-out forwards;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(400px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOut {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(400px);
+    opacity: 0;
+  }
+}
+
+.toast-icon {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+.toast-message {
+  flex: 1;
+  line-height: 1.4;
+}
+
+.toast-close {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+  font-size: 18px;
+  line-height: 1;
+  padding: 0;
+}
+
+.toast-close:hover {
+  opacity: 1;
+}
+
+/* Toast Types */
+.toast.success {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+}
+
+.toast.error {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  color: white;
+}
+
+.toast.warning {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: white;
+}
+
+.toast.info {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: white;
+}
+
+  </style>
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="header-container">
+      <div style="cursor: pointer;" data-navigate="index.html">
+        <img src="logo.jpg" alt="ECL Furniture Mart" class="logo">
+      </div> 
+      <button class="staff-login" id="logoutBtn">
+         Logout
+      </button>
+    </div>
+  </header>
+
+  <!-- Dashboard Header -->
+  <section class="dashboard-header">
+    <div style="max-width: 1280px; margin: 0 auto; padding: 0 1.5rem;">
+      <div style="margin-bottom: 1.5rem;">
+        <h1 style="font-size: 2rem; font-weight: 700; color: #111827; margin-bottom: 0.25rem;">Admin Dashboard</h1>
+        <p style="color: #4b5563;">Welcome, <span id="adminName">Administrator</span></p>
+      </div>
+      
+      <div class="dashboard-nav">
+        <button class="dashboard-tab active" data-tab="furniture">Furniture</button>
+        <button class="dashboard-tab" data-tab="business">Business Info</button>
+        <button class="dashboard-tab" data-tab="reviews">Successful Purchase</button>
+        <button class="dashboard-tab" data-tab="inventory">
+          Inventory
+          <span id="inventoryAlertBadge" class="notification-badge hidden">0</span>
+        </button>
+        <button class="dashboard-tab" data-tab="delivery">Delivery</button>
+        <button class="dashboard-tab" data-tab="sales">Sales Records</button>
+        <button class="dashboard-tab" data-tab="staff">Staff Accounts</button>
+        <button class="dashboard-tab" data-tab="chatbot">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:0.3rem;">
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+  </svg>
+  Chatbot
+</button>
+<button class="dashboard-tab" data-tab="feedback">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:0.3rem;">
+    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+  </svg>
+  Feedback
+</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Main Content -->
+  <section class="section" style="padding-top: 0;">
+    
+    <!-- Furniture Module -->
+    <div id="furnitureModule" class="dashboard-module active">
+      <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Furniture Management</h2>
+      
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="search-toolbar">
+          <div class="form-group">
+            <label class="form-label">Search furniture</label>
+            <input id="adminFurnitureSearch" type="text" class="form-input" placeholder="Search by name, category, material">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Filter by category</label>
+            <select id="adminCategoryFilter" class="form-input">
+              <option value="all">All Categories</option>
+              <option value="Sofa">Sofa</option>
+              <option value="Table">Table</option>
+              <option value="Chair">Chair</option>
+              <option value="Bed">Bed</option>
+              <option value="Cabinet">Cabinet</option>
+              <option value="Desk">Desk</option>
+            </select>
+          </div>
+        </div>
+
+        <button class="btn btn-accent" id="addFurnitureBtn">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          Add New Furniture
+        </button>
+      </div>
+      
+      <div class="card">
+        <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">Furniture List</h3>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Image</th>
+                <th>Name</th>
+                <th>Category</th>
+                <th>Material</th>
+                <th>Dimensions</th>
+                <th>Price</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="furnitureList">
+              <!-- Furniture items will be loaded here -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Business Information Module -->
+    <div id="businessModule" class="dashboard-module">
+      <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Business Information</h2>
+      
+      <!-- About Page Editor -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">About Page Content</h3>
+        <form id="aboutForm">
+          <div class="form-group">
+            <label class="form-label">About Description</label>
+            <input type="text" id="aboutHeroDesc" class="form-input" placeholder="Enter hero description">
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Our Story</label>
+            <textarea id="aboutStory" class="form-textarea" rows="5" placeholder="Write your company story..."></textarea>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Policies Statement</label>
+            <textarea id="aboutPolicies" class="form-textarea" rows="3" placeholder="Write your policies statement..."></textarea>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Mission Statement</label>
+            <textarea id="aboutMission" class="form-textarea" rows="3" placeholder="Write your mission statement..."></textarea>
+          </div>
+          
+          <button type="submit" class="btn btn-accent">Save About Page Changes</button>
+        </form>
+      </div>
+      
+      <!-- Contact Page Editor -->
+      <div class="card">
+        <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">Contact Page Content</h3>
+        <form id="contactForm">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Customer Service Phone</label>
+              <input type="text" id="contactPhone" class="form-input" placeholder="+63 XXX XXX XXXX">
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">General Email</label>
+              <input type="email" id="contactEmail" class="form-input" placeholder="info@example.com">
+            </div>
+          </div>
+          
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Weekday Hours</label>
+              <input type="text" id="contactWeekday" class="form-input" placeholder="9:00 AM - 6:00 PM">
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">Sunday Hours</label>
+              <input type="text" id="contactSunday" class="form-input" placeholder="10:00 AM - 4:00 PM">
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Main Location Address</label>
+            <textarea id="contactAddress" class="form-textarea" rows="3" placeholder="Enter full address..."></textarea>
+          </div>
+          
+          <button type="submit" class="btn btn-accent">Save Contact Page Changes</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Product Reviews Module -->
+    <div id="reviewsModule" class="dashboard-module">
+      <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Successful Purchase</h2>
+      
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <button class="btn btn-accent" id="addReviewBtn">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          Add New Successful Purchase
+        </button>
+      </div>
+      
+      <div class="card">
+        <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">All Post</h3>
+       <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Product</th>
+                <th>Description</th>
+                <th>Date</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="reviewsList">
+              <!-- Reviews will be loaded here -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Inventory Module -->
+    <div id="inventoryModule" class="dashboard-module">
+      <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Inventory Management</h2>
+      
+      <!-- Staff Alerts -->
+      <div id="adminInventoryAlerts" class="hidden">
+        <!-- Alerts will be shown here -->
+      </div>
+      
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <button class="btn btn-accent" id="addStockBtn">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          Add New Stock Item
+        </button>
+      </div>
+      
+      <div class="card">
+        <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">Stock Items</h3>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Item Name</th>
+                <th>Category</th>
+                <th>Quantity</th>
+                <th>Status</th>
+                <th>Last Updated</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="adminInventoryList">
+              <!-- Inventory items will be loaded here -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Delivery Module -->
+    <!-- Delivery Module -->
+<div id="deliveryModule" class="dashboard-module">
+  <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Delivery Management</h2>
+  
+  <!-- Delivery Metrics Panel -->
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+    <div class="summary-card" style="background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);">
+      <div class="summary-label">Pending</div>
+      <div class="summary-value" id="deliveryPendingCount">0</div>
+    </div>
+    
+    <div class="summary-card" style="background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);">
+      <div class="summary-label">Processing</div>
+      <div class="summary-value" id="deliveryProcessingCount">0</div>
+    </div>
+    
+    <div class="summary-card" style="background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);">
+      <div class="summary-label">In Transit</div>
+      <div class="summary-value" id="deliveryInTransitCount">0</div>
+    </div>
+    
+    <div class="summary-card" style="background: linear-gradient(135deg, #34d399 0%, #10b981 100%);">
+      <div class="summary-label">Delivered</div>
+      <div class="summary-value" id="deliveryDeliveredCount">0</div>
+    </div>
+  </div>
+  
+  <div class="card" style="margin-bottom: 1.5rem;">
+    <button class="btn btn-accent" id="addDeliveryBtn">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="12" y1="5" x2="12" y2="19"></line>
+        <line x1="5" y1="12" x2="19" y2="12"></line>
+      </svg>
+      Add New Delivery
+    </button>
+  </div>
+  
+  <div class="card">
+    <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">All Deliveries</h3>
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Delivery ID</th>
+            <th>Customer Name</th>
+            <th>Contact Number</th>
+            <th>Address</th>
+            <th>Product</th>
+            <th>Status</th>
+            <th>Type</th>
+            <th>Date</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="adminDeliveryList">
+          <!-- Deliveries will be loaded here -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+    <!-- Sales Records Module -->
+<div id="salesModule" class="dashboard-module">
+  <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Sales Records & Data Analysis</h2>
+  
+  <!-- Sales Overview Cards -->
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
+    <!-- Total Sales Card -->
+    <div class="summary-card">
+      <div class="summary-label">Total Sales</div>
+      <div class="summary-value" id="totalSales">₱0.00</div>
+    </div>
+    
+    <!-- Total Records Card -->
+    <div class="summary-card">
+      <div class="summary-label">Total Records</div>
+      <div class="summary-value" id="totalRecords">0</div>
+    </div>
+    
+    <!-- Average Sale Card -->
+    <div class="summary-card">
+      <div class="summary-label">Average Sale</div>
+      <div class="summary-value" id="averageSale">₱0.00</div>
+    </div>
+  </div>
+  
+  <!-- Charts Section -->
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
+    <!-- Revenue Updates (Bar Chart) -->
+    <div class="card">
+      <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">Revenue</h3>
+      <canvas id="revenueBarChart" style="max-height: 300px;"></canvas>
+    </div>
+    
+    <!-- Monthly Sales Trend (Line Chart) -->
+    <div class="card">
+      <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">Monthly Sales Trend</h3>
+      <canvas id="salesLineChart" style="max-height: 300px;"></canvas>
+    </div>
+  </div>
+  
+  <div class="card" style="margin-bottom: 1.5rem;">
+    <button class="btn btn-accent" id="addSalesBtn">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="12" y1="5" x2="12" y2="19"></line>
+        <line x1="5" y1="12" x2="19" y2="12"></line>
+      </svg>
+      Add Sales Record
+    </button>
+  </div>
+  
+  <div class="card">
+    <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">All Sales Records</h3>
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Customer</th>
+            <th>Product</th>
+            <th>Amount</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="adminSalesList">
+          <!-- Sales records will be loaded here -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+    <!-- Staff Accounts Module -->
+    <div id="staffModule" class="dashboard-module">
+      <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Staff Account Management</h2>
+      
+      <div class="card">
+        <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">
+          All Staff Accounts
+          <span style="font-size: 0.875rem; font-weight: 400; color: #6b7280; margin-left: 0.5rem;">
+            Manage staff users who have access to the system
+          </span>
+        </h3>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Full Name</th>
+                <th>Username</th>
+                <th>Role</th>
+                <th>Created Date</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="staffAccountsList">
+              <!-- Staff accounts will be loaded here -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+     <!-- ══ CHATBOT MODULE ══ -->
+    <div id="chatbotModule" class="dashboard-module">
+      <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Chatbot Knowledge Base</h2>
+
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <p style="font-size: 0.875rem; color: #6b7280; margin-bottom: 1rem;">
+          Manage the automated Q&amp;A responses used by the customer chatbot on the Support page.
+        </p>
+        <button class="btn btn-accent" id="addChatbotBtn">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          Add New Q&amp;A
+        </button>
+      </div>
+
+      <div class="card">
+        <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">All Q&amp;A Entries</h3>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Category</th>
+                <th>Question</th>
+                <th>Answer</th>
+                <th>Date Added</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="chatbotList">
+              <!-- Chatbot Q&As loaded here -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ FEEDBACK MODULE ══ -->
+    <div id="feedbackModule" class="dashboard-module">
+      <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Customer Feedback &amp; Inquiries</h2>
+
+      <!-- Customer Inquiries -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">
+          Customer Inquiries
+          <span id="inquiriesNewBadge" style="display:none; background:#DC143C; color:white; font-size:0.7rem; font-weight:700; padding:0.15rem 0.5rem; border-radius:9999px; margin-left:0.5rem;">NEW</span>
+        </h3>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Subject</th>
+                <th>Message</th>
+                <th>Status</th>
+                <th>Date</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="adminInquiriesList">
+              <!-- Inquiries loaded here -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Customer Feedback / Ratings -->
+      <div class="card">
+        <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">Customer Feedback &amp; Ratings</h3>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Product / Service</th>
+                <th>Rating</th>
+                <th>Feedback</th>
+                <th>Date</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="adminFeedbackList">
+              <!-- Feedback loaded here -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-container">
+      <div>
+        <img src="logo.jpg" alt="ECL Furniture Mart" class="logo" style="margin-bottom: 0.5rem;">
+        <p class="footer-text">Quality furniture for your home</p>
+      </div>
+      <div style="text-align: right;">
+        <p class="footer-text">© 2022 ECL FURNITURE MART. All rights reserved.</p>
+        <p class="footer-text">REAL BLDG 1 JP RIZAL STREET Poblacion Sta Maria Bulacan, Philippines, 3022</p>
+        <p class="footer-text">Phone: (044) 796-1234 | Email: info@eclfurniture.com</p>
+        <p class="footer-text">
+          Follow us on 
+          <a href="https://www.facebook.com/profile.php?id=100063684260619" target="_blank" style="color:#4b5563; text-decoration: underline;">Facebook</a>
+        </p>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Add/Edit Furniture Modal -->
+  <div id="furnitureModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title" id="furnitureModalTitle">Add New Furniture</h3>
+        <button class="modal-close" data-close-modal="furnitureModal">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <form id="furnitureForm">
+          <input type="hidden" id="furnitureId">
+          <div class="form-group">
+            <label class="form-label">Furniture Name</label>
+            <input type="text" id="furnitureName" class="form-input" placeholder="e.g., Modern Sectional Sofa" required>
+          </div>
+          
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Category</label>
+              <select id="furnitureCategory" class="form-input" required>
+                <option value="">Select category</option>
+                <option value="Sofa">Sofa</option>
+                <option value="Table">Table</option>
+                <option value="Bed">Bed</option>
+                <option value="Cabinet">Cabinet</option>
+                <option value="Chair">Chair</option>
+              </select>
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">Price (₱)</label>
+              <input type="number" id="furniturePrice" class="form-input" placeholder="0.00" min="0" step="0.01" required>
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Material</label>
+            <input type="text" id="furnitureMaterial" class="form-input" placeholder="e.g., Solid Oak Wood" required>
+          </div>
+          
+          <div class="form-group">
+  <label class="form-label">Dimensions</label>
+  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem;">
+    <div>
+      <label class="form-label" style="font-size: 0.75rem; color: #6b7280;">Length (cm)</label>
+      <input type="number" id="furnitureLength" class="form-input" placeholder="200" min="1" step="0.01" required>
+    </div>
+    <div>
+      <label class="form-label" style="font-size: 0.75rem; color: #6b7280;">Width (cm)</label>
+      <input type="number" id="furnitureWidth" class="form-input" placeholder="90" min="1" step="0.01" required>
+    </div>
+    <div>
+      <label class="form-label" style="font-size: 0.75rem; color: #6b7280;">Height (cm)</label>
+      <input type="number" id="furnitureHeight" class="form-input" placeholder="80" min="1" step="0.01" required>
+    </div>
+  </div>
+</div>
+          <div class="form-group">
+            <label class="form-label">Description</label>
+            <textarea id="furnitureDescription" class="form-textarea" rows="3" placeholder="Describe the furniture..."></textarea>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Image Attachment</label>
+            <input type="file" id="furnitureImage" class="form-input" accept="image/*">
+            <div id="furnitureImagePreview" style="margin-top: 1rem; display: none;">
+              <img id="furnitureImagePreviewImg" src="" alt="Preview" style="max-width: 200px; max-height: 200px; border-radius: 0.375rem; border: 2px solid #e5e7eb;">
+            </div>
+          </div>
+          
+          <div style="display: flex; gap: 0.75rem;">
+            <button type="submit" class="btn btn-accent" style="flex: 1;">Save Furniture</button>
+            <button type="button" class="btn btn-secondary" data-close-modal="furnitureModal" style="flex: 1;">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+   <!-- Add/Edit Review Modal -->
+  <div id="reviewModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title" id="reviewModalTitle">Add New Successful Purchase</h3>
+        <button class="modal-close" data-close-modal="reviewModal">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <form id="reviewForm">
+          <input type="hidden" id="reviewId">
+          <div class="form-group">
+            <label class="form-label">Product Name</label>
+            <input type="text" id="reviewProductName" class="form-input" placeholder="Enter product name" required>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Date</label>
+            <input type="date" id="reviewDate" class="form-input" required>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Text</label>
+            <textarea id="reviewTextInput" class="form-textarea" rows="4" placeholder="Write a description here..." required></textarea>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Image Attachment (Optional)</label>
+            <input type="file" id="reviewImage" class="form-input" accept="image/*">
+            <div id="reviewImagePreview" style="margin-top: 1rem; display: none;">
+              <img id="reviewImagePreviewImg" src="" alt="Preview" style="max-width: 200px; max-height: 200px; border-radius: 0.375rem; border: 2px solid #e5e7eb;">
+            </div>
+          </div>
+          
+          <div style="display: flex; gap: 0.75rem;">
+            <button type="submit" class="btn btn-accent" style="flex: 1;">Post</button>
+            <button type="button" class="btn btn-secondary" data-close-modal="reviewModal" style="flex: 1;">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add/Edit Stock Modal -->
+  <div id="stockModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title" id="stockModalTitle">Add New Stock Item</h3>
+        <button class="modal-close" data-close-modal="stockModal">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <form id="stockForm">
+          <input type="hidden" id="stockId">
+          <div class="form-group">
+            <label class="form-label">Item Name</label>
+            <input type="text" id="stockName" class="form-input" placeholder="Enter item name" required>
+          </div>
+          
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Category</label>
+              <select id="stockCategory" class="form-input" required>
+                <option value="">Select category</option>
+                <option value="Sofa">Sofa</option>
+                <option value="Table">Table</option>
+                <option value="Bed">Bed</option>
+                <option value="Cabinet">Cabinet</option>
+                <option value="Chair">Chair</option>
+              </select>
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">Quantity</label>
+              <input type="number" id="stockQuantity" class="form-input" placeholder="0" min="0" required>
+            </div>
+          </div>
+          
+          <div style="display: flex; gap: 0.75rem;">
+            <button type="submit" class="btn btn-accent" style="flex: 1;">Save Stock Item</button>
+            <button type="button" class="btn btn-secondary" data-close-modal="stockModal" style="flex: 1;">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add/Edit Delivery Modal -->
+<div id="deliveryModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 class="modal-title" id="deliveryModalTitle">Add New Delivery</h3>
+      <button class="modal-close" data-close-modal="deliveryModal">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <form id="deliveryForm">
+        <input type="hidden" id="deliveryId">
+        <input type="hidden" id="deliveryRefCode">
+        
+        <div id="generatedRefCode" class="alert alert-info" style="display: none; margin-bottom: 1rem;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="16" x2="12" y2="12"></line>
+            <line x1="12" y1="8" x2="12.01" y2="8"></line>
+          </svg>
+          <span>Auto-generated Reference Code: <strong id="displayRefCode"></strong></span>
+        </div>
+        
+        <div class="form-group">
+          <label class="form-label">Customer Name *</label>
+          <input type="text" id="deliveryCustomer" class="form-input" placeholder="Enter customer name" required>
+        </div>
+        
+        <div class="form-group">
+          <label class="form-label">Contact Number *</label>
+          <input type="text" id="deliveryContactNumber" class="form-input" placeholder="e.g., +63 912 345 6789" required>
+        </div>
+        
+        <div class="form-group">
+          <label class="form-label">Customer Address *</label>
+          <textarea id="deliveryAddress" class="form-textarea" rows="2" placeholder="Enter full delivery address" required></textarea>
+        </div>
+        
+        <div class="form-group">
+          <label class="form-label">Product *</label>
+          <input type="text" id="deliveryProduct" class="form-input" placeholder="Enter product name" required>
+        </div>
+        
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Status *</label>
+            <select id="deliveryStatus" class="form-input" required>
+              <option value="pending">Pending</option>
+              <option value="processing">Processing</option>
+              <option value="in_transit">In Transit</option>
+              <option value="delivered">Delivered</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Type *</label>
+            <select id="deliveryType" class="form-input" required>
+              <option value="Outbound">Outbound (Customer Delivery)</option>
+              <option value="Inbound">Inbound (Returns/Restock)</option>
+            </select>
+          </div>
+        </div>
+        
+        <div class="form-group">
+          <label class="form-label">Delivery Date</label>
+          <input type="date" id="deliveryDate" class="form-input">
+        </div>
+        
+        <div style="display: flex; gap: 0.75rem;">
+          <button type="submit" class="btn btn-accent" style="flex: 1;">Save Delivery</button>
+          <button type="button" class="btn btn-secondary" data-close-modal="deliveryModal" style="flex: 1;">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+  <!-- Add/Edit Sales Modal -->
+  <div id="salesModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title" id="salesModalTitle">Add Sales Record</h3>
+        <button class="modal-close" data-close-modal="salesModal">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <form id="salesForm">
+          <input type="hidden" id="salesId">
+          <div class="form-group">
+            <label class="form-label">Customer Name</label>
+            <input type="text" id="salesCustomerName" class="form-input" placeholder="Enter customer name" required>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Product</label>
+            <input type="text" id="salesProductName" class="form-input" placeholder="Enter product name" required>
+          </div>
+          
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Amount (₱)</label>
+              <input type="number" id="salesAmount" class="form-input" placeholder="0.00" min="0" step="0.01" required>
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">Date</label>
+              <input type="date" id="salesDateInput" class="form-input" required>
+            </div>
+          </div>
+          
+          <div style="display: flex; gap: 0.75rem;">
+            <button type="submit" class="btn btn-accent" style="flex: 1;">Save Sales Record</button>
+            <button type="button" class="btn btn-secondary" data-close-modal="salesModal" style="flex: 1;">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Staff Account Modal -->
+  <div id="staffEditModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title">Edit Staff Account</h3>
+        <button class="modal-close" data-close-modal="staffEditModal">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <form id="staffEditForm">
+          <input type="hidden" id="staffEditId">
+          <div class="form-group">
+            <label class="form-label">Full Name *</label>
+            <input type="text" id="staffEditFullName" class="form-input" placeholder="Enter full name" required>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Username *</label>
+            <input type="text" id="staffEditUsername" class="form-input" placeholder="Enter username" required>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">New Password</label>
+            <input type="password" id="staffEditPassword" class="form-input" placeholder="Leave blank to keep current password" minlength="6">
+            <small style="color: #6b7280; font-size: 0.75rem;">Leave blank if you don't want to change the password. Minimum 6 characters if changing.</small>
+          </div>
+          
+          <div style="display: flex; gap: 0.75rem;">
+            <button type="submit" class="btn btn-accent" style="flex: 1;">Update Account</button>
+            <button type="button" class="btn btn-secondary" data-close-modal="staffEditModal" style="flex: 1;">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add/Edit Chatbot Q&A Modal -->
+  <div id="chatbotModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title" id="chatbotModalTitle">Add New Q&amp;A</h3>
+        <button class="modal-close" data-close-modal="chatbotModal">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <form id="chatbotForm">
+          <input type="hidden" id="chatbotQAId">
+          <div class="form-group">
+            <label class="form-label">Category</label>
+            <select id="chatbotCategory" class="form-input" required>
+              <option value="General">General</option>
+              <option value="Delivery">Delivery</option>
+              <option value="Products">Products</option>
+              <option value="Payment">Payment</option>
+              <option value="Returns">Returns</option>
+              <option value="Warranty">Warranty</option>
+              <option value="Store Info">Store Info</option>
+              <option value="AI Visualizer">AI Visualizer</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Question (keyword trigger)</label>
+            <input type="text" id="chatbotQuestion" class="form-input" placeholder="e.g. how do I track my delivery" required>
+            <small style="color:#6b7280;font-size:0.75rem;"></small>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Answer</label>
+            <textarea id="chatbotAnswer" class="form-textarea" rows="4" placeholder="Enter the automated response..." required></textarea>
+          </div>
+          <div style="display: flex; gap: 0.75rem;">
+            <button type="submit" class="btn btn-accent" style="flex: 1;">Save Q&amp;A</button>
+            <button type="button" class="btn btn-secondary" data-close-modal="chatbotModal" style="flex: 1;">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+<div id="toastContainer" class="toast-container"></div>
+  <script src="main.js"></script>
+</body>
+</html>

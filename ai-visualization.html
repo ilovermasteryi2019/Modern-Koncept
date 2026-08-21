@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Furniture Visualizer - ecl FURNITURE MART</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* Upload Area */
+    .upload-area {
+      border: 2px dashed #d1d5db;
+      border-radius: 0.75rem;
+      padding: 2.5rem 1.5rem;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      background: #f9fafb;
+      position: relative;
+    }
+    .upload-area:hover,
+    .upload-area.dragover { border-color: #DC143C; background: rgba(220,20,60,0.04); }
+    .upload-area input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+    .upload-icon {
+      width: 3.5rem;
+      height: 3.5rem;
+      background: rgba(220,20,60,0.1);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 1rem;
+    }
+
+    /* Step Badge */
+    .step-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 2rem;
+      height: 2rem;
+      background: #DC143C;
+      color: white;
+      border-radius: 50%;
+      font-weight: 700;
+      font-size: 0.875rem;
+      flex-shrink: 0;
+    }
+    .step-badge.inactive { background: #d1d5db; color: #6b7280; }
+
+    /* Furniture Preview */
+    .furniture-preview-card {
+      border-radius: 0.75rem;
+      overflow: hidden;
+      border: 2px solid #DC143C;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .furniture-preview-card img { width: 100%; height: 220px; object-fit: cover; }
+    .furniture-preview-info { padding: 1rem 1.25rem; background: white; }
+
+    /* Style Options */
+    .style-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+      gap: 0.5rem;
+      margin-top: 0.75rem;
+    }
+    .style-option {
+      padding: 0.45rem 0.5rem;
+      border: 2px solid #e5e7eb;
+      border-radius: 0.5rem;
+      text-align: center;
+      cursor: pointer;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: #4b5563;
+      transition: all 0.2s;
+      background: white;
+    }
+    .style-option:hover { border-color: #DC143C; color: #DC143C; }
+    .style-option.selected { border-color: #DC143C; background: #DC143C; color: white; }
+
+    /* Generate Button */
+    .generate-btn {
+      width: 100%;
+      padding: 1rem;
+      background: #DC143C;
+      color: white;
+      border: none;
+      border-radius: 0.75rem;
+      font-size: 1.125rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+    }
+    .generate-btn:hover:not(:disabled) { background: #A80728; }
+    .generate-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    /* Loading */
+    .loading-spinner-large {
+      width: 56px;
+      height: 56px;
+      border: 5px solid #f3f4f6;
+      border-top-color: #DC143C;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Result */
+    .result-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+    .result-image-box {
+      border-radius: 0.75rem;
+      overflow: hidden;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      position: relative;
+    }
+    .result-image-box img { width: 100%; height: 320px; object-fit: cover; display: block; }
+    .result-label {
+      position: absolute;
+      top: 0.75rem;
+      left: 0.75rem;
+      background: rgba(0,0,0,0.65);
+      color: white;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+    }
+    .result-label.ai-label { background: rgba(220,20,60,0.85); }
+
+    /* Progress */
+    .progress-bar-track {
+      width: 100%;
+      max-width: 400px;
+      background: #f3f4f6;
+      border-radius: 9999px;
+      height: 8px;
+      overflow: hidden;
+      margin: 0.5rem auto;
+    }
+
+    /* Room preview */
+    .room-preview-img {
+      width: 100%;
+      height: 200px;
+      object-fit: cover;
+      border-radius: 0.5rem;
+      margin-top: 1rem;
+      display: none;
+    }
+
+    /* Layout */
+    .viz-layout { display: flex; gap: 1.5rem; align-items: flex-start; }
+    .viz-left { flex: 0 0 300px; min-width: 280px; }
+    .viz-right { flex: 1; min-width: 300px; }
+
+    /* Steps bar */
+    .steps-bar { background: white; border-bottom: 1px solid #e5e7eb; padding: 1rem 1.5rem; }
+    .steps-inner {
+      max-width: 1280px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .step-item { display: flex; align-items: center; gap: 0.6rem; padding: 0.4rem 1rem; }
+    .step-divider { width: 2.5rem; height: 2px; background: #e5e7eb; flex-shrink: 0; }
+
+    /* AI badge */
+    .ai-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: rgba(220,20,60,0.15);
+      border: 1px solid rgba(220,20,60,0.3);
+      color: #DC143C;
+      padding: 0.35rem 0.9rem;
+      border-radius: 9999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+    }
+
+    /* Placement Instructions */
+.placement-textarea {
+  width: 100%;
+  min-height: 110px;
+  padding: 0.75rem 1rem;
+  border: 2px solid #e5e7eb;
+  border-radius: 0.625rem;
+  font-size: 0.875rem;
+  font-family: inherit;
+  color: #374151;
+  background: #f9fafb;
+  resize: vertical;
+  transition: border-color 0.2s, background 0.2s;
+  box-sizing: border-box;
+  line-height: 1.6;
+}
+.placement-textarea:focus {
+  outline: none;
+  border-color: #DC143C;
+  background: white;
+}
+.placement-textarea::placeholder { color: #9ca3af; }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .viz-layout { flex-direction: column; }
+      .viz-left { flex: none; width: 100%; min-width: 0; }
+      .result-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ══ HEADER ══ -->
+  <header class="header">
+    <div class="header-container">
+      <div onclick="window.location.href='index.html'" style="cursor: pointer;">
+        <img src="logo.jpg" alt="ECL Furniture Mart" class="logo">
+      </div>
+
+      <nav class="nav">
+        <a href="index.html" class="nav-btn">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+            <polyline points="9 22 9 12 15 12 15 22"></polyline>
+          </svg>
+          <span>Home</span>
+        </a>
+        <a href="furniture-list.html" class="nav-btn">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="16.5" y1="9.4" x2="7.5" y2="4.21"></line>
+            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+          </svg>
+          <span>Furnitures</span>
+        </a>
+        <a href="track-delivery.html" class="nav-btn">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="1" y="3" width="15" height="13"></rect>
+            <polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon>
+            <circle cx="5.5" cy="18.5" r="2.5"></circle>
+            <circle cx="18.5" cy="18.5" r="2.5"></circle>
+          </svg>
+          <span>Track Delivery</span>
+        </a>
+        <a href="contact.html" class="nav-btn">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+          </svg>
+          <span>Contact</span>
+        </a>
+        <a href="about.html" class="nav-btn">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="16" x2="12" y2="12"></line>
+            <line x1="12" y1="8" x2="12.01" y2="8"></line>
+          </svg>
+          <span>About</span>
+        </a>
+        <a href="customer-support.html" class="nav-btn">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+          </svg>
+          <span>Support</span>
+        </a>
+      </nav>
+
+      <button class="staff-login" onclick="window.location.href='login.html'">Login</button>
+    </div>
+  </header>
+
+  <!-- ══ HERO ══ -->
+  <section class="hero hero-bg furniture-bg">
+    <div class="hero-container" style="padding: 4rem 1.5rem;">
+      <div>
+        <div class="ai-badge">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+          </svg>
+          AI-Powered Feature
+        </div>
+        <h1 style="font-size: 2.5rem;">AI Furniture Visualizer</h1>
+        <p style="max-width: 42rem;">
+          See how our furniture looks in your actual room before you buy. Pick any furniture from our catalog, upload a photo of your room, and let AI do the magic.
+        </p>
+        <div style="display: flex; gap: 1.5rem; margin-top: 1.25rem; flex-wrap: wrap;">
+          <span style="display: flex; align-items: center; gap: 0.4rem; color: rgba(255,255,255,0.85); font-size: 0.875rem;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            No account needed
+          </span>
+          <span style="display: flex; align-items: center; gap: 0.4rem; color: rgba(255,255,255,0.85); font-size: 0.875rem;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            Free to use
+          </span>
+          <span style="display: flex; align-items: center; gap: 0.4rem; color: rgba(255,255,255,0.85); font-size: 0.875rem;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            AI-generated result in seconds
+          </span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ STEPS BAR ══ -->
+  <div class="steps-bar">
+    <div class="steps-inner">
+      <div class="step-item">
+        <span class="step-badge" id="stepBadge1">1</span>
+        <span style="font-weight: 600; color: #111827; font-size: 0.875rem;" id="stepLabel1">Pick Furniture</span>
+      </div>
+      <div class="step-divider"></div>
+      <div class="step-item">
+        <span class="step-badge inactive" id="stepBadge2">2</span>
+        <span style="font-weight: 600; color: #9ca3af; font-size: 0.875rem;" id="stepLabel2">Upload Room Photo</span>
+      </div>
+      <div class="step-divider"></div>
+      <div class="step-item">
+        <span class="step-badge inactive" id="stepBadge3">3</span>
+        <span style="font-weight: 600; color: #9ca3af; font-size: 0.875rem;" id="stepLabel3">Generate &amp; Download</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ MAIN CONTENT ══ -->
+  <section class="section" style="padding-top: 2rem;">
+
+    <!-- Back button -->
+    <div id="backBtnContainer" style="margin-bottom: 1.5rem; display: none;">
+      <a href="furniture-list.html" class="nav-btn" style="display: inline-flex; border: 1px solid #e5e7eb; border-radius: 0.5rem;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="15 18 9 12 15 6"></polyline>
+        </svg>
+        Back to Furniture List
+      </a>
+    </div>
+
+    <div class="viz-layout">
+
+      <!-- ── LEFT: Selected Furniture ── -->
+      <div class="viz-left">
+        <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
+          <span class="step-badge">1</span>
+          <h2 style="font-size: 1.125rem; font-weight: 700; color: #111827;">Selected Furniture</h2>
+        </div>
+
+        <!-- No furniture state -->
+        <div id="noFurnitureState" class="card">
+          <div style="text-align: center; padding: 1.5rem 1rem;">
+            <div style="width: 4rem; height: 4rem; background: #f3f4f6; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1rem;">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2">
+                <line x1="16.5" y1="9.4" x2="7.5" y2="4.21"></line>
+                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+              </svg>
+            </div>
+            <p style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">No furniture selected</p>
+            <p style="font-size: 0.875rem; color: #9ca3af; margin-bottom: 1.5rem;">
+              Go to the furniture list, click a product, then click "Visualize in My Room".
+            </p>
+            <a href="furniture-list.html" class="btn btn-accent" style="justify-content: center; width: 100%;">
+              Browse Furniture
+            </a>
+          </div>
+        </div>
+
+        <!-- Furniture selected state -->
+           <!-- GEMINI INTEGRATION POINT: When furniture is loaded from sessionStorage, set data-furniture-id here so JS can read it without re-parsing sessionStorage -->
+        <div id="furnitureSelectedState" data-furniture-id="" style="display: none;">
+          <div class="furniture-preview-card">
+            <img id="vizFurnitureImg" src="" alt="Selected Furniture" onerror="this.src='placeholder-furniture.jpg'">
+            <div class="furniture-preview-info">
+              <p id="vizFurnitureCategory" style="font-size: 0.75rem; font-weight: 600; color: #DC143C; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.25rem;"></p>
+              <h3 id="vizFurnitureName" style="font-size: 1.1rem; font-weight: 700; color: #111827; margin-bottom: 0.25rem;"></h3>
+              <p id="vizFurniturePrice" style="font-size: 1.2rem; font-weight: 700; color: #DC143C;"></p>
+            </div>
+          </div>
+
+          <!-- Style Selector -->
+          <div class="card" style="margin-top: 1rem;">
+            <p style="font-size: 0.875rem; font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Choose Interior Style</p>
+            <div class="style-grid">
+              <button class="style-option selected" data-style="Modern">Modern</button>
+              <button class="style-option" data-style="Classic">Classic</button>
+              <button class="style-option" data-style="Minimalist">Minimalist</button>
+              <button class="style-option" data-style="Rustic">Rustic</button>
+              <button class="style-option" data-style="Scandinavian">Scandinavian</button>
+              <button class="style-option" data-style="Industrial">Industrial</button>
+            </div>
+          </div>
+
+          <a href="furniture-list.html" class="nav-btn" style="width: 100%; margin-top: 0.75rem; justify-content: center; border: 1px solid #e5e7eb; border-radius: 0.5rem;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="15 18 9 12 15 6"></polyline>
+            </svg>
+            Choose Different Furniture
+          </a>
+        </div>
+      </div>
+
+      <!-- ── RIGHT: Upload + Generate ── -->
+      <div class="viz-right">
+
+        <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
+          <span class="step-badge inactive" id="step2BadgeRight">2</span>
+          <h2 style="font-size: 1.125rem; font-weight: 700; color: #111827;">Upload Your Room Photo</h2>
+        </div>
+
+        <div class="card">
+          <div class="upload-area" id="uploadArea">
+            <!-- GEMINI INTEGRATION POINT: Read this input's file to get the room image (base64 or File object) -->
+<input type="file" id="roomImageInput" name="room_image" accept="image/*">
+            <div class="upload-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                <polyline points="21 15 16 10 5 21"></polyline>
+              </svg>
+            </div>
+            <p style="font-weight: 600; color: #374151; margin-bottom: 0.25rem;">Click to upload or drag &amp; drop</p>
+            <p style="font-size: 0.875rem; color: #9ca3af;">JPG, PNG supported &bull; Max 10MB</p>
+          </div>
+
+          <img id="roomPreviewImg" class="room-preview-img" src="" alt="Room Preview">
+          <!-- Mask drawing tool — appears after room photo is uploaded -->
+<div id="maskToolContainer" style="display:none; margin-top:0.75rem;">
+  <p style="font-size:0.8rem;color:#374151;font-weight:600;margin-bottom:0.5rem;">
+    🖌️ Paint where the furniture should go (white = placement zone)
+  </p>
+  <div style="position:relative;display:inline-block;width:100%;">
+    <img id="maskBaseImg" style="width:100%;border-radius:0.5rem;display:block;">
+    <canvas id="maskCanvas" style="position:absolute;top:0;left:0;width:100%;height:100%;border-radius:0.5rem;cursor:crosshair;opacity:0.55;"></canvas>
+  </div>
+  <div style="display:flex;gap:0.5rem;margin-top:0.5rem;align-items:center;">
+    <button id="clearMaskBtn" class="btn btn-primary" style="font-size:0.8rem;padding:0.4rem 0.75rem;">Clear</button>
+    <span style="font-size:0.75rem;color:#9ca3af;">Skip painting — AI will auto-place in the lower area</span>
+  </div>
+</div>
+
+
+          <div id="roomUploadedInfo" style="display: none; margin-top: 0.75rem; padding: 0.75rem; background: #f0fdf4; border-radius: 0.5rem; border: 1px solid #86efac; align-items: center; gap: 0.5rem;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+            <span id="roomFileName" style="font-size: 0.875rem; color: #065f46; font-weight: 500;"></span>
+          </div>
+        </div>
+
+        <!-- Generate -->
+          <!-- ── Placement Instructions ── -->
+        <!-- GEMINI INTEGRATION POINT: Read #placementInstructions value and include it in the prompt sent to the backend -->
+        <div class="card" style="margin-top: 1rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#DC143C" stroke-width="2">
+              <line x1="21" y1="6" x2="3" y2="6"></line>
+              <line x1="15" y1="12" x2="3" y2="12"></line>
+              <line x1="17" y1="18" x2="3" y2="18"></line>
+            </svg>
+            <label for="placementInstructions" style="font-size: 0.875rem; font-weight: 600; color: #374151;">
+              Placement Instructions
+              <span style="font-weight: 400; color: #9ca3af; margin-left: 0.4rem;"></span>
+            </label>
+          </div>
+          <textarea
+            id="placementInstructions"
+            name="placement_instructions"
+            class="placement-textarea"
+            rows="4"
+            placeholder="Describe where to place the furniture, for example:&#10;• Place the sofa beside the window.&#10;• Put the cabinet against the left wall.&#10;• Center the dining table.&#10;• Rotate the chair toward the TV."
+          ></textarea>
+          <p style="font-size: 0.78rem; color: #9ca3af; margin-top: 0.5rem;">
+            These instructions will guide the AI on how to position the furniture in your room.
+          </p>
+        </div>
+        <div class="card" style="margin-top: 1rem;">
+          <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
+            <span class="step-badge inactive" id="step3BadgeRight">3</span>
+            <h2 style="font-size: 1.125rem; font-weight: 700; color: #111827;">Generate Visualization</h2>
+          </div>
+
+          <div class="alert alert-info" style="margin-bottom: 1rem;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="16" x2="12" y2="12"></line>
+              <line x1="12" y1="8" x2="12.01" y2="8"></line>
+            </svg>
+            <span style="font-size: 0.875rem;">AI results are approximate and may take 20–60 seconds. For visualization purposes only.</span>
+          </div>
+
+            <!--
+            GEMINI INTEGRATION POINT — When the generate button is clicked, your JS should:
+            1. Read selected furniture:   sessionStorage.getItem('selectedFurniture')  → provides id, name, category, material, etc.
+            2. Read room image:           document.getElementById('roomImageInput').files[0]  → convert to base64
+            3. Read placement hint:       document.getElementById('placementInstructions').value
+            4. Read interior style:       document.querySelector('.style-option.selected').dataset.style
+            5. POST all four values to your Node.js backend endpoint (e.g. POST /api/visualize-gemini)
+            6. The backend calls the Google Gemini Image Generation / Imagen API and returns the result image.
+            DO NOT hardcode any API keys here. Keys must stay in the backend .env file.
+          -->
+          <button class="generate-btn" id="generateBtn" disabled>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+            </svg>
+            <span id="generateBtnText">Visualize Furniture in My Room</span>
+          </button>
+
+          <p id="generateHint" style="font-size: 0.8rem; color: #9ca3af; text-align: center; margin-top: 0.75rem;">
+            Please select a furniture and upload a room photo to continue.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ LOADING SECTION ══ -->
+    <div id="loadingSection" style="display: none; margin-top: 2rem;">
+      <div class="card">
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 3rem; text-align: center; gap: 1rem;">
+          <div class="loading-spinner-large"></div>
+          <h3 style="font-size: 1.25rem; font-weight: 700; color: #111827;">AI is generating your visualization...</h3>
+          <p id="loadingMessage" style="color: #4b5563; max-width: 36rem;">This may take 20–60 seconds. Please do not close this page.</p>
+          <div class="progress-bar-track">
+            <div id="progressBar" style="height: 100%; background: #DC143C; border-radius: 9999px; width: 0%; transition: width 0.5s ease;"></div>
+          </div>
+          <p id="progressText" style="font-size: 0.875rem; color: #9ca3af;">0%</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ RESULT SECTION ══ -->
+    <div id="resultSection" style="display: none; margin-top: 2rem;">
+      <div class="card">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <div style="width: 2.5rem; height: 2.5rem; background: #d1fae5; border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+            </div>
+            <div>
+              <h3 style="font-size: 1.125rem; font-weight: 700; color: #111827;">Visualization Complete!</h3>
+              <p style="font-size: 0.875rem; color: #4b5563;">Here's how your furniture looks in your room</p>
+            </div>
+          </div>
+          <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+            <button id="downloadBtn" class="btn btn-accent">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              Download Result
+            </button>
+            <button id="tryAgainBtn" class="btn btn-primary">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+              </svg>
+              Try Again
+            </button>
+          </div>
+        </div>
+
+        <div class="result-grid">
+  <div class="result-image-box">
+    <span class="result-label">Before — Your Room</span>
+    <img id="beforeImage" src="" alt="Original Room">
+  </div>
+  <div class="result-image-box">
+    <span class="result-label ai-label">After — AI Visualization</span>
+    <img id="afterImage" src="" alt="AI Visualization">
+  </div>
+</div>
+
+<div style="margin-top: 1rem; padding: 0.75rem 1rem; background: #fef2f2; border-radius: 0.5rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#DC143C" stroke-width="2">
+    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+  </svg>
+  <span style="font-size: 0.875rem; color: #374151;">Furniture visualized: <strong id="resultFurnitureName">—</strong></span>
+  <span style="margin-left: auto; font-size: 0.75rem; color: #9ca3af;">AI-generated. Actual result may vary.</span>
+</div>
+
+    <!-- ══ ERROR SECTION ══ -->
+    <div id="errorSection" style="display: none; margin-top: 2rem;">
+      <div class="card">
+        <div style="text-align: center; padding: 2rem;">
+          <div style="width: 4rem; height: 4rem; background: #fef2f2; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1rem;">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#DC143C" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+          </div>
+          <h3 style="font-size: 1.125rem; font-weight: 700; color: #111827; margin-bottom: 0.5rem;">Generation Failed</h3>
+          <p id="errorMessage" style="color: #4b5563; margin-bottom: 1.5rem;">The AI model is currently loading. Please try again in a moment.</p>
+          <div style="display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">
+            <button id="retryBtn" class="btn btn-accent">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+              </svg>
+              Try Again
+            </button>
+            <button id="startOverBtn" class="btn btn-primary">Start Over</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ══ HOW IT WORKS ══ -->
+  <section class="section-gray" style="max-width: 100%;">
+    <div class="section">
+      <h2 class="section-title">How It Works</h2>
+      <div class="grid grid-3">
+        <div class="card" style="text-align: center;">
+          <div class="card-icon" style="margin: 0 auto 1rem;">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="16.5" y1="9.4" x2="7.5" y2="4.21"></line>
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+            </svg>
+          </div>
+          <h3>1. Browse &amp; Select</h3>
+          <p>Go to our furniture list, click a product, then hit "Visualize in My Room".</p>
+        </div>
+        <div class="card" style="text-align: center;">
+          <div class="card-icon" style="margin: 0 auto 1rem;">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2"/>
+              <circle cx="8.5" cy="8.5" r="1.5"/>
+              <polyline points="21 15 16 10 5 21"/>
+            </svg>
+          </div>
+          <h3>2. Upload Your Room</h3>
+          <p>Take a clear photo of your room and upload it here for the best AI result.</p>
+        </div>
+        <div class="card" style="text-align: center;">
+          <div class="card-icon" style="margin: 0 auto 1rem;">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+            </svg>
+          </div>
+          <h3>3. AI Generates Result</h3>
+          <p>Our AI places the selected furniture into your room and shows the result.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ FOOTER ══ -->
+  <footer class="footer">
+    <div class="footer-container">
+      <div>
+        <img src="logo.jpg" alt="ECL Furniture Mart" class="logo" style="margin-bottom: 0.5rem;">
+        <p class="footer-text">Quality furniture for your home</p>
+      </div>
+      <div style="text-align: right;">
+        <p class="footer-text">© 2022 ECL FURNITURE MART. All rights reserved.</p>
+        <p class="footer-text">REAL BLDG 1 JP RIZAL STREET Poblacion Sta Maria Bulacan, Philippines, 3022</p>
+        <p class="footer-text">Phone: (044) 796-1234 | Email: info@eclfurniture.com</p>
+        <p class="footer-text">Follow us on
+          <a href="https://www.facebook.com/profile.php?id=100063684260619" target="_blank" style="color: #4b5563; text-decoration: underline;">Facebook</a>
+        </p>
+      </div>
+    </div>
+  </footer>
+
+  <div id="toastContainer" class="toast-container"></div>
+  <script src="main.js"></script>
+</body>
+</html>
