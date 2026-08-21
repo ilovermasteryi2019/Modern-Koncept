@@ -1,6 +1,22 @@
 // PAGE TRANSITION EFFECT FOR SMOOTH NAVIGATION
 // =============================================================================
 document.addEventListener('DOMContentLoaded', () => {
+  // ── Mobile hamburger menu ──
+  const hamburgerBtn = document.getElementById('hamburgerBtn');
+  const mobileNavMenu = document.getElementById('mobileNavMenu');
+  if (hamburgerBtn && mobileNavMenu) {
+    hamburgerBtn.addEventListener('click', () => {
+      hamburgerBtn.classList.toggle('open');
+      mobileNavMenu.classList.toggle('open');
+    });
+    mobileNavMenu.querySelectorAll('.mobile-nav-link').forEach(link => {
+      link.addEventListener('click', () => {
+        hamburgerBtn.classList.remove('open');
+        mobileNavMenu.classList.remove('open');
+      });
+    });
+  }
+
   document.querySelectorAll('a.nav-btn').forEach(link => {
     const href = link.getAttribute('href');
     if (!href || href.startsWith('http') || href.startsWith('mailto') || href.startsWith('tel')) return;
@@ -295,17 +311,39 @@ function initAdminFurnitureSearch() {
 }
 
 async function loadPublicFurnitureList() {
-  try {
-    const result = await API.getFurniture();
-    if (result.success) {
-      allFurnitureProducts = result.data;
-      displayFurnitureProducts(allFurnitureProducts);
-    } else {
-      displayNoProducts();
+  const container = document.getElementById('productsContainer');
+  const productCount = document.getElementById('productCount');
+
+  // Show loading state immediately
+  if (container) container.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:3rem;color:#6b7280;"><p style="font-size:1.1rem;">⏳ Loading furniture...</p><p style="font-size:0.85rem;margin-top:0.5rem;">This may take up to 30 seconds on first load.</p></div>`;
+  if (productCount) productCount.textContent = 'Loading products...';
+
+  const tryFetch = async () => {
+    try {
+      const result = await API.getFurniture();
+      if (result && result.success) {
+        allFurnitureProducts = result.data || [];
+        displayFurnitureProducts(allFurnitureProducts);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      return false;
     }
-  } catch (error) {
-    displayNoProducts();
-  }
+  };
+
+  // Attempt 1
+  if (await tryFetch()) return;
+
+  // Render cold start — server may be waking up. Wait 8 seconds and retry.
+  if (productCount) productCount.textContent = 'Server is starting up... please wait (retry 1/2)';
+  await new Promise(r => setTimeout(r, 8000));
+  if (await tryFetch()) return;
+
+  // Final retry after another 12 seconds
+  if (productCount) productCount.textContent = 'Still connecting... (retry 2/2)';
+  await new Promise(r => setTimeout(r, 12000));
+  if (!(await tryFetch())) displayNoProducts();
 }
 
 function displayFurnitureProducts(products) {
@@ -1843,7 +1881,7 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
   }
-  if (window.location.pathname.includes('track-delivery.html')) {
+  if (window.location.pathname.includes('track-delivery')) {
     const publicTrackForm = document.getElementById('publicTrackForm');
     if (publicTrackForm) publicTrackForm.addEventListener('submit', handlePublicTrackDelivery);
   }
@@ -1854,9 +1892,10 @@ if (window.location.pathname.includes('ai-visualization.html')) {
 }
 
 // ---- CUSTOMER SUPPORT PAGE ----
-if (window.location.pathname.includes('customer-support.html')) {
+if (window.location.pathname.includes('customer-support')) {
     initCustomerSupportPage();
     initChatbot();  // ← Chatbot now lives here
+    loadContactPageContent(); // ← sync phone/email from admin → Supabase → this page
 
     // "Chat with AI" cards and CTA button also open the chatbot
     const openChatBtn = document.getElementById('openChatBtn');

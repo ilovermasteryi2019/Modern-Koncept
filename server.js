@@ -21,12 +21,6 @@ function generateRefCode() {
   return `DEL-${year}-${random}`;
 }
 
-function generateRefCode() {
-  const year = new Date().getFullYear();
-  const random = Math.random().toString(36).substr(2, 6).toUpperCase();
-  return `DEL-${year}-${random}`;
-}
-
 
 
 // =============================================================================
@@ -57,8 +51,8 @@ app.post('/login', async (req, res) => {
 // FURNITURE
 // =============================================================================
 app.get('/products', async (req, res) => {
-  const { data, error } = await db.from('furniture').select('*').order('created_at', { ascending: false });
-  if (error) return res.status(500).json({ success: false, message: 'Failed to fetch furniture' });
+  const { data, error } = await db.from('furniture').select('*').order('id', { ascending: false });
+  if (error) return res.status(500).json({ success: false, message: 'Failed to fetch furniture', error: error.message });
   res.json({ success: true, data });
 });
 
