@@ -2325,6 +2325,42 @@ function showTypingIndicator() {
   return typingDiv;
 }
 
+// Predefined quick-reply actions that must NOT go through the database
+// Q&A matcher (getBotResponse). Each has its own fixed response + a
+// clickable button that sends the customer to the relevant page.
+const CHATBOT_QUICK_ACTIONS = {
+  'track-delivery': {
+    userLabel: 'Track delivery',
+    response: 'Sure! You can track your delivery by entering your reference code on our Track Delivery page. Your reference code was provided after your order was confirmed.',
+    buttonText: 'Track Delivery',
+    buttonHref: 'track-delivery.html'
+  },
+  'view-furniture': {
+    userLabel: 'View furniture',
+    response: 'Here is how you can view our furniture. Just click the button below to browse our available furniture.',
+    buttonText: 'View Furniture',
+    buttonHref: 'furniture-list.html'
+  }
+};
+
+function sendQuickAction(actionKey) {
+  const action = CHATBOT_QUICK_ACTIONS[actionKey];
+  if (!action) return;
+
+  addChatMessage(action.userLabel, 'user');
+
+  // Hide quick replies after first message
+  const quickReplies = document.getElementById('chatbotQuickReplies');
+  if (quickReplies) quickReplies.style.display = 'none';
+
+  const typing = showTypingIndicator();
+  setTimeout(() => {
+    if (typing) typing.remove();
+    const responseHtml = `${action.response}<br><a href="${action.buttonHref}" class="chat-action-btn">${action.buttonText}</a>`;
+    addChatMessage(responseHtml, 'bot');
+  }, 800 + Math.random() * 500);
+}
+
 function sendChatMessage(message) {
   if (!message.trim()) return;
 
@@ -2412,6 +2448,12 @@ function initChatbot() {
   // Quick reply buttons
   document.querySelectorAll('.quick-reply-btn').forEach(btn => {
     btn.addEventListener('click', () => {
+      const action = btn.getAttribute('data-action');
+      if (action) {
+        sendQuickAction(action);
+        return;
+      }
+      // Fallback for any legacy quick-reply buttons still using data-quick
       const msg = btn.getAttribute('data-quick');
       if (msg) sendChatMessage(msg);
     });

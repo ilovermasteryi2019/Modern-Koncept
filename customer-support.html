@@ -262,6 +262,22 @@
     }
     .quick-reply-btn:hover { background: #DC143C; color: white; }
 
+    /* Clickable action button shown inside a bot chat bubble (e.g. "View Furniture") */
+    .chat-action-btn {
+      display: inline-block;
+      margin-top: 0.6rem;
+      padding: 0.4rem 0.9rem;
+      background: #DC143C;
+      color: white !important;
+      border-radius: 9999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-decoration: none;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .chat-action-btn:hover { background: #A80728; }
+
     .chatbot-input-area {
       padding: 0.75rem 1rem;
       border-top: 1px solid #e5e7eb;
@@ -775,10 +791,8 @@
     </div>
 
     <div class="chatbot-quick-replies" id="chatbotQuickReplies">
-      <button class="quick-reply-btn" data-quick="How do I track my delivery?">Track delivery</button>
-      <button class="quick-reply-btn" data-quick="What is your return policy?">Return policy</button>
-      <button class="quick-reply-btn" data-quick="What furniture do you have?">View furniture</button>
-      <button class="quick-reply-btn" data-quick="What are your business hours?">Business hours</button>
+      <button class="quick-reply-btn" data-action="track-delivery">Track delivery</button>
+      <button class="quick-reply-btn" data-action="view-furniture">View furniture</button>
     </div>
 
     <div class="chatbot-input-area">
