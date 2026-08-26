@@ -690,7 +690,6 @@ async function handleInventorySubmit(event) {
       showToast(result.message, 'success');
       hideModal('stockModal');
       loadInventoryList();
-      if (window.location.pathname.includes('staff')) loadStaffInventoryList();
       if (window.location.pathname.includes('manager')) loadManagerInventoryList();
     } else showToast('❌ ' + result.message, 'error');
   } catch (error) { showToast('❌ Failed to save inventory', 'error'); }
@@ -737,10 +736,6 @@ async function loadDeliveryStats() {
       setEl('deliveryProcessingCount', stats.processing || 0);
       setEl('deliveryInTransitCount', stats.in_transit || 0);
       setEl('deliveryDeliveredCount', stats.delivered || 0);
-      setEl('staffDeliveryPendingCount', stats.pending || 0);
-      setEl('staffDeliveryProcessingCount', stats.processing || 0);
-      setEl('staffDeliveryInTransitCount', stats.in_transit || 0);
-      setEl('staffDeliveryDeliveredCount', stats.delivered || 0);
       setEl('managerDeliveryPendingCount', stats.pending || 0);
       setEl('managerDeliveryProcessingCount', stats.processing || 0);
       setEl('managerDeliveryInTransitCount', stats.in_transit || 0);
@@ -830,21 +825,6 @@ function renderDeliveryTableForRole(deliveries, tbodyId, searchTerm) {
       </td>`;
     tbody.appendChild(row);
   });
-}
-
-async function loadStaffDeliveryList() {
-  try {
-    const result = await API.getDeliveries();
-    if (result.success) {
-      const searchTerm = document.getElementById('staffDeliverySearch') ? document.getElementById('staffDeliverySearch').value : '';
-      renderDeliveryTableForRole(result.data, 'staffDeliveryList', searchTerm);
-      updateStaffDeliveryMetrics(result.data);
-    }
-  } catch (error) {
-    showToast('Failed to load deliveries', 'error');
-    const tbody = document.getElementById('staffDeliveryList');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#ef4444;">❌ Failed to load deliveries</td></tr>';
-  }
 }
 
 async function loadManagerDeliveryList() {
@@ -954,18 +934,9 @@ async function updateDeliveryStatus(deliveryId) {
     const result = await API.updateDeliveryStatus(deliveryId, newStatus);
     if (result.success) {
       showToast('✓ Delivery status updated successfully', 'success');
-      if (window.location.pathname.includes('staff')) loadStaffDeliveryList();
-      else if (window.location.pathname.includes('manager')) loadManagerDeliveryList();
+      if (window.location.pathname.includes('manager')) loadManagerDeliveryList();
     } else showToast('❌ ' + result.message, 'error');
   } catch (error) { showToast('❌ Failed to update status', 'error'); }
-}
-
-function updateStaffDeliveryMetrics(deliveries) {
-  const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-  setEl('staffDeliveryPendingCount', deliveries.filter(d => d.status === 'Pending').length);
-  setEl('staffDeliveryProcessingCount', deliveries.filter(d => d.status === 'Processing').length);
-  setEl('staffDeliveryInTransitCount', deliveries.filter(d => d.status === 'In Transit').length);
-  setEl('staffDeliveryDeliveredCount', deliveries.filter(d => d.status === 'Delivered').length);
 }
 
 // =============================================================================
@@ -1531,40 +1502,8 @@ async function deleteStaffAccount(id) {
 }
 
 // =============================================================================
-// STAFF MODULE - INVENTORY
+// MANAGER MODULE - INVENTORY (shared inventory data, different container)
 // =============================================================================
-async function loadStaffInventoryList() {
-  try {
-    const result = await API.getInventory();
-    if (result.success) {
-      const container = document.getElementById('inventoryList');
-      if (!container) return;
-      container.innerHTML = '';
-      if (result.data.length === 0) { container.innerHTML = '<p style="text-align:center;color:#9ca3af;padding:2rem;">No inventory items found</p>'; return; }
-      let tableHTML = `<div class="table-container"><table><thead><tr><th>Item Name</th><th>Category</th><th>Quantity</th><th>Stock Status</th><th>Last Updated</th><th>Actions</th></tr></thead><tbody>`;
-      result.data.forEach(item => {
-        const status = item.quantity > 10 ? 'in-stock' : 'low-stock';
-        const statusText = item.quantity > 10 ? 'In Stock' : 'Low Stock';
-        tableHTML += `
-          <tr>
-            <td>${item.name}</td>
-            <td>${item.category}</td>
-            <td><strong>${item.quantity}</strong></td>
-            <td><span class="stock-status ${status}">${statusText}</span></td>
-            <td>${formatDateTime(item.last_updated)}</td>
-            <td><button class="action-btn edit" onclick="openEditInventoryModal(${item.id}, '${item.name.replace(/'/g, "\\'")}', '${item.category}', ${item.quantity})"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Edit</button></td>
-          </tr>`;
-      });
-      tableHTML += `</tbody></table></div>`;
-      container.innerHTML = tableHTML;
-    }
-  } catch (error) {
-    const container = document.getElementById('inventoryList');
-    if (container) container.innerHTML = '<p style="text-align:center;color:#ef4444;padding:2rem;">❌ Failed to load inventory</p>';
-  }
-}
-
-// Manager Inventory - same data but targets different container
 async function loadManagerInventoryList() {
   try {
     const result = await API.getInventory();
@@ -1596,15 +1535,6 @@ async function loadManagerInventoryList() {
   }
 }
 
-function openEditInventoryModal(id, name, category, quantity) {
-  document.getElementById('editInventoryId').value = id;
-  document.getElementById('editInventoryName').value = name;
-  document.getElementById('editInventoryCategory').value = category;
-  document.getElementById('editInventoryQuantity').value = quantity;
-  updateStockPreview(quantity);
-  showModal('editInventoryModal');
-}
-
 function openManagerEditInventoryModal(id, name, category, quantity) {
   document.getElementById('managerEditInventoryId').value = id;
   document.getElementById('managerEditInventoryName').value = name;
@@ -1612,14 +1542,6 @@ function openManagerEditInventoryModal(id, name, category, quantity) {
   document.getElementById('managerEditInventoryQuantity').value = quantity;
   updateManagerStockPreview(quantity);
   showModal('managerEditInventoryModal');
-}
-
-function updateStockPreview(quantity) {
-  const preview = document.getElementById('stockPreview');
-  if (!preview) return;
-  const qty = parseInt(quantity) || 0;
-  preview.textContent = qty <= 10 ? 'Low Stock' : 'In Stock';
-  preview.style.color = qty <= 10 ? '#991b1b' : '#065f46';
 }
 
 function updateManagerStockPreview(quantity) {
@@ -1651,10 +1573,8 @@ function initDashboardTabs() {
         if (targetTab === 'furniture') loadFurnitureList();
         else if (targetTab === 'business') loadBusinessInfo();
         else if (targetTab === 'inventory' && isAdmin) loadInventoryList();
-        else if (targetTab === 'inventory' && isStaff) loadStaffInventoryList();
         else if (targetTab === 'inventory' && isManager) loadManagerInventoryList();
         else if (targetTab === 'delivery' && isAdmin) { loadDeliveryList(); loadDeliveryStats(); }
-        else if (targetTab === 'delivery' && isStaff) { loadStaffDeliveryList(); loadDeliveryStats(); }
         else if (targetTab === 'delivery' && isManager) { loadManagerDeliveryList(); loadDeliveryStats(); }
         else if (targetTab === 'sales' && isAdmin) { loadSalesList(); loadSalesAnalytics(); }
         else if (targetTab === 'sales' && isStaff) { loadStaffSalesList(); loadStaffSalesAnalytics(); }
@@ -1720,7 +1640,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const staffNameEl = document.getElementById('staffName');
     if (staffNameEl && user.name) staffNameEl.textContent = user.name;
 
-    loadStaffInventoryList();
+    loadStaffReviewsList();
 
     const bind = (id, handler) => { const el = document.getElementById(id); if (el) el.addEventListener('submit', handler); };
     bind('staffReviewForm', handleStaffReviewSubmit);
@@ -1743,26 +1663,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const logoutBtn = document.getElementById('logoutBtn');
     if (logoutBtn) logoutBtn.addEventListener('click', handleLogout);
-
-    const qtyInput = document.getElementById('editInventoryQuantity');
-    if (qtyInput) qtyInput.addEventListener('input', (e) => updateStockPreview(e.target.value));
-
-    const editForm = document.getElementById('editInventoryForm');
-    if (editForm) {
-      editForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const id = document.getElementById('editInventoryId').value;
-        const name = document.getElementById('editInventoryName').value;
-        const category = document.getElementById('editInventoryCategory').value;
-        const quantity = parseInt(document.getElementById('editInventoryQuantity').value);
-        if (!category || quantity < 0) { showToast('Please fill all fields correctly', 'error'); return; }
-        try {
-          const result = await API.updateInventory(id, { name, category, quantity });
-          if (result.success) { showToast('Inventory updated successfully', 'success'); hideModal('editInventoryModal'); loadStaffInventoryList(); }
-          else showToast(result.message || 'Failed to update inventory', 'error');
-        } catch (error) { showToast('Failed to update inventory', 'error'); }
-      });
-    }
   }
 
   // ---- MANAGER PAGE ----

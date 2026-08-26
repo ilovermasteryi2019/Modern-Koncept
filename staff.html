@@ -367,9 +367,7 @@
       </div>
       
       <div class="dashboard-nav">
-        <button class="dashboard-tab active" data-tab="inventory">Inventory</button>
-        <button class="dashboard-tab" data-tab="reviews">Successful Purchase</button>
-        <button class="dashboard-tab" data-tab="delivery">Delivery</button>
+        <button class="dashboard-tab active" data-tab="reviews">Successful Purchase</button>
         <button class="dashboard-tab" data-tab="sales">Sales Records</button>
       </div>
     </div>
@@ -378,31 +376,8 @@
   <!-- Main Content -->
   <section class="section" style="padding-top: 0;">
     
-    <!-- Inventory Module -->
-    <div id="inventoryModule" class="dashboard-module active">
-      <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Inventory Management</h2>
-      
-      
-      
-      <!-- Alert from staff (visible only to admin) -->
-      <div id="staffAlerts" class="alert alert-info hidden" style="margin-bottom: 1.5rem;">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"></circle>
-          <line x1="12" y1="16" x2="12" y2="12"></line>
-          <line x1="12" y1="8" x2="12.01" y2="8"></line>
-        </svg>
-        <span>Stock levels updated by staff</span>
-      </div>
-      
-      <div class="card">
-        <div id="inventoryList">
-          <!-- Inventory items will be loaded here -->
-        </div>
-      </div>
-    </div>
-
     <!-- Product Reviews Module -->
-    <div id="reviewsModule" class="dashboard-module">
+    <div id="reviewsModule" class="dashboard-module active">
       <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Successful Purchase</h2>
       
         <div class="card" style="margin-bottom: 1.5rem;">
@@ -461,55 +436,6 @@
       </div>
     </div>
 
-    <!-- Delivery Module -->
-    <div id="deliveryModule" class="dashboard-module">
-      <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Delivery Management</h2>
-       <!-- Delivery Metrics Panel -->
-  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
-    <div class="summary-card" style="background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);">
-      <div class="summary-label">Pending</div>
-      <div class="summary-value" id="staffDeliveryPendingCount">0</div>
-    </div>
-    
-    <div class="summary-card" style="background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);">
-      <div class="summary-label">Processing</div>
-      <div class="summary-value" id="staffDeliveryProcessingCount">0</div>
-    </div>
-    
-    <div class="summary-card" style="background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);">
-      <div class="summary-label">In Transit</div>
-      <div class="summary-value" id="staffDeliveryInTransitCount">0</div>
-    </div>
-    
-    <div class="summary-card" style="background: linear-gradient(135deg, #34d399 0%, #10b981 100%);">
-      <div class="summary-label">Delivered</div>
-      <div class="summary-value" id="staffDeliveryDeliveredCount">0</div>
-    </div>
-  </div>
-  
-      <div class="card">
-        <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">Delivery Schedules</h3>
-        <div class="table-container">
-         <table>
-  <thead>
-    <tr>
-      <th>Reference Code</th>
-      <th>Customer</th>
-      <th>Contact Number</th>
-      <th>Address</th>
-      <th>Product</th>
-      <th>Status</th>
-      <th>Actions</th>
-    </tr>
-  </thead>
-  <tbody id="staffDeliveryList">
-    <!-- Deliveries will be loaded here -->
-  </tbody>
-</table>
-        </div>
-      </div>
-    </div>
-
     <!-- Sales Records Module -->
      <!-- Sales Records Module -->
     <div id="salesModule" class="dashboard-module">
@@ -533,21 +459,6 @@
         <div class="summary-card">
           <div class="summary-label">Average Sale</div>
           <div class="summary-value" id="staffAverageSale">₱0.00</div>
-        </div>
-      </div>
-      
-      <!-- Charts Section -->
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
-        <!-- Revenue Updates (Bar Chart) -->
-        <div class="card">
-          <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">Revenue</h3>
-          <canvas id="staffRevenueBarChart" style="max-height: 300px;"></canvas>
-        </div>
-        
-        <!-- Monthly Sales Trend (Line Chart) -->
-        <div class="card">
-          <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">Monthly Sales Trend</h3>
-          <canvas id="staffSalesLineChart" style="max-height: 300px;"></canvas>
         </div>
       </div>
       
@@ -715,56 +626,7 @@
     </div>
   </div>
 
-  <!-- Edit Inventory Modal -->
-<div id="editInventoryModal" class="modal">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h3 class="modal-title">Edit Inventory Item</h3>
-      <button class="modal-close" data-close-modal="editInventoryModal">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="18" y1="6" x2="6" y2="18"></line>
-          <line x1="6" y1="6" x2="18" y2="18"></line>
-        </svg>
-      </button>
-    </div>
-    <div class="modal-body">
-      <form id="editInventoryForm">
-        <input type="hidden" id="editInventoryId">
-        <div class="form-group">
-          <label class="form-label">Item Name</label>
-          <input type="text" id="editInventoryName" class="form-input" disabled style="background-color: #f3f4f6; cursor: not-allowed;">
-          <small style="color: #6b7280; font-size: 0.875rem;">Item name cannot be edited</small>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Category</label>
-          <select id="editInventoryCategory" class="form-input" required>
-            <option value="">Select category</option>
-            <option value="Sofa">Sofa</option>
-            <option value="Table">Table</option>
-            <option value="Chair">Chair</option>
-            <option value="Bed">Bed</option>
-            <option value="Cabinet">Cabinet</option>
-            <option value="Desk">Desk</option>
-            <option value="Other">Other</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Quantity</label>
-          <input type="number" id="editInventoryQuantity" class="form-input" min="0" required>
-          <small style="color: #6b7280; font-size: 0.875rem;">
-            Stock Status: <strong><span id="stockPreview">-</span></strong>
-          </small>
-        </div>
-        <div style="display: flex; gap: 0.75rem;">
-          <button type="submit" class="btn btn-accent" style="flex: 1;">Save Changes</button>
-          <button type="button" class="btn btn-secondary" data-close-modal="editInventoryModal" style="flex: 1;">Cancel</button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
-
-<!-- Toast Container -->
+  <!-- Toast Container -->
 <div id="toastContainer" class="toast-container"></div>
   <script src="main.js"></script>
 </body>
