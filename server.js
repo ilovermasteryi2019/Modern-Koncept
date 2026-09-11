@@ -88,17 +88,41 @@ app.get('/inventory', async (req, res) => {
 });
 
 app.post('/inventory', async (req, res) => {
-  const { name, category, quantity } = req.body;
-  if (!name || !category || quantity === undefined) return res.status(400).json({ success: false, message: 'Name, category, and quantity are required' });
-  const { data, error } = await db.from('inventory').insert({ name, category, quantity }).select().single();
-  if (error) return res.status(500).json({ success: false, message: 'Failed to add inventory item' });
+  const { name, category, quantity, item_code, image } = req.body;
+  if (!name || !category || quantity === undefined || !item_code) {
+    return res.status(400).json({ success: false, message: 'Name, item code, category, and quantity are required' });
+  }
+  const { data, error } = await db.from('inventory').insert({
+    name,
+    category,
+    quantity,
+    item_code,
+    image: image || null
+  }).select().single();
+  if (error) {
+    if (error.code === '23505') return res.status(409).json({ success: false, message: 'Item code already exists. Please use a unique item code.' });
+    return res.status(500).json({ success: false, message: 'Failed to add inventory item' });
+  }
   res.status(201).json({ success: true, message: 'Inventory item added successfully', id: data.id });
 });
 
 app.put('/inventory/:id', async (req, res) => {
-  const { name, category, quantity } = req.body;
-  const { error } = await db.from('inventory').update({ name, category, quantity, last_updated: new Date() }).eq('id', req.params.id);
-  if (error) return res.status(500).json({ success: false, message: 'Failed to update inventory' });
+  const { name, category, quantity, item_code, image } = req.body;
+  if (!name || !category || quantity === undefined || !item_code) {
+    return res.status(400).json({ success: false, message: 'Name, item code, category, and quantity are required' });
+  }
+  const { error } = await db.from('inventory').update({
+    name,
+    category,
+    quantity,
+    item_code,
+    image: image || null,
+    last_updated: new Date()
+  }).eq('id', req.params.id);
+  if (error) {
+    if (error.code === '23505') return res.status(409).json({ success: false, message: 'Item code already exists. Please use a unique item code.' });
+    return res.status(500).json({ success: false, message: 'Failed to update inventory' });
+  }
   res.json({ success: true, message: 'Inventory updated successfully' });
 });
 

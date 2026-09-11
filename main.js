@@ -133,7 +133,7 @@ function formatDate(dateStr) {
 
 function formatDateTime(dateStr) {
   if (!dateStr) return 'N/A';
-  return new Date(dateStr).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return new Date(dateStr).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila' });
 }
 
 function showModal(modalId) {
@@ -552,7 +552,7 @@ async function handleAboutFormSubmit(event) {
       hero_description: document.getElementById('aboutHeroDesc').value,
       story: document.getElementById('aboutStory').value,
       mission: document.getElementById('aboutMission').value,
-      return_policy: '', warranty_policy: '', delivery_policy: '', payment_policy: ''
+      return_policy: document.getElementById('aboutPolicies').value, warranty_policy: '', delivery_policy: '', payment_policy: ''
     });
     if (result.success) showToast('✅ About page information saved!', 'success');
     else showToast('❌ Failed to save: ' + result.message, 'error');
@@ -582,7 +582,7 @@ async function loadBusinessInfo() {
       setVal('aboutHeroDesc', d.hero_description);
       setVal('aboutStory', d.story);
       setVal('aboutMission', d.mission);
-      setVal('aboutPolicies', d.policies);
+      setVal('aboutPolicies', d.return_policy);
     }
     const contactResult = await API.getContactInfo();
     if (contactResult.success && contactResult.data) {
@@ -613,6 +613,8 @@ async function loadAboutPageContent() {
       if (storyContent && d.story) storyContent.innerHTML = `<p style="color:#4b5563;line-height:1.8;">${d.story}</p>`;
       const missionText = document.getElementById('missionText');
       if (missionText && d.mission) missionText.textContent = d.mission;
+      const policiesGrid = document.getElementById('policiesGrid');
+      if (policiesGrid && d.return_policy) policiesGrid.innerHTML = `<p style="color:#4b5563;line-height:1.8;grid-column:1 / -1;text-align:center;">${d.return_policy}</p>`;
     }
   } catch (error) { console.error('Load about page error:', error); }
 }
@@ -641,6 +643,7 @@ async function loadContactPageContent() {
 // ADMIN MODULE - INVENTORY MANAGEMENT
 // =============================================================================
 let editingInventoryId = null;
+let currentStockImage = null;
 
 async function loadInventoryList() {
   try {
@@ -649,13 +652,15 @@ async function loadInventoryList() {
       const tbody = document.getElementById('adminInventoryList');
       if (!tbody) return;
       tbody.innerHTML = '';
-      if (result.data.length === 0) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#9ca3af;">No inventory items found</td></tr>'; return; }
+      if (result.data.length === 0) { tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#9ca3af;">No inventory items found</td></tr>'; return; }
       result.data.forEach(item => {
         const status = item.quantity > 10 ? 'in-stock' : 'low-stock';
         const statusText = item.quantity > 10 ? 'In Stock' : 'Low Stock';
         tbody.innerHTML += `
           <tr>
+            <td>${item.image ? `<img src="${item.image}" alt="${item.name}" style="width:50px;height:50px;object-fit:cover;border-radius:0.375rem;">` : '<span style="color:#9ca3af;font-size:0.75rem;">No image</span>'}</td>
             <td>${item.name}</td>
+            <td style="font-family:monospace;font-size:0.8rem;">${item.item_code || '<span style="color:#9ca3af;">N/A</span>'}</td>
             <td>${item.category}</td>
             <td>${item.quantity}</td>
             <td><span class="stock-status ${status}">${statusText}</span></td>
@@ -672,17 +677,37 @@ async function loadInventoryList() {
 
 function openAddInventoryModal() {
   editingInventoryId = null;
+  currentStockImage = null;
   document.getElementById('stockModalTitle').textContent = 'Add New Stock Item';
   document.getElementById('stockForm').reset();
+  const preview = document.getElementById('stockImagePreview');
+  if (preview) preview.style.display = 'none';
   showModal('stockModal');
+}
+
+function handleStockImageUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  if (!file.type.startsWith('image/')) { showToast('Please select an image file', 'warning'); event.target.value = ''; return; }
+  if (file.size > 5 * 1024 * 1024) { showToast('File too large. Max 5MB.', 'warning'); event.target.value = ''; return; }
+  fileToBase64(file).then(base64String => {
+    currentStockImage = base64String;
+    const preview = document.getElementById('stockImagePreview');
+    const previewImg = document.getElementById('stockImagePreviewImg');
+    if (preview && previewImg) { previewImg.src = base64String; preview.style.display = 'block'; }
+  });
 }
 
 async function handleInventorySubmit(event) {
   event.preventDefault();
+  const itemCode = document.getElementById('stockItemCode').value.trim();
+  if (!itemCode) { showToast('Please enter an item code', 'warning'); return; }
   const data = {
     name: document.getElementById('stockName').value,
+    item_code: itemCode,
     category: document.getElementById('stockCategory').value,
-    quantity: parseInt(document.getElementById('stockQuantity').value)
+    quantity: parseInt(document.getElementById('stockQuantity').value),
+    image: currentStockImage || ''
   };
   try {
     const result = editingInventoryId ? await API.updateInventory(editingInventoryId, data) : await API.createInventory(data);
@@ -702,10 +727,16 @@ async function editInventory(id) {
       const item = result.data.find(inv => inv.id === id);
       if (!item) { showToast('Inventory item not found', 'error'); return; }
       editingInventoryId = id;
+      currentStockImage = item.image || null;
       document.getElementById('stockModalTitle').textContent = 'Edit Stock Item';
       document.getElementById('stockName').value = item.name;
+      document.getElementById('stockItemCode').value = item.item_code || '';
       document.getElementById('stockCategory').value = item.category;
       document.getElementById('stockQuantity').value = item.quantity;
+      const preview = document.getElementById('stockImagePreview');
+      const previewImg = document.getElementById('stockImagePreviewImg');
+      if (item.image && preview && previewImg) { previewImg.src = item.image; preview.style.display = 'block'; }
+      else if (preview) { preview.style.display = 'none'; }
       showModal('stockModal');
     }
   } catch (error) { showToast('❌ Failed to load inventory details', 'error'); }
@@ -1523,7 +1554,7 @@ async function loadManagerInventoryList() {
             <td><strong>${item.quantity}</strong></td>
             <td><span class="stock-status ${status}">${statusText}</span></td>
             <td>${formatDateTime(item.last_updated)}</td>
-            <td><button class="action-btn edit" onclick="openManagerEditInventoryModal(${item.id}, '${item.name.replace(/'/g, "\\'")}', '${item.category}', ${item.quantity})"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Edit</button></td>
+            <td><button class="action-btn edit" onclick="openManagerEditInventoryModal(${item.id})"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Edit</button></td>
           </tr>`;
       });
       tableHTML += `</tbody></table></div>`;
@@ -1535,13 +1566,82 @@ async function loadManagerInventoryList() {
   }
 }
 
-function openManagerEditInventoryModal(id, name, category, quantity) {
-  document.getElementById('managerEditInventoryId').value = id;
-  document.getElementById('managerEditInventoryName').value = name;
-  document.getElementById('managerEditInventoryCategory').value = category;
-  document.getElementById('managerEditInventoryQuantity').value = quantity;
-  updateManagerStockPreview(quantity);
-  showModal('managerEditInventoryModal');
+let currentManagerStockImage = null;
+
+function openAddManagerInventoryModal() {
+  currentManagerStockImage = null;
+  const form = document.getElementById('managerAddInventoryForm');
+  if (form) form.reset();
+  const preview = document.getElementById('managerStockImagePreview');
+  if (preview) preview.style.display = 'none';
+  showModal('managerAddInventoryModal');
+}
+
+function handleManagerAddStockImageUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  if (!file.type.startsWith('image/')) { showToast('Please select an image file', 'warning'); event.target.value = ''; return; }
+  if (file.size > 5 * 1024 * 1024) { showToast('File too large. Max 5MB.', 'warning'); event.target.value = ''; return; }
+  fileToBase64(file).then(base64String => {
+    currentManagerStockImage = base64String;
+    const preview = document.getElementById('managerStockImagePreview');
+    const previewImg = document.getElementById('managerStockImagePreviewImg');
+    if (preview && previewImg) { previewImg.src = base64String; preview.style.display = 'block'; }
+  });
+}
+
+async function handleManagerAddInventorySubmit(event) {
+  event.preventDefault();
+  const name = document.getElementById('managerStockName').value.trim();
+  const itemCode = document.getElementById('managerStockItemCode').value.trim();
+  const category = document.getElementById('managerStockCategory').value;
+  const quantity = parseInt(document.getElementById('managerStockQuantity').value);
+  if (!name || !itemCode || !category || isNaN(quantity) || quantity < 0) {
+    showToast('Please fill all fields correctly', 'warning');
+    return;
+  }
+  const data = { name, item_code: itemCode, category, quantity, image: currentManagerStockImage || '' };
+  try {
+    const result = await API.createInventory(data);
+    if (result.success) { showToast(result.message || 'Inventory item added successfully', 'success'); hideModal('managerAddInventoryModal'); loadManagerInventoryList(); }
+    else showToast('❌ ' + result.message, 'error');
+  } catch (error) { showToast('❌ Failed to save inventory', 'error'); }
+}
+
+async function openManagerEditInventoryModal(id) {
+  try {
+    const result = await API.getInventory();
+    if (!result.success) { showToast('Failed to load inventory details', 'error'); return; }
+    const item = result.data.find(inv => inv.id === id);
+    if (!item) { showToast('Inventory item not found', 'error'); return; }
+    currentManagerStockImage = null;
+    document.getElementById('managerEditInventoryId').value = item.id;
+    document.getElementById('managerEditInventoryName').value = item.name;
+    document.getElementById('managerEditInventoryItemCode').value = item.item_code || '';
+    document.getElementById('managerEditInventoryCategory').value = item.category;
+    document.getElementById('managerEditInventoryQuantity').value = item.quantity;
+    const preview = document.getElementById('managerEditInventoryImagePreview');
+    const previewImg = document.getElementById('managerEditInventoryImagePreviewImg');
+    const imageInput = document.getElementById('managerEditInventoryImage');
+    if (imageInput) imageInput.value = '';
+    if (item.image && preview && previewImg) { previewImg.src = item.image; preview.style.display = 'block'; }
+    else if (preview) { preview.style.display = 'none'; }
+    updateManagerStockPreview(item.quantity);
+    showModal('managerEditInventoryModal');
+  } catch (error) { showToast('❌ Failed to load inventory details', 'error'); }
+}
+
+function handleManagerEditStockImageUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  if (!file.type.startsWith('image/')) { showToast('Please select an image file', 'warning'); event.target.value = ''; return; }
+  if (file.size > 5 * 1024 * 1024) { showToast('File too large. Max 5MB.', 'warning'); event.target.value = ''; return; }
+  fileToBase64(file).then(base64String => {
+    currentManagerStockImage = base64String;
+    const preview = document.getElementById('managerEditInventoryImagePreview');
+    const previewImg = document.getElementById('managerEditInventoryImagePreviewImg');
+    if (preview && previewImg) { previewImg.src = base64String; preview.style.display = 'block'; }
+  });
 }
 
 function updateManagerStockPreview(quantity) {
@@ -1632,6 +1732,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const furnitureImage = document.getElementById('furnitureImage');
     if (furnitureImage) furnitureImage.addEventListener('change', handleFurnitureImageUpload);
+
+    const stockImage = document.getElementById('stockImage');
+    if (stockImage) stockImage.addEventListener('change', handleStockImageUpload);
   }
 
   // ---- STAFF PAGE ----
@@ -1709,11 +1812,14 @@ document.addEventListener('DOMContentLoaded', () => {
         e.preventDefault();
         const id = document.getElementById('managerEditInventoryId').value;
         const name = document.getElementById('managerEditInventoryName').value;
+        const itemCode = document.getElementById('managerEditInventoryItemCode').value.trim();
         const category = document.getElementById('managerEditInventoryCategory').value;
         const quantity = parseInt(document.getElementById('managerEditInventoryQuantity').value);
-        if (!category || quantity < 0) { showToast('Please fill all fields correctly', 'error'); return; }
+        if (!itemCode || !category || quantity < 0) { showToast('Please fill all fields correctly', 'error'); return; }
+        const data = { name, item_code: itemCode, category, quantity };
+        if (currentManagerStockImage) data.image = currentManagerStockImage; // only send image if a new one was picked, so the existing one is preserved otherwise
         try {
-          const result = await API.updateInventory(id, { name, category, quantity });
+          const result = await API.updateInventory(id, data);
           if (result.success) { showToast('Inventory updated successfully', 'success'); hideModal('managerEditInventoryModal'); loadManagerInventoryList(); }
           else showToast(result.message || 'Failed to update inventory', 'error');
         } catch (error) { showToast('Failed to update inventory', 'error'); }
@@ -1722,6 +1828,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const managerQtyInput = document.getElementById('managerEditInventoryQuantity');
     if (managerQtyInput) managerQtyInput.addEventListener('input', (e) => updateManagerStockPreview(e.target.value));
+
+    // Manager Add/Edit Inventory image + button wiring
+    const addManagerStockBtn = document.getElementById('addManagerStockBtn');
+    if (addManagerStockBtn) addManagerStockBtn.addEventListener('click', openAddManagerInventoryModal);
+
+    const managerAddInventoryForm = document.getElementById('managerAddInventoryForm');
+    if (managerAddInventoryForm) managerAddInventoryForm.addEventListener('submit', handleManagerAddInventorySubmit);
+
+    const managerStockImage = document.getElementById('managerStockImage');
+    if (managerStockImage) managerStockImage.addEventListener('change', handleManagerAddStockImageUpload);
+
+    const managerEditInventoryImage = document.getElementById('managerEditInventoryImage');
+    if (managerEditInventoryImage) managerEditInventoryImage.addEventListener('change', handleManagerEditStockImageUpload);
 
     // Manager delivery search
     const managerDeliverySearch = document.getElementById('managerDeliverySearch');
@@ -2714,5 +2833,5 @@ async function deleteAdminFeedback(id) {
     const result = await API.deleteFeedback(id);
     if (result.success) { showToast(result.message, 'success'); loadAdminFeedback(); }
     else showToast('❌ ' + result.message, 'error');
-  } catch (error) { showToast('❌ Failed to delete feedback', 'error'); }
-}
+  } catch (error) { showToast('❌ Failed to delete feedback', 'error'); } 
+} 

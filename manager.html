@@ -279,6 +279,15 @@
     <!-- ========== INVENTORY MODULE ========== -->
     <div id="inventoryModule" class="dashboard-module">
       <h2 style="font-size:1.5rem;font-weight:700;color:#111827;margin-bottom:1.5rem;">Inventory Management</h2>
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <button class="btn btn-accent" id="addManagerStockBtn" style="background:#7c3aed;border-color:#7c3aed;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          Add New Stock Item
+        </button>
+      </div>
       <div class="card">
         <h3 style="font-size:1.125rem;font-weight:600;color:#111827;margin-bottom:0.5rem;">Stock Levels</h3>
         <p style="font-size:0.875rem;color:#6b7280;margin-bottom:1rem;">View inventory levels and update stock quantities.</p>
@@ -343,6 +352,60 @@
     </div>
   </div>
 
+  <!-- Add Inventory Modal -->
+  <div id="managerAddInventoryModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title">Add New Stock Item</h3>
+        <button class="modal-close" data-close-modal="managerAddInventoryModal">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <form id="managerAddInventoryForm">
+          <div class="form-group">
+            <label class="form-label">Item Name</label>
+            <input type="text" id="managerStockName" class="form-input" placeholder="Enter item name" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Item Code</label>
+            <input type="text" id="managerStockItemCode" class="form-input" placeholder="Enter item code" required>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Category</label>
+              <select id="managerStockCategory" class="form-input" required>
+                <option value="">Select category</option>
+                <option value="Sofa">Sofa</option>
+                <option value="Table">Table</option>
+                <option value="Chair">Chair</option>
+                <option value="Bed">Bed</option>
+                <option value="Cabinet">Cabinet</option>
+                <option value="Desk">Desk</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Quantity</label>
+              <input type="number" id="managerStockQuantity" class="form-input" placeholder="0" min="0" required>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Image</label>
+            <input type="file" id="managerStockImage" class="form-input" accept="image/png, image/jpeg, image/jpg, image/webp">
+            <div id="managerStockImagePreview" style="display:none; margin-top:0.75rem;">
+              <img id="managerStockImagePreviewImg" src="" alt="Preview" style="max-width:150px; max-height:150px; border-radius:0.5rem; object-fit:cover;">
+            </div>
+          </div>
+          <div style="display:flex;gap:0.75rem;">
+            <button type="submit" class="btn btn-accent" style="flex:1;background:#7c3aed;border-color:#7c3aed;">Save Stock Item</button>
+            <button type="button" class="btn btn-secondary" data-close-modal="managerAddInventoryModal" style="flex:1;">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <!-- Edit Inventory Modal -->
   <div id="managerEditInventoryModal" class="modal">
     <div class="modal-content">
@@ -361,6 +424,10 @@
             <small style="color:#6b7280;font-size:0.875rem;">Item name cannot be edited</small>
           </div>
           <div class="form-group">
+            <label class="form-label">Item Code</label>
+            <input type="text" id="managerEditInventoryItemCode" class="form-input" placeholder="Enter item code" required>
+          </div>
+          <div class="form-group">
             <label class="form-label">Category</label>
             <select id="managerEditInventoryCategory" class="form-input" required>
               <option value="">Select category</option>
@@ -376,6 +443,16 @@
           <div class="form-group">
             <label class="form-label">Quantity</label>
             <input type="number" id="managerEditInventoryQuantity" class="form-input" min="0" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Image</label>
+            <input type="file" id="managerEditInventoryImage" class="form-input" accept="image/png, image/jpeg, image/jpg, image/webp">
+            <small style="color:#6b7280;font-size:0.875rem;">Leave empty to keep the current image</small>
+            <div id="managerEditInventoryImagePreview" style="display:none; margin-top:0.75rem;">
+              <img id="managerEditInventoryImagePreviewImg" src="" alt="Preview" style="max-width:150px; max-height:150px; border-radius:0.5rem; object-fit:cover;">
+            </div>
+          </div>
+          <div class="form-group">
             <small style="color:#6b7280;font-size:0.875rem;">Stock Status: <strong><span id="managerStockPreview">-</span></strong></small>
           </div>
           <div style="display:flex;gap:0.75rem;">

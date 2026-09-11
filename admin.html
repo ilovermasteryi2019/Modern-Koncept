@@ -600,7 +600,9 @@ admin.html
           <table>
             <thead>
               <tr>
+                <th>Image</th>
                 <th>Item Name</th>
+                <th>Item Code</th>
                 <th>Category</th>
                 <th>Quantity</th>
                 <th>Status</th>
@@ -1040,6 +1042,11 @@ admin.html
             <label class="form-label">Item Name</label>
             <input type="text" id="stockName" class="form-input" placeholder="Enter item name" required>
           </div>
+
+          <div class="form-group">
+            <label class="form-label">Item Code</label>
+            <input type="text" id="stockItemCode" class="form-input" placeholder="Enter item code" required>
+          </div>
           
           <div class="form-row">
             <div class="form-group">
@@ -1057,6 +1064,14 @@ admin.html
             <div class="form-group">
               <label class="form-label">Quantity</label>
               <input type="number" id="stockQuantity" class="form-input" placeholder="0" min="0" required>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Image</label>
+            <input type="file" id="stockImage" class="form-input" accept="image/png, image/jpeg, image/jpg, image/webp">
+            <div id="stockImagePreview" style="display:none; margin-top:0.75rem;">
+              <img id="stockImagePreviewImg" src="" alt="Preview" style="max-width:150px; max-height:150px; border-radius:0.5rem; object-fit:cover;">
             </div>
           </div>
           
