@@ -1543,13 +1543,15 @@ async function loadManagerInventoryList() {
       if (!container) return;
       container.innerHTML = '';
       if (result.data.length === 0) { container.innerHTML = '<p style="text-align:center;color:#9ca3af;padding:2rem;">No inventory items found</p>'; return; }
-      let tableHTML = `<div class="table-container"><table><thead><tr><th>Item Name</th><th>Category</th><th>Quantity</th><th>Stock Status</th><th>Last Updated</th><th>Actions</th></tr></thead><tbody>`;
+      let tableHTML = `<div class="table-container"><table><thead><tr><th>Image</th><th>Item Name</th><th>Item Code</th><th>Category</th><th>Quantity</th><th>Stock Status</th><th>Last Updated</th><th>Actions</th></tr></thead><tbody>`;
       result.data.forEach(item => {
         const status = item.quantity > 10 ? 'in-stock' : 'low-stock';
         const statusText = item.quantity > 10 ? 'In Stock' : 'Low Stock';
         tableHTML += `
           <tr>
+            <td>${item.image ? `<img src="${item.image}" alt="${item.name}" style="width:50px;height:50px;object-fit:cover;border-radius:0.375rem;">` : '<span style="color:#9ca3af;font-size:0.75rem;">No image</span>'}</td>
             <td>${item.name}</td>
+            <td style="font-family:monospace;font-size:0.8rem;">${item.item_code || '<span style="color:#9ca3af;">N/A</span>'}</td>
             <td>${item.category}</td>
             <td><strong>${item.quantity}</strong></td>
             <td><span class="stock-status ${status}">${statusText}</span></td>
