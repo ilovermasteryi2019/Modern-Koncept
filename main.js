@@ -829,12 +829,6 @@ function renderDeliveryTableForRole(deliveries, tbodyId, searchTerm) {
   }
 
   filtered.forEach(delivery => {
-    let statusColor = '#DC143C';
-    if (delivery.status === 'Delivered') statusColor = '#10b981';
-    else if (delivery.status === 'In Transit') statusColor = '#8b5cf6';
-    else if (delivery.status === 'Processing') statusColor = '#3b82f6';
-    else if (delivery.status === 'Pending') statusColor = '#f59e0b';
-
     const row = document.createElement('tr');
     row.innerHTML = `
       <td><strong>${delivery.ref_code}</strong></td>
@@ -842,7 +836,7 @@ function renderDeliveryTableForRole(deliveries, tbodyId, searchTerm) {
       <td>${delivery.contact_number || 'N/A'}</td>
       <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${delivery.address}</td>
       <td>${delivery.product || 'N/A'}</td>
-      <td><span style="padding:0.25rem 0.75rem;background:${statusColor};color:white;border-radius:9999px;display:inline-block;font-size:0.875rem;">${delivery.status || 'Pending'}</span></td>
+      <td><span style="color:#4b5563;font-size:0.875rem;">${delivery.status || 'Pending'}</span></td>
       <td>
         <select class="status-select" data-delivery-id="${delivery.id}" style="padding:0.375rem 0.75rem;border:2px solid #e5e7eb;border-radius:0.375rem;font-size:0.875rem;cursor:pointer;">
           <option value="Pending" ${delivery.status === 'Pending' ? 'selected' : ''}>Pending</option>
@@ -874,27 +868,18 @@ async function loadManagerDeliveryList() {
 }
 
 function getStatusBadge(status) {
-  const map = {
-    'pending': { color: '#f59e0b', bg: '#fef3c7', text: 'Pending' },
-    'processing': { color: '#3b82f6', bg: '#dbeafe', text: 'Processing' },
-    'in_transit': { color: '#8b5cf6', bg: '#ede9fe', text: 'In Transit' },
-    'delivered': { color: '#10b981', bg: '#d1fae5', text: 'Delivered' },
-    'Pending': { color: '#f59e0b', bg: '#fef3c7', text: 'Pending' },
-    'Processing': { color: '#3b82f6', bg: '#dbeafe', text: 'Processing' },
-    'In Transit': { color: '#8b5cf6', bg: '#ede9fe', text: 'In Transit' },
-    'Delivered': { color: '#10b981', bg: '#d1fae5', text: 'Delivered' }
+  const labels = {
+    'pending': 'Pending', 'processing': 'Processing',
+    'in_transit': 'In Transit', 'delivered': 'Delivered',
+    'Pending': 'Pending', 'Processing': 'Processing',
+    'In Transit': 'In Transit', 'Delivered': 'Delivered'
   };
-  const info = map[status] || { color: '#6b7280', bg: '#f3f4f6', text: status };
-  return `<span style="padding:0.25rem 0.75rem;background:${info.bg};color:${info.color};border-radius:9999px;font-size:0.75rem;font-weight:600;">${info.text}</span>`;
+  const text = labels[status] || status;
+  return `<span style="color:#4b5563;font-size:0.875rem;">${text}</span>`;
 }
 
 function getTypeBadge(type) {
-  const map = {
-    'Outbound': { color: '#0ea5e9', bg: '#e0f2fe', icon: '📦' },
-    'Inbound': { color: '#ec4899', bg: '#fce7f3', icon: '📥' }
-  };
-  const info = map[type] || { color: '#6b7280', bg: '#f3f4f6', icon: '📦' };
-  return `<span style="padding:0.25rem 0.75rem;background:${info.bg};color:${info.color};border-radius:9999px;font-size:0.75rem;font-weight:600;">${info.icon} ${type}</span>`;
+  return `<span style="color:#4b5563;font-size:0.875rem;">${type || 'N/A'}</span>`;
 }
 
 function openAddDeliveryModal() {
