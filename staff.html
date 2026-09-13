@@ -369,6 +369,7 @@
       <div class="dashboard-nav">
         <button class="dashboard-tab active" data-tab="reviews">Successful Purchase</button>
         <button class="dashboard-tab" data-tab="sales">Sales Records</button>
+        <button class="dashboard-tab" data-tab="inventory">Inventory</button>
       </div>
     </div>
   </section>
@@ -430,6 +431,32 @@
             </thead>
             <tbody id="staffReviewsList">
               <!-- Reviews will be loaded here -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Staff Inventory Module (Read-Only) -->
+    <div id="inventoryModule" class="dashboard-module">
+      <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Inventory</h2>
+      <div class="card">
+        <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 0.5rem;">Stock Levels</h3>
+        <p style="font-size: 0.875rem; color: #6b7280; margin-bottom: 1rem;">View-only. Contact Admin or Manager to make changes.</p>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Image</th>
+                <th>Item Code</th>
+                <th>Item Name</th>
+                <th>Category</th>
+                <th>Quantity</th>
+                <th>Stock Status</th>
+              </tr>
+            </thead>
+            <tbody id="staffInventoryList">
+              <!-- Inventory loaded here -->
             </tbody>
           </table>
         </div>

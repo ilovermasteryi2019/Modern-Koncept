@@ -1533,6 +1533,35 @@ async function deleteStaffAccount(id) {
 }
 
 // =============================================================================
+// =============================================================================
+// STAFF MODULE - INVENTORY (read-only)
+// =============================================================================
+async function loadStaffInventoryList() {
+  try {
+    const result = await API.getInventory();
+    const tbody = document.getElementById('staffInventoryList');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    if (!result.success || result.data.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#9ca3af;padding:2rem;">No inventory items found</td></tr>';
+      return;
+    }
+    result.data.forEach(item => {
+      const status = item.quantity > 10 ? 'in-stock' : 'low-stock';
+      const statusText = item.quantity > 10 ? 'In Stock' : 'Low Stock';
+      tbody.innerHTML += `
+        <tr>
+          <td>${item.image ? `<img src="${item.image}" alt="${item.name}" style="width:50px;height:50px;object-fit:cover;border-radius:0.375rem;">` : '<span style="color:#9ca3af;font-size:0.75rem;">No image</span>'}</td>
+          <td style="font-family:monospace;font-size:0.8rem;">${item.item_code || '<span style="color:#9ca3af;">N/A</span>'}</td>
+          <td>${item.name}</td>
+          <td>${item.category}</td>
+          <td><strong>${item.quantity}</strong></td>
+          <td><span class="stock-status ${status}">${statusText}</span></td>
+        </tr>`;
+    });
+  } catch (error) { showToast('❌ Failed to load inventory', 'error'); }
+}
+
 // MANAGER MODULE - INVENTORY (shared inventory data, different container)
 // =============================================================================
 async function loadManagerInventoryList() {
@@ -1676,6 +1705,7 @@ function initDashboardTabs() {
         else if (targetTab === 'business') loadBusinessInfo();
         else if (targetTab === 'inventory' && isAdmin) loadInventoryList();
         else if (targetTab === 'inventory' && isManager) loadManagerInventoryList();
+        else if (targetTab === 'inventory' && isStaff) loadStaffInventoryList();
         else if (targetTab === 'delivery' && isAdmin) { loadDeliveryList(); loadDeliveryStats(); }
         else if (targetTab === 'delivery' && isManager) { loadManagerDeliveryList(); loadDeliveryStats(); }
         else if (targetTab === 'sales' && isAdmin) { loadSalesList(); loadSalesAnalytics(); }
