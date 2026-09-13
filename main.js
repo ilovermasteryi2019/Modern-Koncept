@@ -2382,7 +2382,7 @@ function showTypingIndicator() {
 const CHATBOT_QUICK_ACTIONS = {
   'track-delivery': {
     userLabel: 'Track delivery',
-    response: 'Sure! You can track your delivery by entering your reference code on our Track Delivery page. Your reference code was provided after your order was confirmed.',
+    response: 'You can track your delivery by entering your reference code on our Track Delivery page. Your reference code was provided after your order was confirmed.',
     buttonText: 'Track Delivery',
     buttonHref: 'track-delivery.html'
   },
