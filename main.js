@@ -87,6 +87,7 @@ const API = {
   updateDelivery: async (id, data) => (await fetch(`${API_URL}/deliveries/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
   updateDeliveryStatus: async (id, status) => (await fetch(`${API_URL}/deliveries/${id}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) })).json(),
   deleteDelivery: async (id) => (await fetch(`${API_URL}/deliveries/${id}`, { method: 'DELETE' })).json(),
+  sendDeliverySms: async (id) => (await fetch(`${API_URL}/deliveries/${id}/send-sms`, { method: 'POST' })).json(),
   getSales: async () => (await fetch(`${API_URL}/sales`)).json(),
   createSales: async (data) => (await fetch(`${API_URL}/sales`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
   updateSales: async (id, data) => (await fetch(`${API_URL}/sales/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
@@ -775,17 +776,66 @@ async function loadDeliveryStats() {
   } catch (error) { console.error('Load delivery stats error:', error); }
 }
 
+// =============================================================================
+// SEND SMS (Admin & Manager Delivery Dashboards) — via Semaphore, through backend
+// =============================================================================
+let cachedDeliveries = []; // reused by openSmsModal so no extra fetch is needed
+let currentSmsDeliveryId = null;
+
+function buildSmsPreviewMessage(delivery) {
+  return `Hello ${delivery.customer_name}, your furniture delivery with reference ${delivery.ref_code} is currently ${delivery.status || 'Pending'}.\n\nThank you for choosing Modern Koncept Furniture Centre.`;
+}
+
+function openSmsModal(deliveryId) {
+  const delivery = cachedDeliveries.find(d => d.id === deliveryId);
+  if (!delivery) { showToast('Delivery record not found', 'error'); return; }
+  if (!delivery.contact_number) { showToast('Cannot send SMS: customer has no contact number.', 'error'); return; }
+
+  currentSmsDeliveryId = deliveryId;
+  document.getElementById('smsCustomerName').textContent = delivery.customer_name;
+  document.getElementById('smsContactNumber').textContent = delivery.contact_number;
+  document.getElementById('smsRefCode').textContent = delivery.ref_code;
+  document.getElementById('smsProduct').textContent = delivery.product || 'N/A';
+  document.getElementById('smsStatus').textContent = delivery.status || 'Pending';
+  document.getElementById('smsMessagePreview').value = buildSmsPreviewMessage(delivery);
+
+  const btn = document.getElementById('confirmSendSmsBtn');
+  if (btn) { btn.disabled = false; btn.textContent = 'Send SMS'; }
+  showModal('smsModal');
+}
+
+async function confirmSendSms() {
+  if (!currentSmsDeliveryId) return;
+  const btn = document.getElementById('confirmSendSmsBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending SMS...'; }
+  try {
+    const result = await API.sendDeliverySms(currentSmsDeliveryId);
+    if (result.success) {
+      showToast('SMS sent successfully.', 'success');
+      hideModal('smsModal');
+    } else {
+      showToast('❌ ' + (result.message || 'Failed to send SMS. Please try again.'), 'error');
+      if (btn) { btn.disabled = false; btn.textContent = 'Send SMS'; }
+    }
+  } catch (error) {
+    showToast('❌ Failed to send SMS. Please try again.', 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Send SMS'; }
+  }
+}
+
 async function loadDeliveryList() {
   try {
     const result = await API.getDeliveries();
     if (result.success) {
+      cachedDeliveries = result.data;
       const tbody = document.getElementById('adminDeliveryList');
       if (!tbody) return;
       tbody.innerHTML = '';
-      if (result.data.length === 0) { tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#9ca3af;">No deliveries found</td></tr>'; return; }
+      if (result.data.length === 0) { tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#9ca3af;">No deliveries found</td></tr>'; return; }
       result.data.forEach(item => {
         tbody.innerHTML += `
           <tr>
+            <td><button class="action-btn edit" onclick="openSmsModal(${item.id})" style="color:#2563eb;border-color:#2563eb;" title="Send SMS"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg> Send SMS</button></td>
             <td><strong>${item.ref_code}</strong></td>
             <td>${item.customer_name}</td>
             <td>${item.contact_number || 'N/A'}</td>
@@ -824,13 +874,14 @@ function renderDeliveryTableForRole(deliveries, tbodyId, searchTerm) {
   }
 
   if (filtered.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:2rem;color:#9ca3af;">No deliveries found</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:2rem;color:#9ca3af;">No deliveries found</td></tr>`;
     return;
   }
 
   filtered.forEach(delivery => {
     const row = document.createElement('tr');
     row.innerHTML = `
+      <td><button class="action-btn edit" onclick="openSmsModal(${delivery.id})" style="color:#2563eb;border-color:#2563eb;" title="Send SMS"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg> Send SMS</button></td>
       <td><strong>${delivery.ref_code}</strong></td>
       <td>${delivery.customer_name}</td>
       <td>${delivery.contact_number || 'N/A'}</td>
@@ -856,6 +907,7 @@ async function loadManagerDeliveryList() {
   try {
     const result = await API.getDeliveries();
     if (result.success) {
+      cachedDeliveries = result.data;
       const searchTerm = document.getElementById('managerDeliverySearch') ? document.getElementById('managerDeliverySearch').value : '';
       renderDeliveryTableForRole(result.data, 'managerDeliveryList', searchTerm);
       loadDeliveryStats();
@@ -863,7 +915,7 @@ async function loadManagerDeliveryList() {
   } catch (error) {
     showToast('Failed to load deliveries', 'error');
     const tbody = document.getElementById('managerDeliveryList');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#ef4444;">❌ Failed to load deliveries</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#ef4444;">❌ Failed to load deliveries</td></tr>';
   }
 }
 
@@ -1735,6 +1787,7 @@ document.addEventListener('DOMContentLoaded', () => {
     bind('addReviewBtn', openAddReviewModal);
     bind('addChatbotBtn', openAddChatbotModal);
     bind('logoutBtn', handleLogout);
+    bind('confirmSendSmsBtn', confirmSendSms);
 
     // ── Submit handlers ──
     const bindSubmit = (id, handler) => { const el = document.getElementById(id); if (el) el.addEventListener('submit', handler); };
@@ -1849,6 +1902,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Manager Add/Edit Inventory image + button wiring
     const addManagerStockBtn = document.getElementById('addManagerStockBtn');
     if (addManagerStockBtn) addManagerStockBtn.addEventListener('click', openAddManagerInventoryModal);
+
+    const confirmSendSmsBtn = document.getElementById('confirmSendSmsBtn');
+    if (confirmSendSmsBtn) confirmSendSmsBtn.addEventListener('click', confirmSendSms);
 
     const managerAddInventoryForm = document.getElementById('managerAddInventoryForm');
     if (managerAddInventoryForm) managerAddInventoryForm.addEventListener('submit', handleManagerAddInventorySubmit);
@@ -2851,4 +2907,4 @@ async function deleteAdminFeedback(id) {
     if (result.success) { showToast(result.message, 'success'); loadAdminFeedback(); }
     else showToast('❌ ' + result.message, 'error');
   } catch (error) { showToast('❌ Failed to delete feedback', 'error'); } 
-} 
+}

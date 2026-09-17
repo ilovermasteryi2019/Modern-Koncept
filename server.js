@@ -190,6 +190,62 @@ app.delete('/deliveries/:id', async (req, res) => {
 });
 
 // =============================================================================
+// SEND SMS (Admin & Manager Delivery Dashboards) — via Semaphore
+// =============================================================================
+app.post('/deliveries/:id/send-sms', async (req, res) => {
+  try {
+    const { data: delivery, error: fetchError } = await db.from('deliveries').select('*').eq('id', req.params.id).single();
+    if (fetchError || !delivery) return res.status(404).json({ success: false, message: 'Delivery not found' });
+
+    if (!delivery.contact_number) {
+      return res.status(400).json({ success: false, message: 'Cannot send SMS: customer has no contact number.' });
+    }
+
+    // Validate the number matches an acceptable Philippine mobile format (Semaphore's own examples use 09XXXXXXXXX)
+    const cleanedNumber = delivery.contact_number.replace(/[^0-9]/g, '');
+    const isValidPhoneNumber = /^(09\d{9}|639\d{9})$/.test(cleanedNumber);
+    if (!isValidPhoneNumber) {
+      return res.status(400).json({ success: false, message: 'Cannot send SMS: invalid contact number format.' });
+    }
+
+    if (!process.env.SEMAPHORE_API_KEY) {
+      console.error('❌ [Semaphore] SEMAPHORE_API_KEY is missing in .env configuration.');
+      return res.status(500).json({ success: false, message: 'SMS service is not configured.' });
+    }
+
+    const message = `Hello ${delivery.customer_name}, your furniture delivery with reference ${delivery.ref_code} is currently ${delivery.status || 'Pending'}.\n\nThank you for choosing Modern Koncept Furniture Centre.`;
+
+    const params = new URLSearchParams({
+      apikey: process.env.SEMAPHORE_API_KEY,
+      number: cleanedNumber,
+      message: message
+    });
+
+    const smsResponse = await fetch('https://api.semaphore.co/api/v4/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params
+    });
+
+    const smsResult = await smsResponse.json();
+
+    // Semaphore returns an array of message objects; a "Failed" status means the network rejected it
+    const failed = !smsResponse.ok || (Array.isArray(smsResult) && smsResult[0] && smsResult[0].status === 'Failed');
+    if (failed) {
+      console.error('❌ [Semaphore] SMS send failed:', smsResult);
+      return res.status(502).json({ success: false, message: 'Failed to send SMS. Please try again.' });
+    }
+
+    console.log(`✅ [Semaphore] SMS sent for delivery ${delivery.ref_code}`);
+    res.json({ success: true, message: 'SMS sent successfully.' });
+
+  } catch (err) {
+    console.error('❌ [Semaphore] Error sending SMS:', err.message);
+    res.status(500).json({ success: false, message: 'Failed to send SMS. Please try again.' });
+  }
+});
+
+// =============================================================================
 // SALES
 // =============================================================================
 app.get('/sales', async (req, res) => {

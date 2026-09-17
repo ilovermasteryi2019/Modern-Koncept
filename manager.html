@@ -174,6 +174,7 @@
           <table>
             <thead>
               <tr>
+                <th>Send SMS</th>
                 <th>Delivery ID</th>
                 <th>Customer</th>
                 <th>Contact</th>
@@ -460,6 +461,48 @@
             <button type="button" class="btn btn-secondary" data-close-modal="managerEditInventoryModal" style="flex:1;">Cancel</button>
           </div>
         </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Send SMS Modal -->
+  <div id="smsModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title">Send SMS</h3>
+        <button class="modal-close" data-close-modal="smsModal">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Customer</label>
+          <p id="smsCustomerName" style="font-weight:600;color:#111827;margin:0;"></p>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Contact Number</label>
+          <p id="smsContactNumber" style="font-weight:600;color:#111827;margin:0;"></p>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Reference Code</label>
+          <p id="smsRefCode" style="font-weight:600;color:#111827;margin:0;"></p>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Product</label>
+          <p id="smsProduct" style="font-weight:600;color:#111827;margin:0;"></p>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Current Status</label>
+          <p id="smsStatus" style="font-weight:600;color:#111827;margin:0;"></p>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Message</label>
+          <textarea id="smsMessagePreview" class="form-input" rows="4" readonly style="background:#f9fafb;resize:none;"></textarea>
+        </div>
+        <div style="display:flex;gap:0.75rem;">
+          <button type="button" class="btn btn-accent" id="confirmSendSmsBtn" style="flex:1;background:#7c3aed;border-color:#7c3aed;">Send SMS</button>
+          <button type="button" class="btn btn-secondary" data-close-modal="smsModal" style="flex:1;">Cancel</button>
+        </div>
       </div>
     </div>
   </div>
