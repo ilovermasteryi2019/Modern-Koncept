@@ -94,6 +94,7 @@ const API = {
   deleteSales: async (id) => (await fetch(`${API_URL}/sales/${id}`, { method: 'DELETE' })).json(),
   getReviews: async () => (await fetch(`${API_URL}/reviews`)).json(),
   createReview: async (data) => (await fetch(`${API_URL}/reviews`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
+  updateReview: async (id, data) => (await fetch(`${API_URL}/reviews/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
   deleteReview: async (id) => (await fetch(`${API_URL}/reviews/${id}`, { method: 'DELETE' })).json(),
   getStaff: async () => (await fetch(`${API_URL}/staff`)).json(),
   createStaff: async (data) => (await fetch(`${API_URL}/staff`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
@@ -1030,6 +1031,7 @@ async function loadSalesList() {
             <td>${item.product_name}</td>
             <td>${formatCurrency(item.amount)}</td>
             <td>
+              <button class="action-btn edit" onclick="editAdminSalesRecord(${item.id})" title="Edit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
               <button class="action-btn delete" onclick="deleteSales(${item.id})" title="Delete"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
             </td>
           </tr>`;
@@ -1349,6 +1351,23 @@ async function deleteSales(id) {
   } catch (error) { showToast('❌ Failed to delete sales record', 'error'); }
 }
 
+async function editAdminSalesRecord(id) {
+  try {
+    const result = await API.getSales();
+    if (result.success) {
+      const record = result.data.find(item => item.id === id);
+      if (record) {
+        document.getElementById('editAdminSalesId').value = record.id;
+        document.getElementById('editAdminSalesCustomer').value = record.customer_name;
+        document.getElementById('editAdminSalesProduct').value = record.product_name;
+        document.getElementById('editAdminSalesAmount').value = record.amount;
+        document.getElementById('editAdminSalesDate').value = record.sale_date.split('T')[0];
+        showModal('editAdminSalesModal');
+      }
+    }
+  } catch (error) { showToast('❌ Failed to load sales record', 'error'); }
+}
+
 // =============================================================================
 // REVIEWS MANAGEMENT
 // =============================================================================
@@ -1366,7 +1385,10 @@ async function loadReviewsList() {
             <td>${item.product_name}</td>
             <td>${item.review_text.substring(0, 80)}${item.review_text.length > 80 ? '...' : ''}</td>
             <td>${formatDate(item.review_date)}</td>
-            <td><button class="action-btn delete" onclick="deleteReview(${item.id})" title="Delete"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button></td>
+            <td>
+              <button class="action-btn edit" onclick="editAdminReview(${item.id})" title="Edit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
+              <button class="action-btn delete" onclick="deleteReview(${item.id})" title="Delete"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
+            </td>
           </tr>`;
       });
     }
@@ -1443,6 +1465,22 @@ async function deleteReview(id) {
     if (result.success) { showToast(result.message, 'success'); loadReviewsList(); }
     else showToast('❌ ' + result.message, 'error');
   } catch (error) { showToast('❌ Failed to delete review', 'error'); }
+}
+
+async function editAdminReview(id) {
+  try {
+    const result = await API.getReviews();
+    if (result.success) {
+      const record = result.data.find(item => item.id === id);
+      if (record) {
+        document.getElementById('editAdminReviewId').value = record.id;
+        document.getElementById('editAdminReviewProduct').value = record.product_name;
+        document.getElementById('editAdminReviewText').value = record.review_text;
+        document.getElementById('editAdminReviewDate').value = record.review_date ? record.review_date.split('T')[0] : '';
+        showModal('editAdminReviewModal');
+      }
+    }
+  } catch (error) { showToast('❌ Failed to load review', 'error'); }
 }
 
 async function deleteStaffReview(id) {
@@ -1799,6 +1837,36 @@ document.addEventListener('DOMContentLoaded', () => {
     bindSubmit('salesForm', handleSalesSubmit);
     bindSubmit('reviewForm', handleReviewSubmit);
     bindSubmit('chatbotForm', handleChatbotSubmit);
+    bindSubmit('editAdminSalesForm', async (e) => {
+      e.preventDefault();
+      const id = document.getElementById('editAdminSalesId').value;
+      const data = {
+        customer_name: document.getElementById('editAdminSalesCustomer').value,
+        product_name: document.getElementById('editAdminSalesProduct').value,
+        amount: document.getElementById('editAdminSalesAmount').value,
+        sale_date: document.getElementById('editAdminSalesDate').value
+      };
+      try {
+        const result = await API.updateSales(id, data);
+        if (result.success) { showToast('✅ Sales record updated', 'success'); hideModal('editAdminSalesModal'); loadSalesList(); loadSalesAnalytics(); }
+        else showToast('❌ ' + result.message, 'error');
+      } catch (err) { showToast('❌ Failed to update sales record', 'error'); }
+    });
+    bindSubmit('editAdminReviewForm', async (e) => {
+      e.preventDefault();
+      const id = document.getElementById('editAdminReviewId').value;
+      const reviewDate = document.getElementById('editAdminReviewDate').value;
+      const data = {
+        product_name: document.getElementById('editAdminReviewProduct').value,
+        review_text: document.getElementById('editAdminReviewText').value
+      };
+      if (reviewDate) data.review_date = reviewDate;
+      try {
+        const result = await API.updateReview(id, data);
+        if (result.success) { showToast('✅ Review updated', 'success'); hideModal('editAdminReviewModal'); loadReviewsList(); }
+        else showToast('❌ ' + result.message, 'error');
+      } catch (err) { showToast('❌ ' + (err.message || 'Failed to update review'), 'error'); }
+    });
 
     const furnitureImage = document.getElementById('furnitureImage');
     if (furnitureImage) furnitureImage.addEventListener('change', handleFurnitureImageUpload);

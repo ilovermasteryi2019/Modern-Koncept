@@ -306,6 +306,19 @@ app.post('/reviews', async (req, res) => {
   res.status(201).json({ success: true, message: 'Review added successfully', id: data.id });
 });
 
+app.put('/reviews/:id', async (req, res) => {
+  const { product_name, review_text, review_date } = req.body;
+  if (!product_name || !review_text) return res.status(400).json({ success: false, message: 'Product name and text are required' });
+  const updateData = { product_name, review_text };
+  if (review_date) updateData.review_date = review_date;
+  const { error } = await db.from('reviews').update(updateData).eq('id', req.params.id);
+  if (error) {
+    console.error('Review update error:', JSON.stringify(error));
+    return res.status(500).json({ success: false, message: error.message || error.details || error.hint || JSON.stringify(error) || 'Failed to update review' });
+  }
+  res.json({ success: true, message: 'Review updated successfully' });
+});
+
 app.delete('/reviews/:id', async (req, res) => {
   const { error } = await db.from('reviews').delete().eq('id', req.params.id);
   if (error) return res.status(500).json({ success: false, message: 'Failed to delete review' });
