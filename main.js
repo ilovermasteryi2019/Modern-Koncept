@@ -2903,7 +2903,7 @@ async function loadAdminInquiries() {
                 style="padding:0.25rem 0.5rem;border:1px solid ${color};border-radius:0.375rem;font-size:0.75rem;color:${color};background:${bg};cursor:pointer;font-weight:600;">
                 <option value="new" ${item.status === 'new' ? 'selected' : ''}>New</option>
                 <option value="read" ${item.status === 'read' ? 'selected' : ''}>Read</option>
-                <option value="replied" ${item.status === 'replied' ? 'selected' : ''}>Replied</option>
+                <option value="replied" ${item.status === 'replied' ? 'selected' : ''}>Responded</option>
               </select>
             </td>
             <td style="white-space:nowrap;">${formatDate(item.created_at)}</td>
