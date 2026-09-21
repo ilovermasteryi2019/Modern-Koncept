@@ -129,8 +129,8 @@ body {
 
 /* Footer Styles */
 .footer {
-  background: #111827;
-  color: white;
+  background: #e5e7eb;
+  color: black;
   margin-top: 4rem;
 }
 
@@ -153,7 +153,7 @@ body {
 }
 
 .footer-text {
-  color: #9ca3af;
+  color: black;
   font-size: 0.875rem;
 }
 
