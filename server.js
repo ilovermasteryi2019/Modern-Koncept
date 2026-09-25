@@ -293,7 +293,13 @@ app.get('/sales/monthly', async (req, res) => {
 // REVIEWS
 // =============================================================================
 app.get('/reviews', async (req, res) => {
-  const { data, error } = await db.from('reviews').select('*').order('review_date', { ascending: false });
+  const requestedLimit = Number.parseInt(req.query.limit, 10);
+  const limit = Number.isInteger(requestedLimit) && requestedLimit > 0
+    ? Math.min(requestedLimit, 100)
+    : null;
+  let query = db.from('reviews').select('*').order('review_date', { ascending: false });
+  if (limit) query = query.limit(limit);
+  const { data, error } = await query;
   if (error) return res.status(500).json({ success: false, message: 'Failed to fetch reviews' });
   res.json({ success: true, data });
 });
