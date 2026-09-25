@@ -92,7 +92,10 @@ const API = {
   createSales: async (data) => (await fetch(`${API_URL}/sales`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
   updateSales: async (id, data) => (await fetch(`${API_URL}/sales/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
   deleteSales: async (id) => (await fetch(`${API_URL}/sales/${id}`, { method: 'DELETE' })).json(),
-  getReviews: async () => (await fetch(`${API_URL}/reviews`)).json(),
+  getReviews: async (limit) => {
+    const query = Number.isInteger(limit) && limit > 0 ? `?limit=${limit}` : '';
+    return (await fetch(`${API_URL}/reviews${query}`)).json();
+  },
   createReview: async (data) => (await fetch(`${API_URL}/reviews`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
   updateReview: async (id, data) => (await fetch(`${API_URL}/reviews/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
   deleteReview: async (id) => (await fetch(`${API_URL}/reviews/${id}`, { method: 'DELETE' })).json(),
@@ -382,6 +385,89 @@ function displayNoProducts() {
   const productCount = document.getElementById('productCount');
   if (container) container.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:3rem;color:#9ca3af;"><h3>No Furniture Found</h3><p>Try adjusting your filters or check back later.</p></div>`;
   if (productCount) productCount.textContent = 'Showing 0 products';
+}
+
+// Public homepage Successful Purchases
+async function loadPublicSuccessfulPurchases() {
+  const section = document.getElementById('successfulPurchases');
+  const grid = document.getElementById('successfulPurchasesGrid');
+  if (!section || !grid) return;
+
+  try {
+    const result = await API.getReviews(6);
+    const reviews = result && result.success && Array.isArray(result.data)
+      ? result.data
+          .slice()
+          .sort((a, b) => new Date(b.review_date || 0) - new Date(a.review_date || 0))
+          .slice(0, 6)
+      : [];
+
+    if (reviews.length === 0) {
+      section.classList.add('hidden');
+      grid.replaceChildren();
+      return;
+    }
+
+    const cards = reviews.map(review => {
+      const card = document.createElement('article');
+      card.className = 'successful-purchase-card';
+
+      const imageArea = document.createElement('div');
+      imageArea.className = 'successful-purchase-image';
+
+      if (review.image) {
+        const image = document.createElement('img');
+        image.src = review.image;
+        image.alt = review.product_name ? `${review.product_name} successful purchase` : 'Successful furniture purchase';
+        image.loading = 'lazy';
+        image.addEventListener('error', () => {
+          image.remove();
+          imageArea.classList.add('image-unavailable');
+          imageArea.textContent = 'Image unavailable';
+        }, { once: true });
+        imageArea.appendChild(image);
+      } else {
+        imageArea.classList.add('image-unavailable');
+        imageArea.textContent = 'No image available';
+      }
+
+      const content = document.createElement('div');
+      content.className = 'successful-purchase-content';
+
+      const productName = document.createElement('h3');
+      productName.textContent = review.product_name || 'Furniture Purchase';
+
+      const description = document.createElement('p');
+      description.className = 'successful-purchase-description';
+      description.textContent = review.review_text || '';
+
+      const date = document.createElement('time');
+      date.className = 'successful-purchase-date';
+      if (review.review_date) {
+        const parsedDate = new Date(review.review_date);
+        if (!Number.isNaN(parsedDate.getTime())) {
+          date.dateTime = parsedDate.toISOString();
+          date.textContent = parsedDate.toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric'
+          });
+        }
+      }
+
+      content.append(productName, description);
+      if (date.textContent) content.appendChild(date);
+      card.append(imageArea, content);
+      return card;
+    });
+
+    grid.replaceChildren(...cards);
+    section.classList.remove('hidden');
+  } catch (error) {
+    console.error('Load successful purchases error:', error);
+    section.classList.add('hidden');
+    grid.replaceChildren();
+  }
 }
 
 function filterAndSortProducts() {
@@ -2048,6 +2134,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   if (window.location.pathname.includes('about')) loadAboutPageContent();
   if (window.location.pathname.includes('contact')) loadContactPageContent();
+  if (window.location.pathname === '/' || window.location.pathname.endsWith('/index.html')) {
+    loadPublicSuccessfulPurchases();
+  }
   if (window.location.pathname.includes('furniture-list')) { loadPublicFurnitureList(); initFurnitureListFilters(); }
   if (window.location.pathname.includes('furniture-detail')) {
     loadFurnitureDetail();
