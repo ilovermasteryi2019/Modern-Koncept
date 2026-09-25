@@ -1378,10 +1378,14 @@ async function loadReviewsList() {
       const tbody = document.getElementById('reviewsList');
       if (!tbody) return;
       tbody.innerHTML = '';
-      if (result.data.length === 0) { tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#9ca3af;">No reviews found</td></tr>'; return; }
+      if (result.data.length === 0) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#9ca3af;">No reviews found</td></tr>'; return; }
       result.data.forEach(item => {
+        const imageCell = item.image
+          ? `<img src="${item.image}" alt="${item.product_name}" style="width:60px;height:60px;object-fit:cover;border-radius:0.375rem;">`
+          : `<span style="color:#9ca3af;font-size:0.8rem;">No image</span>`;
         tbody.innerHTML += `
           <tr>
+            <td>${imageCell}</td>
             <td>${item.product_name}</td>
             <td>${item.review_text.substring(0, 80)}${item.review_text.length > 80 ? '...' : ''}</td>
             <td>${formatDate(item.review_date)}</td>
@@ -1419,11 +1423,29 @@ async function loadStaffReviewsList() {
   } catch (error) { showToast('❌ Failed to load reviews', 'error'); }
 }
 
+let currentReviewImage = null;
+
 function openAddReviewModal() {
   document.getElementById('reviewForm').reset();
+  currentReviewImage = null;
+  const preview = document.getElementById('reviewImagePreview');
+  if (preview) preview.style.display = 'none';
   const today = new Date().toISOString().split('T')[0];
   document.getElementById('reviewDate').value = today;
   showModal('reviewModal');
+}
+
+function handleReviewImageUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  if (!file.type.startsWith('image/')) { showToast('Please select an image file', 'warning'); event.target.value = ''; return; }
+  if (file.size > 5 * 1024 * 1024) { showToast('File too large. Max 5MB.', 'warning'); event.target.value = ''; return; }
+  fileToBase64(file).then(base64String => {
+    currentReviewImage = base64String;
+    const preview = document.getElementById('reviewImagePreview');
+    const previewImg = document.getElementById('reviewImagePreviewImg');
+    if (preview && previewImg) { previewImg.src = base64String; preview.style.display = 'block'; }
+  });
 }
 
 async function handleReviewSubmit(event) {
@@ -1433,7 +1455,8 @@ async function handleReviewSubmit(event) {
     reviewer_name: 'Admin',
     rating: 5,
     review_text: document.getElementById('reviewTextInput').value,
-    review_date: document.getElementById('reviewDate').value
+    review_date: document.getElementById('reviewDate').value,
+    image: currentReviewImage || ''
   };
   try {
     const result = await API.createReview(data);
@@ -1477,10 +1500,30 @@ async function editAdminReview(id) {
         document.getElementById('editAdminReviewProduct').value = record.product_name;
         document.getElementById('editAdminReviewText').value = record.review_text;
         document.getElementById('editAdminReviewDate').value = record.review_date ? record.review_date.split('T')[0] : '';
+        currentReviewImage = null; // only set when a NEW file is picked; existing image is preserved otherwise
+        const imageInput = document.getElementById('editAdminReviewImage');
+        if (imageInput) imageInput.value = '';
+        const preview = document.getElementById('editAdminReviewImagePreview');
+        const previewImg = document.getElementById('editAdminReviewImagePreviewImg');
+        if (record.image && preview && previewImg) { previewImg.src = record.image; preview.style.display = 'block'; }
+        else if (preview) { preview.style.display = 'none'; }
         showModal('editAdminReviewModal');
       }
     }
   } catch (error) { showToast('❌ Failed to load review', 'error'); }
+}
+
+function handleEditReviewImageUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  if (!file.type.startsWith('image/')) { showToast('Please select an image file', 'warning'); event.target.value = ''; return; }
+  if (file.size > 5 * 1024 * 1024) { showToast('File too large. Max 5MB.', 'warning'); event.target.value = ''; return; }
+  fileToBase64(file).then(base64String => {
+    currentReviewImage = base64String;
+    const preview = document.getElementById('editAdminReviewImagePreview');
+    const previewImg = document.getElementById('editAdminReviewImagePreviewImg');
+    if (preview && previewImg) { previewImg.src = base64String; preview.style.display = 'block'; }
+  });
 }
 
 async function deleteStaffReview(id) {
@@ -1861,6 +1904,7 @@ document.addEventListener('DOMContentLoaded', () => {
         review_text: document.getElementById('editAdminReviewText').value
       };
       if (reviewDate) data.review_date = reviewDate;
+      if (currentReviewImage) data.image = currentReviewImage; // only send if a new image was picked, so the existing one is preserved otherwise
       try {
         const result = await API.updateReview(id, data);
         if (result.success) { showToast('✅ Review updated', 'success'); hideModal('editAdminReviewModal'); loadReviewsList(); }
@@ -1873,6 +1917,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const stockImage = document.getElementById('stockImage');
     if (stockImage) stockImage.addEventListener('change', handleStockImageUpload);
+
+    const reviewImage = document.getElementById('reviewImage');
+    if (reviewImage) reviewImage.addEventListener('change', handleReviewImageUpload);
+
+    const editAdminReviewImage = document.getElementById('editAdminReviewImage');
+    if (editAdminReviewImage) editAdminReviewImage.addEventListener('change', handleEditReviewImageUpload);
   }
 
   // ---- STAFF PAGE ----

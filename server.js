@@ -299,18 +299,19 @@ app.get('/reviews', async (req, res) => {
 });
 
 app.post('/reviews', async (req, res) => {
-  const { product_name, reviewer_name, rating, review_text, review_date } = req.body;
+  const { product_name, reviewer_name, rating, review_text, review_date, image } = req.body;
   if (!product_name || !reviewer_name || !rating || !review_text) return res.status(400).json({ success: false, message: 'All fields are required' });
-  const { data, error } = await db.from('reviews').insert({ product_name, reviewer_name, rating, review_text, review_date: review_date || new Date() }).select().single();
+  const { data, error } = await db.from('reviews').insert({ product_name, reviewer_name, rating, review_text, review_date: review_date || new Date(), image: image || '' }).select().single();
   if (error) return res.status(500).json({ success: false, message: 'Failed to add review' });
   res.status(201).json({ success: true, message: 'Review added successfully', id: data.id });
 });
 
 app.put('/reviews/:id', async (req, res) => {
-  const { product_name, review_text, review_date } = req.body;
+  const { product_name, review_text, review_date, image } = req.body;
   if (!product_name || !review_text) return res.status(400).json({ success: false, message: 'Product name and text are required' });
   const updateData = { product_name, review_text };
   if (review_date) updateData.review_date = review_date;
+  if (image !== undefined) updateData.image = image;
   const { error } = await db.from('reviews').update(updateData).eq('id', req.params.id);
   if (error) {
     console.error('Review update error:', JSON.stringify(error));
