@@ -61,6 +61,12 @@ function showToast(message, type = 'info', duration = 4000) {
 let revenueBarChartInstance = null;
 let salesLineChartInstance = null;
 
+// Adds the login token (issued by the backend at login) so the backend can verify the user's role
+function authHeaders(extra = {}) {
+  const token = sessionStorage.getItem('authToken');
+  return token ? { ...extra, Authorization: `Bearer ${token}` } : extra;
+}
+
 // =============================================================================
 // API OBJECT
 // =============================================================================
@@ -83,11 +89,11 @@ const API = {
   deleteInventory: async (id) => (await fetch(`${API_URL}/inventory/${id}`, { method: 'DELETE' })).json(),
   getDeliveries: async () => (await fetch(`${API_URL}/deliveries`)).json(),
   trackDelivery: async (refCode) => (await fetch(`${API_URL}/deliveries/track/${refCode}`)).json(),
-  createDelivery: async (data) => (await fetch(`${API_URL}/deliveries`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
-  updateDelivery: async (id, data) => (await fetch(`${API_URL}/deliveries/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
-  updateDeliveryStatus: async (id, status) => (await fetch(`${API_URL}/deliveries/${id}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) })).json(),
-  deleteDelivery: async (id) => (await fetch(`${API_URL}/deliveries/${id}`, { method: 'DELETE' })).json(),
-  sendDeliverySms: async (id) => (await fetch(`${API_URL}/deliveries/${id}/send-sms`, { method: 'POST' })).json(),
+  createDelivery: async (data) => (await fetch(`${API_URL}/deliveries`, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(data) })).json(),
+  updateDelivery: async (id, data) => (await fetch(`${API_URL}/deliveries/${id}`, { method: 'PUT', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(data) })).json(),
+  updateDeliveryStatus: async (id, status) => (await fetch(`${API_URL}/deliveries/${id}/status`, { method: 'PATCH', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ status }) })).json(),
+  deleteDelivery: async (id) => (await fetch(`${API_URL}/deliveries/${id}`, { method: 'DELETE', headers: authHeaders() })).json(),
+  sendDeliverySms: async (id) => (await fetch(`${API_URL}/deliveries/${id}/send-sms`, { method: 'POST', headers: authHeaders() })).json(),
   getSales: async () => (await fetch(`${API_URL}/sales`)).json(),
   createSales: async (data) => (await fetch(`${API_URL}/sales`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
   updateSales: async (id, data) => (await fetch(`${API_URL}/sales/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
@@ -227,6 +233,7 @@ async function handleLogin(event) {
     const result = await API.login(email, password);
     if (result.success) {
       sessionStorage.setItem('currentUser', JSON.stringify(result.user));
+      sessionStorage.setItem('authToken', result.token || '');
       showToast('Login successful!', 'success');
       setTimeout(() => {
         const role = result.user.role;
@@ -248,6 +255,7 @@ async function handleLogin(event) {
 
 function handleLogout() {
   sessionStorage.removeItem('currentUser');
+  sessionStorage.removeItem('authToken');
   window.location.href = 'login.html';
 }
 
@@ -961,7 +969,7 @@ function renderDeliveryTableForRole(deliveries, tbodyId, searchTerm) {
   }
 
   if (filtered.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:2rem;color:#9ca3af;">No deliveries found</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:2rem;color:#9ca3af;">No deliveries found</td></tr>`;
     return;
   }
 
@@ -974,6 +982,7 @@ function renderDeliveryTableForRole(deliveries, tbodyId, searchTerm) {
       <td>${delivery.contact_number || 'N/A'}</td>
       <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${delivery.address}</td>
       <td>${delivery.product || 'N/A'}</td>
+      <td>${formatDate(delivery.delivery_date)}</td>
       <td><span style="color:#4b5563;font-size:0.875rem;">${delivery.status || 'Pending'}</span></td>
       <td>
         <select class="status-select" data-delivery-id="${delivery.id}" style="padding:0.375rem 0.75rem;border:2px solid #e5e7eb;border-radius:0.375rem;font-size:0.875rem;cursor:pointer;">
@@ -1002,7 +1011,7 @@ async function loadManagerDeliveryList() {
   } catch (error) {
     showToast('Failed to load deliveries', 'error');
     const tbody = document.getElementById('managerDeliveryList');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#ef4444;">❌ Failed to load deliveries</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#ef4444;">❌ Failed to load deliveries</td></tr>';
   }
 }
 
@@ -1030,6 +1039,8 @@ function openAddDeliveryModal() {
 
 async function handleDeliverySubmit(event) {
   event.preventDefault();
+  // Managers may only ADD deliveries; editing existing delivery fields is Admin-only (also enforced by the backend)
+  if (window.location.pathname.includes('manager') && editingDeliveryId) { showToast('Managers can only update delivery status.', 'error'); return; }
   const data = {
     customer_name: document.getElementById('deliveryCustomer').value,
     contact_number: document.getElementById('deliveryContactNumber').value,
@@ -1044,7 +1055,8 @@ async function handleDeliverySubmit(event) {
     if (result.success) {
       showToast('✅ ' + result.message + (result.ref_code ? ` Reference Code: ${result.ref_code}` : ''), 'success');
       hideModal('deliveryModal');
-      loadDeliveryList();
+      if (window.location.pathname.includes('manager')) loadManagerDeliveryList();
+      else loadDeliveryList();
       loadDeliveryStats();
     } else {
       alert('❌ ' + result.message);
@@ -2118,6 +2130,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const managerEditInventoryImage = document.getElementById('managerEditInventoryImage');
     if (managerEditInventoryImage) managerEditInventoryImage.addEventListener('change', handleManagerEditStockImageUpload);
+
+    // Manager Add Delivery (reuses the existing Add Delivery handlers; status updates use the table dropdown)
+    const addManagerDeliveryBtn = document.getElementById('addManagerDeliveryBtn');
+    if (addManagerDeliveryBtn) addManagerDeliveryBtn.addEventListener('click', openAddDeliveryModal);
+    const managerDeliveryForm = document.getElementById('deliveryForm');
+    if (managerDeliveryForm) managerDeliveryForm.addEventListener('submit', handleDeliverySubmit);
 
     // Manager delivery search
     const managerDeliverySearch = document.getElementById('managerDeliverySearch');
