@@ -93,6 +93,20 @@ app.post('/login', async (req, res) => {
 // =============================================================================
 // FURNITURE
 // =============================================================================
+// Validates the optional discounted_price against the regular price.
+// Returns { ok: true, value } where value is a number or null (no discount),
+// or { ok: false, message } when the input is invalid.
+function parseDiscountedPrice(rawDiscount, regularPrice) {
+  if (rawDiscount === undefined || rawDiscount === null || String(rawDiscount).trim() === '') return { ok: true, value: null };
+  const discount = Number(rawDiscount);
+  if (!Number.isFinite(discount)) return { ok: false, message: 'Discounted price must be a valid number' };
+  if (discount <= 0) return { ok: false, message: 'Discounted price must be greater than 0' };
+  const regular = Number(regularPrice);
+  if (!Number.isFinite(regular)) return { ok: false, message: 'Regular price must be a valid number' };
+  if (discount >= regular) return { ok: false, message: 'Discounted price must be lower than the regular price' };
+  return { ok: true, value: discount };
+}
+
 app.get('/products', async (req, res) => {
   const { data, error } = await db.from('furniture').select('*').order('id', { ascending: false });
   if (error) return res.status(500).json({ success: false, message: 'Failed to fetch furniture', error: error.message });
@@ -106,16 +120,20 @@ app.get('/products/:id', async (req, res) => {
 });
 
 app.post('/add-product', async (req, res) => {
-  const { name, category, price, material, dimensions, description, image } = req.body;
+  const { name, category, price, material, dimensions, description, image, discounted_price } = req.body;
   if (!name || !category || !price) return res.status(400).json({ success: false, message: 'Name, category, and price are required' });
-  const { data, error } = await db.from('furniture').insert({ name, category, price, material: material || '', dimensions: dimensions || '', description: description || '', image: image || '' }).select().single();
+  const discount = parseDiscountedPrice(discounted_price, price);
+  if (!discount.ok) return res.status(400).json({ success: false, message: discount.message });
+  const { data, error } = await db.from('furniture').insert({ name, category, price, discounted_price: discount.value, material: material || '', dimensions: dimensions || '', description: description || '', image: image || '' }).select().single();
   if (error) return res.status(500).json({ success: false, message: 'Failed to add furniture' });
   res.status(201).json({ success: true, message: 'Furniture added successfully', id: data.id });
 });
 
 app.put('/products/:id', async (req, res) => {
-  const { name, category, price, material, dimensions, description, image } = req.body;
-  const { error } = await db.from('furniture').update({ name, category, price, material, dimensions, description, image }).eq('id', req.params.id);
+  const { name, category, price, material, dimensions, description, image, discounted_price } = req.body;
+  const discount = parseDiscountedPrice(discounted_price, price);
+  if (!discount.ok) return res.status(400).json({ success: false, message: discount.message });
+  const { error } = await db.from('furniture').update({ name, category, price, discounted_price: discount.value, material, dimensions, description, image }).eq('id', req.params.id);
   if (error) return res.status(500).json({ success: false, message: 'Failed to update furniture' });
   res.json({ success: true, message: 'Furniture updated successfully' });
 });

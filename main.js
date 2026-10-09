@@ -137,6 +137,34 @@ function formatCurrency(amount) {
   return '₱' + num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// Discount helpers: a product is discounted only when discounted_price is not null AND lower than price.
+function getDiscountInfo(product) {
+  const regular = parseFloat(product && product.price);
+  const rawDiscount = product ? product.discounted_price : null;
+  if (rawDiscount === null || rawDiscount === undefined || rawDiscount === '') return { isDiscounted: false, regular, final: regular, percent: 0 };
+  const discounted = parseFloat(rawDiscount);
+  if (isNaN(regular) || isNaN(discounted) || discounted <= 0 || discounted >= regular) return { isDiscounted: false, regular, final: regular, percent: 0 };
+  return { isDiscounted: true, regular, final: discounted, percent: Math.round(((regular - discounted) / regular) * 100) };
+}
+
+function getEffectivePrice(product) {
+  return getDiscountInfo(product).final;
+}
+
+// Price block used by customer-facing cards (furniture list + homepage Special Offers).
+function renderPriceHTML(product) {
+  const info = getDiscountInfo(product);
+  if (!info.isDiscounted) {
+    return `<span style="font-size:1.25rem;font-weight:700;color:#DC143C;">${formatCurrency(info.regular)}</span>`;
+  }
+  return `
+    <div style="display:flex;flex-direction:column;gap:0.15rem;">
+      <span style="font-size:0.9rem;color:#9ca3af;text-decoration:line-through;">${formatCurrency(info.regular)}</span>
+      <span style="font-size:1.25rem;font-weight:700;color:#DC143C;">${formatCurrency(info.final)}</span>
+    </div>
+    <span style="background:#DC143C;color:#fff;font-size:0.75rem;font-weight:700;padding:0.25rem 0.6rem;border-radius:9999px;white-space:nowrap;">${info.percent}% OFF</span>`;
+}
+
 function formatDate(dateStr) {
   if (!dateStr) return 'N/A';
   return new Date(dateStr).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
@@ -294,7 +322,7 @@ function renderAdminFurnitureTable(items) {
         <td>${item.category}</td>
         <td>${item.material || 'N/A'}</td>
         <td>${item.dimensions || 'N/A'}</td>
-        <td>${formatCurrency(item.price)}</td>
+        <td>${(() => { const d = getDiscountInfo(item); return d.isDiscounted ? `<span style="text-decoration:line-through;color:#9ca3af;font-size:0.85rem;">${formatCurrency(d.regular)}</span><br><strong style="color:#DC143C;">${formatCurrency(d.final)}</strong> <span style="font-size:0.75rem;color:#DC143C;">(${d.percent}% OFF)</span>` : formatCurrency(item.price); })()}</td>
         <td>
           <button class="action-btn edit" onclick="editFurniture(${item.id})" title="Edit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
           <button class="action-btn delete" onclick="deleteFurniture(${item.id})" title="Delete"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
@@ -377,7 +405,7 @@ function displayFurnitureProducts(products) {
         <p style="color:#6b7280;font-size:0.875rem;margin-bottom:0.5rem;">${product.category}</p>
         ${product.material ? `<p style="color:#9ca3af;font-size:0.75rem;margin-bottom:0.75rem;">Material: ${product.material}</p>` : ''}
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:1rem;">
-          <span style="font-size:1.25rem;font-weight:700;color:#DC143C;">${formatCurrency(product.price)}</span>
+          ${renderPriceHTML(product)}
         </div>
         ${product.description ? `<p style="color:#6b7280;font-size:0.875rem;margin-top:0.75rem;">${product.description.substring(0, 80)}${product.description.length > 80 ? '...' : ''}</p>` : ''}
       </div>`;
@@ -478,6 +506,47 @@ async function loadPublicSuccessfulPurchases() {
   }
 }
 
+// Public homepage Special Offers (discounted furniture only)
+async function loadSpecialOffers() {
+  const section = document.getElementById('specialOffers');
+  const grid = document.getElementById('specialOffersGrid');
+  if (!section || !grid) return;
+  try {
+    const result = await API.getFurniture();
+    const offers = result && result.success && Array.isArray(result.data)
+      ? result.data.filter(p => getDiscountInfo(p).isDiscounted).slice(0, 6)
+      : [];
+    if (offers.length === 0) {
+      section.classList.add('hidden');
+      grid.replaceChildren();
+      return;
+    }
+    grid.replaceChildren();
+    offers.forEach(product => {
+      const card = document.createElement('div');
+      card.className = 'product-card';
+      card.style.cursor = 'pointer';
+      card.innerHTML = `
+        <img src="${product.image || 'placeholder-furniture.jpg'}" alt="${product.name}" class="product-image" onerror="this.src='placeholder-furniture.jpg'">
+        <div style="padding:1.5rem;">
+          <h3 style="font-size:1.125rem;font-weight:600;margin-bottom:0.5rem;color:#1f2937;">${product.name}</h3>
+          <p style="color:#6b7280;font-size:0.875rem;margin-bottom:0.5rem;">${product.category || ''}</p>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:1rem;gap:0.5rem;">
+            ${renderPriceHTML(product)}
+          </div>
+          <a href="furniture-detail.html?id=${product.id}" class="btn btn-accent" style="display:block;text-align:center;margin-top:1rem;text-decoration:none;" onclick="event.stopPropagation()">View Furniture</a>
+        </div>`;
+      card.addEventListener('click', () => { window.location.href = `furniture-detail.html?id=${product.id}`; });
+      grid.appendChild(card);
+    });
+    section.classList.remove('hidden');
+  } catch (error) {
+    console.error('Load special offers error:', error);
+    section.classList.add('hidden');
+    grid.replaceChildren();
+  }
+}
+
 function filterAndSortProducts() {
   let filtered = [...allFurnitureProducts];
   const searchInput = document.getElementById('searchInput');
@@ -487,27 +556,30 @@ function filterAndSortProducts() {
   }
   const categoryFilter = document.getElementById('categoryFilter');
   if (categoryFilter && categoryFilter.value !== 'all') filtered = filtered.filter(p => p.category === categoryFilter.value);
+  const discountFilter = document.getElementById('discountFilter');
+  if (discountFilter && discountFilter.value === 'discounted') filtered = filtered.filter(p => getDiscountInfo(p).isDiscounted);
+  else if (discountFilter && discountFilter.value === 'regular') filtered = filtered.filter(p => !getDiscountInfo(p).isDiscounted);
   const priceFilter = document.getElementById('priceFilter');
   if (priceFilter && priceFilter.value !== 'all') {
     const r = priceFilter.value;
-    if (r === '0-10000') filtered = filtered.filter(p => p.price < 10000);
-    else if (r === '10000-20000') filtered = filtered.filter(p => p.price >= 10000 && p.price <= 20000);
-    else if (r === '20000-50000') filtered = filtered.filter(p => p.price >= 20000 && p.price <= 50000);
-    else if (r === '50000+') filtered = filtered.filter(p => p.price > 50000);
+    if (r === '0-10000') filtered = filtered.filter(p => getEffectivePrice(p) < 10000);
+    else if (r === '10000-20000') filtered = filtered.filter(p => getEffectivePrice(p) >= 10000 && getEffectivePrice(p) <= 20000);
+    else if (r === '20000-50000') filtered = filtered.filter(p => getEffectivePrice(p) >= 20000 && getEffectivePrice(p) <= 50000);
+    else if (r === '50000+') filtered = filtered.filter(p => getEffectivePrice(p) > 50000);
   }
   const sortFilter = document.getElementById('sortFilter');
   if (sortFilter) {
     const s = sortFilter.value;
     if (s === 'name-asc') filtered.sort((a, b) => a.name.localeCompare(b.name));
     else if (s === 'name-desc') filtered.sort((a, b) => b.name.localeCompare(a.name));
-    else if (s === 'price-asc') filtered.sort((a, b) => a.price - b.price);
-    else if (s === 'price-desc') filtered.sort((a, b) => b.price - a.price);
+    else if (s === 'price-asc') filtered.sort((a, b) => getEffectivePrice(a) - getEffectivePrice(b));
+    else if (s === 'price-desc') filtered.sort((a, b) => getEffectivePrice(b) - getEffectivePrice(a));
   }
   displayFurnitureProducts(filtered);
 }
 
 function initFurnitureListFilters() {
-  ['searchInput', 'categoryFilter', 'priceFilter', 'sortFilter'].forEach(id => {
+  ['searchInput', 'categoryFilter', 'priceFilter', 'discountFilter', 'sortFilter'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener(id === 'searchInput' ? 'input' : 'change', filterAndSortProducts);
   });
@@ -539,7 +611,14 @@ function displayFurnitureDetail(product) {
   if (productImage) { productImage.src = product.image || 'placeholder-furniture.jpg'; productImage.alt = product.name; productImage.onerror = function() { this.src = 'placeholder-furniture.jpg'; }; }
   setEl('productName', product.name);
   const productPrice = document.getElementById('productPrice');
-  if (productPrice) productPrice.textContent = formatCurrency(product.price);
+  if (productPrice) {
+    const info = getDiscountInfo(product);
+    if (info.isDiscounted) {
+      productPrice.innerHTML = `<span style="font-size:1rem;color:#9ca3af;text-decoration:line-through;margin-right:0.5rem;">${formatCurrency(info.regular)}</span>${formatCurrency(info.final)} <span style="background:#DC143C;color:#fff;font-size:0.8rem;font-weight:700;padding:0.2rem 0.6rem;border-radius:9999px;vertical-align:middle;">${info.percent}% OFF</span>`;
+    } else {
+      productPrice.textContent = formatCurrency(product.price);
+    }
+  }
   setEl('productCategory', product.category || 'N/A');
   setEl('productMaterial', product.material || 'N/A');
   setEl('productDimensions', product.dimensions || 'N/A');
@@ -552,7 +631,7 @@ function openAddFurnitureModal() {
   document.getElementById('furnitureModalTitle').textContent = 'Add New Furniture';
   document.getElementById('furnitureForm').reset();
   currentFurnitureImage = null;
-  ['furnitureLength', 'furnitureWidth', 'furnitureHeight'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  ['furnitureLength', 'furnitureWidth', 'furnitureHeight', 'furnitureDiscountedPrice'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   const preview = document.getElementById('furnitureImagePreview');
   if (preview) preview.style.display = 'none';
   showModal('furnitureModal');
@@ -580,10 +659,20 @@ async function handleFurnitureSubmit(event) {
     showToast('Please enter valid dimensions (all values must be greater than 0)', 'warning');
     return;
   }
+  const regularPrice = parseFloat(document.getElementById('furniturePrice').value);
+  const discountRaw = (document.getElementById('furnitureDiscountedPrice') || { value: '' }).value.trim();
+  let discountedPrice = null;
+  if (discountRaw !== '') {
+    discountedPrice = Number(discountRaw);
+    if (!Number.isFinite(discountedPrice)) { showToast('Discounted price must be a valid number', 'warning'); return; }
+    if (discountedPrice <= 0) { showToast('Discounted price must be greater than 0', 'warning'); return; }
+    if (discountedPrice >= regularPrice) { showToast('Discounted price must be lower than the regular price', 'warning'); return; }
+  }
   const data = {
     name: document.getElementById('furnitureName').value,
     category: document.getElementById('furnitureCategory').value,
-    price: parseFloat(document.getElementById('furniturePrice').value),
+    price: regularPrice,
+    discounted_price: discountedPrice,
     material: document.getElementById('furnitureMaterial').value,
     dimensions: `${length}cm x ${width}cm x ${height}cm`,
     description: document.getElementById('furnitureDescription').value,
@@ -607,6 +696,8 @@ async function editFurniture(id) {
       document.getElementById('furnitureName').value = item.name;
       document.getElementById('furnitureCategory').value = item.category;
       document.getElementById('furniturePrice').value = item.price;
+      const discountInput = document.getElementById('furnitureDiscountedPrice');
+      if (discountInput) discountInput.value = (item.discounted_price !== null && item.discounted_price !== undefined) ? item.discounted_price : '';
       document.getElementById('furnitureMaterial').value = item.material || '';
       if (item.dimensions) {
         const parts = item.dimensions.split(' x ');
@@ -2154,6 +2245,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (window.location.pathname.includes('contact')) loadContactPageContent();
   if (window.location.pathname === '/' || window.location.pathname.endsWith('/index.html')) {
     loadPublicSuccessfulPurchases();
+    loadSpecialOffers();
   }
   if (window.location.pathname.includes('furniture-list')) { loadPublicFurnitureList(); initFurnitureListFilters(); }
   if (window.location.pathname.includes('furniture-detail')) {

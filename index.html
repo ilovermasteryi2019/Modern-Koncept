@@ -5,6 +5,32 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Modern Koncept  - Home</title>
   <link rel="stylesheet" href="styles.css">
+  <style>
+    /* Special Offers (homepage) */
+    .special-offers-heading { text-align: center; margin-bottom: 2rem; }
+    .special-offers-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 1.5rem;
+    }
+    .special-offers-grid .product-card {
+      background: white;
+      border-radius: 0.75rem;
+      overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      transition: all 0.3s;
+    }
+    .special-offers-grid .product-card:hover {
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+      transform: translateY(-4px);
+    }
+    .special-offers-grid .product-image {
+      width: 100%;
+      height: 220px;
+      object-fit: cover;
+      border-bottom: 1px solid #e5e7eb;
+    }
+  </style>
 </head>
 <body>
   <!-- Header -->
@@ -147,6 +173,15 @@
     </div>
   </section>
 
+  <!-- Special Offers Section (filled automatically with discounted furniture) -->
+  <section id="specialOffers" class="section section-white hidden" aria-labelledby="specialOffersTitle">
+    <div class="special-offers-heading">
+      <h2 id="specialOffersTitle" class="section-title">🔥 Special Offers</h2>
+      <p class="section-subtitle">Limited-time deals on selected furniture</p>
+    </div>
+    <div id="specialOffersGrid" class="special-offers-grid" aria-live="polite"></div>
+  </section>
+
   <!-- Successful Purchases Section -->
   <section id="successfulPurchases" class="section section-white successful-purchases-section hidden" aria-labelledby="successfulPurchasesTitle">
     <div class="successful-purchases-heading">
@@ -182,4 +217,3 @@
   <script src="main.js"></script>
 </body>
 </html>
-
