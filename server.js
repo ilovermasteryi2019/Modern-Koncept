@@ -224,7 +224,7 @@ app.get('/deliveries/stats', async (req, res) => {
   res.json({ success: true, data: stats });
 });
 
-app.post('/deliveries', requireRole('admin', 'manager'), async (req, res) => {
+app.post('/deliveries', requireRole('admin', 'manager', 'staff'), async (req, res) => {
   const { customer_name, contact_number, address, product, status, delivery_type, delivery_date } = req.body;
   if (!customer_name || !address) return res.status(400).json({ success: false, message: 'Customer name and address are required' });
   if (status && !['Pending', 'Processing', 'In Transit', 'Delivered'].includes(status)) return res.status(400).json({ success: false, message: 'Invalid status' });

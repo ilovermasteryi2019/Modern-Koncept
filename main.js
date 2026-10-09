@@ -1009,6 +1009,71 @@ async function confirmSendSms() {
   }
 }
 
+// ---- STAFF DELIVERY (view + add only; same table/API as Admin & Manager) ----
+async function loadStaffDeliveryList() {
+  const tbody = document.getElementById('staffDeliveryList');
+  if (!tbody) return;
+  try {
+    const result = await API.getDeliveries();
+    if (result.success) {
+      tbody.innerHTML = '';
+      if (!result.data || result.data.length === 0) { tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#9ca3af;">No deliveries found</td></tr>'; return; }
+      result.data.forEach(item => {
+        tbody.innerHTML += `
+          <tr>
+            <td><strong>${item.ref_code}</strong></td>
+            <td>${item.customer_name}</td>
+            <td>${item.contact_number || 'N/A'}</td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${item.address}</td>
+            <td>${item.product || 'N/A'}</td>
+            <td>${getStatusBadge(item.status)}</td>
+            <td>${getTypeBadge(item.delivery_type)}</td>
+            <td>${formatDate(item.delivery_date)}</td>
+          </tr>`;
+      });
+    } else {
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#ef4444;">❌ Failed to load deliveries</td></tr>';
+    }
+  } catch (error) {
+    showToast('❌ Failed to load deliveries', 'error');
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#ef4444;">❌ Failed to load deliveries</td></tr>';
+  }
+}
+
+function openStaffAddDeliveryModal() {
+  const form = document.getElementById('staffDeliveryForm');
+  if (form) form.reset();
+  showModal('staffDeliveryModal');
+}
+
+async function handleStaffDeliverySubmit(event) {
+  event.preventDefault();
+  const data = {
+    customer_name: document.getElementById('staffDeliveryCustomer').value.trim(),
+    contact_number: document.getElementById('staffDeliveryContactNumber').value.trim(),
+    address: document.getElementById('staffDeliveryAddress').value.trim(),
+    product: document.getElementById('staffDeliveryProduct').value.trim(),
+    status: document.getElementById('staffDeliveryStatus').value,
+    delivery_type: document.getElementById('staffDeliveryType').value,
+    delivery_date: document.getElementById('staffDeliveryDate').value || null
+  };
+  if (!data.customer_name || !data.address) { showToast('Customer name and address are required', 'warning'); return; }
+  const submitBtn = event.target.querySelector('button[type="submit"]');
+  if (submitBtn) submitBtn.disabled = true;
+  try {
+    const result = await API.createDelivery(data);
+    if (result.success) {
+      showToast('✅ ' + result.message + (result.ref_code ? ` Reference Code: ${result.ref_code}` : ''), 'success');
+      hideModal('staffDeliveryModal');
+      loadStaffDeliveryList();
+      loadDeliveryStats();
+    } else {
+      showToast('❌ ' + result.message, 'error');
+    }
+  } catch (error) { showToast('❌ Failed to save delivery', 'error'); }
+  finally { if (submitBtn) submitBtn.disabled = false; }
+}
+
 async function loadDeliveryList() {
   try {
     const result = await API.getDeliveries();
@@ -2015,6 +2080,7 @@ function initDashboardTabs() {
         else if (targetTab === 'inventory' && isStaff) loadStaffInventoryList();
         else if (targetTab === 'delivery' && isAdmin) { loadDeliveryList(); loadDeliveryStats(); }
         else if (targetTab === 'delivery' && isManager) { loadManagerDeliveryList(); loadDeliveryStats(); }
+        else if (targetTab === 'delivery' && isStaff) { loadStaffDeliveryList(); loadDeliveryStats(); }
         else if (targetTab === 'sales' && isAdmin) { loadSalesList(); loadSalesAnalytics(); }
         else if (targetTab === 'sales' && isStaff) { loadStaffSalesList(); loadStaffSalesAnalytics(); }
         else if (targetTab === 'sales' && isManager) { loadManagerSalesList(); loadManagerSalesAnalytics(); }
@@ -2124,6 +2190,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const bind = (id, handler) => { const el = document.getElementById(id); if (el) el.addEventListener('submit', handler); };
     bind('staffReviewForm', handleStaffReviewSubmit);
+    bind('staffDeliveryForm', handleStaffDeliverySubmit);
+    const staffAddDeliveryBtn = document.getElementById('staffAddDeliveryBtn');
+    if (staffAddDeliveryBtn) staffAddDeliveryBtn.addEventListener('click', openStaffAddDeliveryModal);
     bind('staffSalesForm', handleStaffSalesSubmit);
     bind('editStaffSalesForm', async (e) => {
       e.preventDefault();
