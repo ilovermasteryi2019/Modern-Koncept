@@ -2504,7 +2504,14 @@ function showFurnitureOnVizPage() {
   if (imgEl) imgEl.src = selectedFurniture.image || 'placeholder-furniture.jpg';
   if (nameEl) nameEl.textContent = selectedFurniture.name || '';
   if (catEl) catEl.textContent = selectedFurniture.category || '';
-  if (priceEl) priceEl.textContent = formatCurrency(selectedFurniture.price);
+  if (priceEl) {
+    const info = getDiscountInfo(selectedFurniture);
+    if (info.isDiscounted) {
+      priceEl.innerHTML = `<span style="font-size:0.85rem;color:#9ca3af;text-decoration:line-through;font-weight:500;margin-right:0.4rem;">${formatCurrency(info.regular)}</span>${formatCurrency(info.final)} <span style="background:#DC143C;color:#fff;font-size:0.7rem;font-weight:700;padding:0.15rem 0.5rem;border-radius:9999px;vertical-align:middle;">${info.percent}% OFF</span>`;
+    } else {
+      priceEl.textContent = formatCurrency(selectedFurniture.price);
+    }
+  }
 }
 
 function processRoomFile(file) {
