@@ -2608,7 +2608,8 @@ async function generateVisualization() {
         furnitureId: selectedFurniture.id,
         style: selectedStyle,
         roomImage: roomImageBase64,
-        placementInstructions: document.getElementById('placementInstructions')?.value || ''
+        placementInstructions: document.getElementById('placementInstructions')?.value || '',
+        referenceSize: document.getElementById('referenceSize')?.value || ''
       })
     });
 
