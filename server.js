@@ -93,6 +93,20 @@ app.post('/login', async (req, res) => {
 // =============================================================================
 // FURNITURE
 // =============================================================================
+// Validates the optional discounted_price against the regular price.
+// Returns { ok: true, value } where value is a number or null (no discount),
+// or { ok: false, message } when the input is invalid.
+function parseDiscountedPrice(rawDiscount, regularPrice) {
+  if (rawDiscount === undefined || rawDiscount === null || String(rawDiscount).trim() === '') return { ok: true, value: null };
+  const discount = Number(rawDiscount);
+  if (!Number.isFinite(discount)) return { ok: false, message: 'Discounted price must be a valid number' };
+  if (discount <= 0) return { ok: false, message: 'Discounted price must be greater than 0' };
+  const regular = Number(regularPrice);
+  if (!Number.isFinite(regular)) return { ok: false, message: 'Regular price must be a valid number' };
+  if (discount >= regular) return { ok: false, message: 'Discounted price must be lower than the regular price' };
+  return { ok: true, value: discount };
+}
+
 app.get('/products', async (req, res) => {
   const { data, error } = await db.from('furniture').select('*').order('id', { ascending: false });
   if (error) return res.status(500).json({ success: false, message: 'Failed to fetch furniture', error: error.message });
@@ -106,16 +120,20 @@ app.get('/products/:id', async (req, res) => {
 });
 
 app.post('/add-product', async (req, res) => {
-  const { name, category, price, material, dimensions, description, image } = req.body;
+  const { name, category, price, material, dimensions, description, image, discounted_price } = req.body;
   if (!name || !category || !price) return res.status(400).json({ success: false, message: 'Name, category, and price are required' });
-  const { data, error } = await db.from('furniture').insert({ name, category, price, material: material || '', dimensions: dimensions || '', description: description || '', image: image || '' }).select().single();
+  const discount = parseDiscountedPrice(discounted_price, price);
+  if (!discount.ok) return res.status(400).json({ success: false, message: discount.message });
+  const { data, error } = await db.from('furniture').insert({ name, category, price, discounted_price: discount.value, material: material || '', dimensions: dimensions || '', description: description || '', image: image || '' }).select().single();
   if (error) return res.status(500).json({ success: false, message: 'Failed to add furniture' });
   res.status(201).json({ success: true, message: 'Furniture added successfully', id: data.id });
 });
 
 app.put('/products/:id', async (req, res) => {
-  const { name, category, price, material, dimensions, description, image } = req.body;
-  const { error } = await db.from('furniture').update({ name, category, price, material, dimensions, description, image }).eq('id', req.params.id);
+  const { name, category, price, material, dimensions, description, image, discounted_price } = req.body;
+  const discount = parseDiscountedPrice(discounted_price, price);
+  if (!discount.ok) return res.status(400).json({ success: false, message: discount.message });
+  const { error } = await db.from('furniture').update({ name, category, price, discounted_price: discount.value, material, dimensions, description, image }).eq('id', req.params.id);
   if (error) return res.status(500).json({ success: false, message: 'Failed to update furniture' });
   res.json({ success: true, message: 'Furniture updated successfully' });
 });
@@ -206,7 +224,7 @@ app.get('/deliveries/stats', async (req, res) => {
   res.json({ success: true, data: stats });
 });
 
-app.post('/deliveries', requireRole('admin', 'manager'), async (req, res) => {
+app.post('/deliveries', requireRole('admin', 'manager', 'staff'), async (req, res) => {
   const { customer_name, contact_number, address, product, status, delivery_type, delivery_date } = req.body;
   if (!customer_name || !address) return res.status(400).json({ success: false, message: 'Customer name and address are required' });
   if (status && !['Pending', 'Processing', 'In Transit', 'Delivered'].includes(status)) return res.status(400).json({ success: false, message: 'Invalid status' });
@@ -535,9 +553,53 @@ app.delete('/feedback/:id', async (req, res) => {
 // =============================================================================
 // AI VISUALIZATION — Gemini
 // =============================================================================
-app.post('/api/visualize', async (req, res) => {
+
+// Which Gemini image model to use. Set GEMINI_IMAGE_MODEL in Render to switch
+// models (e.g. gemini-nano-banana-2.1) without changing code.
+const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image';
+
+// Render runs behind a proxy, so this lets req.ip be the real visitor IP
+app.set('trust proxy', 1);
+
+// Limit Visualize tries per visitor per day (each try costs money).
+// Kept in memory, so it resets if the server restarts or sleeps.
+const MAX_VISUALIZE_PER_DAY = Number(process.env.VISUALIZE_DAILY_LIMIT) || 3;
+const visualizeUsage = new Map(); // ip -> { count, resetAt }
+
+function limitVisualize(req, res, next) {
+  const now = Date.now();
+  let usage = visualizeUsage.get(req.ip);
+  if (!usage || now > usage.resetAt) {
+    usage = { count: 0, resetAt: now + 24 * 60 * 60 * 1000 };
+    visualizeUsage.set(req.ip, usage);
+  }
+  if (usage.count >= MAX_VISUALIZE_PER_DAY) {
+    return res.status(429).json({
+      success: false,
+      message: `You've reached today's limit of ${MAX_VISUALIZE_PER_DAY} visualizations. Please try again tomorrow, or contact us for help.`
+    });
+  }
+  // Only count requests that actually produced an image
+  res.on('finish', () => { if (res.statusCode === 200) usage.count++; });
+  next();
+}
+
+// Converts a data-URL or a normal image URL into the format Gemini expects
+async function toInlineImage(src) {
+  if (!src) return null;
+  if (src.startsWith('data:')) {
+    const m = src.match(/^data:(image\/[\w+.-]+);base64,(.+)$/s);
+    return m ? { mimeType: m[1], data: m[2] } : null;
+  }
+  const r = await fetch(src);
+  if (!r.ok) return null;
+  const mimeType = (r.headers.get('content-type') || 'image/jpeg').split(';')[0];
+  return { mimeType, data: Buffer.from(await r.arrayBuffer()).toString('base64') };
+}
+
+app.post('/api/visualize', limitVisualize, async (req, res) => {
   try {
-    const { furnitureId, style, roomImage, placementInstructions } = req.body;
+    const { furnitureId, style, roomImage, placementInstructions, referenceSize } = req.body;
     if (!furnitureId || !roomImage) return res.status(400).json({ success: false, message: 'Furniture ID and room image are required.' });
     if (!placementInstructions || !placementInstructions.trim()) return res.status(400).json({ success: false, message: 'Please describe where to place the furniture.' });
     if (!process.env.GEMINI_API_KEY) return res.status(500).json({ success: false, message: 'GEMINI_API_KEY is missing in .env configuration.' });
@@ -545,22 +607,43 @@ app.post('/api/visualize', async (req, res) => {
     const { data: furniture, error: furnitureError } = await db.from('furniture').select('*').eq('id', furnitureId).single();
     if (furnitureError || !furniture) return res.status(404).json({ success: false, message: 'Furniture item not found.' });
 
-    const cleanBase64 = roomImage.replace(/^data:image\/\w+;base64,/, '');
-    const prompt = `You are an expert AI interior designer. Edit the uploaded room photo by adding this product: ${furniture.name} (${furniture.description || 'Modern design item'}, Material: ${furniture.material || 'Premium finish'}). Style: ${style || 'Modern'}. Placement: ${placementInstructions.trim()}. Generate a photorealistic edited version with the product naturally placed, matching existing lighting and perspective.`;
+    const room = await toInlineImage(roomImage);
+    if (!room) return res.status(400).json({ success: false, message: 'Invalid room image.' });
+    const product = await toInlineImage(furniture.image).catch(() => null);
+
+    const sizeLine = furniture.dimensions
+      ? `The real size of the furniture is ${furniture.dimensions}. Render it at exactly this real-world size relative to the room, keeping these proportions.`
+      : '';
+    const refLine = referenceSize && referenceSize.trim()
+      ? `Scale reference in the room photo: ${referenceSize.trim()}. Use it to size the furniture correctly.`
+      : 'No scale reference was given, so estimate scale from standard objects such as doors (about 200 cm tall) and ceiling height (about 250 cm).';
+
+    const prompt = `You are an expert interior photo editor.
+Image 1 is the customer's room photo.${product ? ' Image 2 is the exact furniture product to add.' : ''}
+Add this furniture to the room: ${furniture.name} (${furniture.description || 'modern design'}, material: ${furniture.material || 'premium finish'}).
+${sizeLine}
+${refLine}
+${product ? 'Reproduce the product from Image 2 exactly: same shape, color, finish and proportions. Do not redesign it.' : ''}
+Placement requested by the customer: ${placementInstructions.trim()}
+Interior style context: ${style || 'Modern'}.
+Rules: keep the rest of the room (walls, floor, windows, existing objects, camera angle) unchanged. Match the lighting, shadows, perspective and scale. Do not add text, labels or watermarks. Output only the edited room photo.`;
+
+    const parts = [{ text: prompt }, { inlineData: room }];
+    if (product) parts.push({ inlineData: product });
 
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
-        contents: [prompt, { inlineData: { mimeType: 'image/jpeg', data: cleanBase64 } }],
+        model: IMAGE_MODEL,
+        contents: [{ role: 'user', parts }],
         config: { responseModalities: ['IMAGE', 'TEXT'] }
       });
-      const parts = response.candidates?.[0]?.content?.parts || [];
-      const imagePart = parts.find(p => p.inlineData);
-      if (!imagePart) return res.status(500).json({ success: false, message: 'Gemini did not return an image. Try again.' });
+      const outParts = response.candidates?.[0]?.content?.parts || [];
+      const imagePart = outParts.find(p => p.inlineData);
+      if (!imagePart) return res.status(500).json({ success: false, message: 'AI did not return an image. Try rewording the placement and try again.' });
       return res.json({ success: true, image: `data:${imagePart.inlineData.mimeType || 'image/png'};base64,${imagePart.inlineData.data}`, furnitureName: furniture.name });
     } catch (aiError) {
-      console.error('❌ [Gemini] Error:', aiError.message);
-      return res.status(500).json({ success: false, message: 'Gemini processing failed. Please try again.' });
+      console.error(`❌ [Gemini] Error (${IMAGE_MODEL}):`, aiError.message);
+      return res.status(500).json({ success: false, message: 'AI processing failed. Please try again.' });
     }
   } catch (err) {
     console.error('❌ Unexpected Error:', err.message);

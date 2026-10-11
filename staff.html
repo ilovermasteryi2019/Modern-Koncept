@@ -370,6 +370,7 @@
         <button class="dashboard-tab active" data-tab="reviews">Successful Purchase</button>
         <button class="dashboard-tab" data-tab="sales">Sales Records</button>
         <button class="dashboard-tab" data-tab="inventory">Inventory</button>
+        <button class="dashboard-tab" data-tab="delivery">Delivery</button>
       </div>
     </div>
   </section>
@@ -457,6 +458,67 @@
             </thead>
             <tbody id="staffInventoryList">
               <!-- Inventory loaded here -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Staff Delivery Module (View + Add only) -->
+    <div id="deliveryModule" class="dashboard-module">
+      <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Delivery Management</h2>
+
+      <!-- Delivery Metrics Panel -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+        <div class="card" style="margin-bottom:0;">
+          <div style="font-size:0.875rem;color:#6b7280;font-weight:500;margin-bottom:0.25rem;">Pending</div>
+          <div style="font-size:2rem;font-weight:700;color:#111827;" id="deliveryPendingCount">0</div>
+        </div>
+
+        <div class="card" style="margin-bottom:0;">
+          <div style="font-size:0.875rem;color:#6b7280;font-weight:500;margin-bottom:0.25rem;">Processing</div>
+          <div style="font-size:2rem;font-weight:700;color:#111827;" id="deliveryProcessingCount">0</div>
+        </div>
+
+        <div class="card" style="margin-bottom:0;">
+          <div style="font-size:0.875rem;color:#6b7280;font-weight:500;margin-bottom:0.25rem;">In Transit</div>
+          <div style="font-size:2rem;font-weight:700;color:#111827;" id="deliveryInTransitCount">0</div>
+        </div>
+
+        <div class="card" style="margin-bottom:0;">
+          <div style="font-size:0.875rem;color:#6b7280;font-weight:500;margin-bottom:0.25rem;">Delivered</div>
+          <div style="font-size:2rem;font-weight:700;color:#111827;" id="deliveryDeliveredCount">0</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <button class="btn btn-accent" id="staffAddDeliveryBtn">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          Add New Delivery
+        </button>
+      </div>
+
+      <div class="card">
+        <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">All Deliveries</h3>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Delivery ID</th>
+                <th>Customer Name</th>
+                <th>Contact Number</th>
+                <th>Address</th>
+                <th>Product</th>
+                <th>Status</th>
+                <th>Type</th>
+                <th>Date</th>
+              </tr>
+            </thead>
+            <tbody id="staffDeliveryList">
+              <!-- Deliveries will be loaded here -->
             </tbody>
           </table>
         </div>
@@ -647,6 +709,74 @@
           <div style="display: flex; gap: 0.75rem;">
             <button type="submit" class="btn btn-accent" style="flex: 1;">Save Item</button>
             <button type="button" class="btn btn-secondary" data-close-modal="staffStockModal" style="flex: 1;">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Staff Add Delivery Modal -->
+  <div id="staffDeliveryModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title">Add New Delivery</h3>
+        <button class="modal-close" data-close-modal="staffDeliveryModal">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <form id="staffDeliveryForm">
+          <div class="form-group">
+            <label class="form-label">Customer Name *</label>
+            <input type="text" id="staffDeliveryCustomer" class="form-input" placeholder="Enter customer name" required>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Contact Number *</label>
+            <input type="text" id="staffDeliveryContactNumber" class="form-input" placeholder="e.g., +63 912 345 6789" required>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Customer Address *</label>
+            <textarea id="staffDeliveryAddress" class="form-textarea" rows="2" placeholder="Enter full delivery address" required></textarea>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Product *</label>
+            <input type="text" id="staffDeliveryProduct" class="form-input" placeholder="Enter product name" required>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Status *</label>
+              <select id="staffDeliveryStatus" class="form-input" required>
+                <option value="Pending">Pending</option>
+                <option value="Processing">Processing</option>
+                <option value="In Transit">In Transit</option>
+                <option value="Delivered">Delivered</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Type *</label>
+              <select id="staffDeliveryType" class="form-input" required>
+                <option value="Outbound">Outbound (Customer Delivery)</option>
+                <option value="Inbound">Inbound (Returns/Restock)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Delivery Date</label>
+            <input type="date" id="staffDeliveryDate" class="form-input">
+          </div>
+
+          <div style="display: flex; gap: 0.75rem;">
+            <button type="submit" class="btn btn-accent" style="flex: 1;">Save Delivery</button>
+            <button type="button" class="btn btn-secondary" data-close-modal="staffDeliveryModal" style="flex: 1;">Cancel</button>
           </div>
         </form>
       </div>
