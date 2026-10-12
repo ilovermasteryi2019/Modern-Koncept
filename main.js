@@ -2514,27 +2514,66 @@ function showFurnitureOnVizPage() {
   }
 }
 
+const ALLOWED_ROOM_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const MAX_ROOM_DIMENSION = 1600; // longest side in pixels, keeps uploads small and cheaper for the AI
+
+// Shrinks the room photo in the browser and returns a JPEG data-URL
+function downscaleRoomImage(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, MAX_ROOM_DIMENSION / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => reject(new Error('decode failed'));
+    img.src = dataUrl;
+  });
+}
+
 function processRoomFile(file) {
+  const roomInput = document.getElementById('roomImageInput');
+
+  if (!ALLOWED_ROOM_TYPES.includes(file.type)) {
+    showToast('Please upload a JPG, PNG or WEBP photo.', 'warning');
+    if (roomInput) roomInput.value = '';
+    return;
+  }
   if (file.size > 10 * 1024 * 1024) {
     showToast('File too large. Max 10MB.', 'warning');
+    if (roomInput) roomInput.value = '';
     return;
   }
   const reader = new FileReader();
+  reader.onerror = () => showToast('We could not read that file. Please try another photo.', 'error');
   reader.onload = (e) => {
-    roomImageBase64 = e.target.result;
+    downscaleRoomImage(e.target.result).then((resizedDataUrl) => {
+      roomImageBase64 = resizedDataUrl;
 
-    const preview = document.getElementById('roomPreviewImg');
-    if (preview) { preview.src = roomImageBase64; preview.style.display = 'block'; }
+      const preview = document.getElementById('roomPreviewImg');
+      if (preview) { preview.src = roomImageBase64; preview.style.display = 'block'; }
 
-    const info = document.getElementById('roomUploadedInfo');
-    if (info) { info.style.display = 'flex'; }
+      const info = document.getElementById('roomUploadedInfo');
+      if (info) { info.style.display = 'flex'; }
 
-    const fileName = document.getElementById('roomFileName');
-    if (fileName) fileName.textContent = file.name + ' — Ready';
+      const fileName = document.getElementById('roomFileName');
+      if (fileName) fileName.textContent = file.name + ' — Ready';
 
-    activateStepBadge('stepBadge2', 'stepLabel2');
-    activateStepBadge('step2BadgeRight', null);
-    updateGenerateButton();
+      activateStepBadge('stepBadge2', 'stepLabel2');
+      activateStepBadge('step2BadgeRight', null);
+      updateGenerateButton();
+    }).catch(() => {
+      showToast('We could not open that image. Please try a different photo.', 'error');
+      if (roomInput) roomInput.value = '';
+    });
   };
   reader.readAsDataURL(file);
 }
@@ -2567,13 +2606,28 @@ function updateGenerateButton() {
   }
 }
 
+let isGenerating = false;
+
 async function generateVisualization() {
-  if (!selectedFurniture || !roomImageBase64) return;
+  if (isGenerating) return; // ignore double-clicks while a request is running
+
+  if (!selectedFurniture) { showToast('Please select a furniture first.', 'warning'); return; }
+  if (!roomImageBase64) { showToast('Please upload a photo of your room first.', 'warning'); return; }
+
+  const placement = (document.getElementById('placementInstructions')?.value || '').trim();
+  if (!placement) { showToast('Please describe where to place the furniture.', 'warning'); return; }
+
+  isGenerating = true;
+
+  const generateBtn = document.getElementById('generateBtn');
+  const generateBtnText = document.getElementById('generateBtnText');
+  const originalBtnText = generateBtnText ? generateBtnText.textContent : '';
 
   document.getElementById('loadingSection').style.display = 'block';
   document.getElementById('resultSection').style.display = 'none';
   document.getElementById('errorSection').style.display = 'none';
-  document.getElementById('generateBtn').disabled = true;
+  generateBtn.disabled = true;
+  if (generateBtnText) generateBtnText.textContent = 'Generating Visualization...';
 
   let progress = 0;
   const loadingMessages = [
@@ -2596,55 +2650,67 @@ async function generateVisualization() {
     }
   }, 800);
 
-  try {
-    console.log('🤖 [AI] Sending request to Node.js server...');
-    console.log('🤖 [AI] Furniture ID:', selectedFurniture.id);
-    console.log('🤖 [AI] Style:', selectedStyle);
+  // Stop waiting after 150 seconds (the server may be waking up or the AI may be slow)
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 150000);
 
-      const response = await fetch(`${API_URL}/api/visualize`, {
+  try {
+    const response = await fetch(`${API_URL}/api/visualize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
       body: JSON.stringify({
         furnitureId: selectedFurniture.id,
         style: selectedStyle,
         roomImage: roomImageBase64,
-        placementInstructions: document.getElementById('placementInstructions')?.value || '',
+        placementInstructions: placement,
         referenceSize: document.getElementById('referenceSize')?.value || ''
       })
     });
 
-    clearInterval(progressInterval);
+    // If the server answered with something that is not JSON (e.g. a proxy error page), show a friendly message
+    const result = await response.json().catch(() => null);
+    if (!result) {
+      throw new Error(response.status === 413
+        ? 'Your room photo is too large. Please upload a smaller photo.'
+        : 'The server sent an unexpected response. Please try again in a moment.');
+    }
+    if (!result.success || !result.image) throw new Error(result.message || 'Something went wrong. Please try again.');
 
-    const result = await response.json();
-    console.log('🤖 [AI] Server response:', result.success ? '✅ OK' : '❌ ' + result.message);
-
-    if (!result.success) throw new Error(result.message || 'Server error');
-
-     lastGeneratedResult = result.image;
+    lastGeneratedResult = result.image;
 
     const bar = document.getElementById('progressBar');
     const text = document.getElementById('progressText');
     if (bar) bar.style.width = '100%';
     if (text) text.textContent = '100%';
 
-    setTimeout(() => {
-      document.getElementById('loadingSection').style.display = 'none';
-      document.getElementById('beforeImage').src = roomImageBase64;
-      document.getElementById('afterImage').src = result.image;
-      document.getElementById('resultFurnitureName').textContent = selectedFurniture.name;
-      document.getElementById('resultSection').style.display = 'block';
-      document.getElementById('generateBtn').disabled = false;
-      showToast('Visualization complete!', 'success');
-    }, 500);
+    document.getElementById('loadingSection').style.display = 'none';
+    document.getElementById('beforeImage').src = roomImageBase64;
+    document.getElementById('afterImage').src = result.image;
+    document.getElementById('resultFurnitureName').textContent = selectedFurniture.name;
+    document.getElementById('resultSection').style.display = 'block';
+    showToast('Visualization complete!', 'success');
 
   } catch (error) {
-    clearInterval(progressInterval);
+    console.error('🤖 [AI] Error:', error);
     document.getElementById('loadingSection').style.display = 'none';
-    document.getElementById('generateBtn').disabled = false;
-    console.error('🤖 [AI] Error:', error.message);
+
+    let friendlyMessage = error.message || 'Something went wrong. Please try again.';
+    if (error.name === 'AbortError') {
+      friendlyMessage = 'The visualization took too long. Please try again in a moment.';
+    } else if (error instanceof TypeError) {
+      friendlyMessage = 'We could not reach the server. Please check your internet connection and try again. If the server was asleep, wait a few seconds first.';
+    }
+
     const errMsgEl = document.getElementById('errorMessage');
-    if (errMsgEl) errMsgEl.textContent = error.message || 'Something went wrong. Please try again.';
+    if (errMsgEl) errMsgEl.textContent = friendlyMessage;
     document.getElementById('errorSection').style.display = 'block';
+  } finally {
+    clearTimeout(timeoutId);
+    clearInterval(progressInterval);
+    isGenerating = false;
+    generateBtn.disabled = false;
+    if (generateBtnText) generateBtnText.textContent = originalBtnText;
   }
 }
 

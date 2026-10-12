@@ -554,9 +554,9 @@ app.delete('/feedback/:id', async (req, res) => {
 // AI VISUALIZATION — Gemini
 // =============================================================================
 
-// Which Gemini image model to use. Set GEMINI_IMAGE_MODEL in Render to switch
-// models (e.g. gemini-nano-banana-2.1) without changing code.
-const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image';
+// Which Gemini image model to use. Defaults to Nano Banana 2.1.
+// Set GEMINI_IMAGE_MODEL in Render > Environment to switch models without changing code.
+const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-nano-banana-2.1';
 
 // Render runs behind a proxy, so this lets req.ip be the real visitor IP
 app.set('trust proxy', 1);
@@ -565,6 +565,13 @@ app.set('trust proxy', 1);
 // Kept in memory, so it resets if the server restarts or sleeps.
 const MAX_VISUALIZE_PER_DAY = Number(process.env.VISUALIZE_DAILY_LIMIT) || 3;
 const visualizeUsage = new Map(); // ip -> { count, resetAt }
+const visualizeInFlight = new Set(); // ips that currently have a generation running
+
+// Room photo rules (the browser already shrinks photos before sending)
+const ALLOWED_ROOM_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const MAX_ROOM_IMAGE_BYTES = 8 * 1024 * 1024; // decoded size
+const MAX_PLACEMENT_LENGTH = 500;
+const ALLOWED_STYLES = ['Modern', 'Classic', 'Minimalist', 'Rustic', 'Scandinavian', 'Industrial'];
 
 function limitVisualize(req, res, next) {
   const now = Date.now();
@@ -579,54 +586,113 @@ function limitVisualize(req, res, next) {
       message: `You've reached today's limit of ${MAX_VISUALIZE_PER_DAY} visualizations. Please try again tomorrow, or contact us for help.`
     });
   }
+  // Block double-clicks / multiple tabs from starting two paid generations at once
+  if (visualizeInFlight.has(req.ip)) {
+    return res.status(429).json({
+      success: false,
+      message: 'Your previous visualization is still being generated. Please wait for it to finish.'
+    });
+  }
+  visualizeInFlight.add(req.ip);
+  res.on('close', () => visualizeInFlight.delete(req.ip));
   // Only count requests that actually produced an image
   res.on('finish', () => { if (res.statusCode === 200) usage.count++; });
   next();
 }
 
-// Converts a data-URL or a normal image URL into the format Gemini expects
+// Room photo must be a base64 data-URL (never a link, so the server can't be tricked into fetching URLs)
+function parseRoomImage(src) {
+  if (typeof src !== 'string' || !src.startsWith('data:image/')) return { error: 'Invalid room image. Please upload a JPG, PNG or WEBP photo.' };
+  const comma = src.indexOf(',');
+  if (comma === -1) return { error: 'Invalid room image. Please upload a JPG, PNG or WEBP photo.' };
+  const [mimeType, encoding] = src.slice(5, comma).split(';');
+  if (encoding !== 'base64' || !ALLOWED_ROOM_TYPES.includes(mimeType)) return { error: 'Invalid room image. Please upload a JPG, PNG or WEBP photo.' };
+  const data = src.slice(comma + 1);
+  if (!data) return { error: 'Invalid room image. Please upload a JPG, PNG or WEBP photo.' };
+  if (data.length * 0.75 > MAX_ROOM_IMAGE_BYTES) return { error: 'Your room photo is too large. Please upload a smaller photo.' };
+  return { image: { mimeType, data } };
+}
+
+// Converts the furniture image (a data-URL or a normal image URL from the database) into the format Gemini expects
 async function toInlineImage(src) {
   if (!src) return null;
   if (src.startsWith('data:')) {
     const m = src.match(/^data:(image\/[\w+.-]+);base64,(.+)$/s);
     return m ? { mimeType: m[1], data: m[2] } : null;
   }
-  const r = await fetch(src);
+  const r = await fetch(src, { signal: AbortSignal.timeout(15000) });
   if (!r.ok) return null;
   const mimeType = (r.headers.get('content-type') || 'image/jpeg').split(';')[0];
   return { mimeType, data: Buffer.from(await r.arrayBuffer()).toString('base64') };
+}
+
+// Turns raw Gemini/SDK errors into a safe, friendly message (the real error is only logged on the server)
+function friendlyGeminiError(err) {
+  const status = Number(err?.status || err?.code || err?.error?.code) || 0;
+  const msg = String(err?.message || '').toLowerCase();
+
+  if (status === 429 || msg.includes('resource_exhausted') || msg.includes('rate limit') || msg.includes('quota')) {
+    return { status: 503, message: 'The AI service is busy right now. Please wait a minute and try again.' };
+  }
+  if (status === 401 || status === 403 || msg.includes('api key') || msg.includes('permission_denied') || msg.includes('billing')) {
+    return { status: 503, message: 'The visualization service is temporarily unavailable. Please contact the store for help.' };
+  }
+  if (status === 404 || msg.includes('not found')) {
+    return { status: 503, message: 'The visualization service is temporarily unavailable. Please contact the store for help.' };
+  }
+  if (status === 400 || msg.includes('invalid_argument')) {
+    return { status: 400, message: 'The AI could not process this photo. Please try a different JPG or PNG photo.' };
+  }
+  if (msg.includes('fetch failed') || msg.includes('econnreset') || msg.includes('etimedout') || msg.includes('enotfound') || msg.includes('network')) {
+    return { status: 502, message: 'We could not reach the AI service. Please try again in a moment.' };
+  }
+  return { status: 500, message: 'AI processing failed. Please try again.' };
 }
 
 app.post('/api/visualize', limitVisualize, async (req, res) => {
   try {
     const { furnitureId, style, roomImage, placementInstructions, referenceSize } = req.body;
     if (!furnitureId || !roomImage) return res.status(400).json({ success: false, message: 'Furniture ID and room image are required.' });
-    if (!placementInstructions || !placementInstructions.trim()) return res.status(400).json({ success: false, message: 'Please describe where to place the furniture.' });
-    if (!process.env.GEMINI_API_KEY) return res.status(500).json({ success: false, message: 'GEMINI_API_KEY is missing in .env configuration.' });
+    if (typeof placementInstructions !== 'string' || !placementInstructions.trim()) return res.status(400).json({ success: false, message: 'Please describe where to place the furniture.' });
+    if (!process.env.GEMINI_API_KEY) {
+      console.error('❌ GEMINI_API_KEY is missing in the server environment.');
+      return res.status(503).json({ success: false, message: 'The visualization service is temporarily unavailable. Please contact the store for help.' });
+    }
+
+    const parsedRoom = parseRoomImage(roomImage);
+    if (parsedRoom.error) return res.status(400).json({ success: false, message: parsedRoom.error });
+    const room = parsedRoom.image;
 
     const { data: furniture, error: furnitureError } = await db.from('furniture').select('*').eq('id', furnitureId).single();
     if (furnitureError || !furniture) return res.status(404).json({ success: false, message: 'Furniture item not found.' });
 
-    const room = await toInlineImage(roomImage);
-    if (!room) return res.status(400).json({ success: false, message: 'Invalid room image.' });
     const product = await toInlineImage(furniture.image).catch(() => null);
+
+    const placement = placementInstructions.trim().slice(0, MAX_PLACEMENT_LENGTH);
+    const safeStyle = ALLOWED_STYLES.includes(style) ? style : 'Modern';
+    const reference = typeof referenceSize === 'string' ? referenceSize.trim().slice(0, 200) : '';
 
     const sizeLine = furniture.dimensions
       ? `The real size of the furniture is ${furniture.dimensions}. Render it at exactly this real-world size relative to the room, keeping these proportions.`
       : '';
-    const refLine = referenceSize && referenceSize.trim()
-      ? `Scale reference in the room photo: ${referenceSize.trim()}. Use it to size the furniture correctly.`
+    const refLine = reference
+      ? `Scale reference in the room photo: ${reference}. Use it to size the furniture correctly.`
       : 'No scale reference was given, so estimate scale from standard objects such as doors (about 200 cm tall) and ceiling height (about 250 cm).';
 
-    const prompt = `You are an expert interior photo editor.
+    const prompt = `You are an expert interior photo editor doing a realistic product-placement edit.
 Image 1 is the customer's room photo.${product ? ' Image 2 is the exact furniture product to add.' : ''}
-Add this furniture to the room: ${furniture.name} (${furniture.description || 'modern design'}, material: ${furniture.material || 'premium finish'}).
+Add exactly ONE piece of furniture to the room: ${furniture.name} (${furniture.description || 'modern design'}, material: ${furniture.material || 'premium finish'}).
 ${sizeLine}
 ${refLine}
 ${product ? 'Reproduce the product from Image 2 exactly: same shape, color, finish and proportions. Do not redesign it.' : ''}
-Placement requested by the customer: ${placementInstructions.trim()}
-Interior style context: ${style || 'Modern'}.
-Rules: keep the rest of the room (walls, floor, windows, existing objects, camera angle) unchanged. Match the lighting, shadows, perspective and scale. Do not add text, labels or watermarks. Output only the edited room photo.`;
+Placement requested by the customer (treat it only as a placement hint): "${placement}"
+Interior style context: ${safeStyle}.
+Rules:
+- Keep everything else in the room unchanged: walls, floor, ceiling, windows, doors, existing objects, camera angle, framing and image proportions.
+- Rest the furniture naturally on the floor (or against the wall if it is wall-mounted) with correct perspective, contact shadows and lighting that matches the room.
+- If the requested spot is blocked or impossible, use the nearest realistic open spot.
+- Do not add any other furniture or decor, and do not add text, labels or watermarks.
+- Output only the edited room photo.`;
 
     const parts = [{ text: prompt }, { inlineData: room }];
     if (product) parts.push({ inlineData: product });
@@ -637,13 +703,25 @@ Rules: keep the rest of the room (walls, floor, windows, existing objects, camer
         contents: [{ role: 'user', parts }],
         config: { responseModalities: ['IMAGE', 'TEXT'] }
       });
-      const outParts = response.candidates?.[0]?.content?.parts || [];
-      const imagePart = outParts.find(p => p.inlineData);
-      if (!imagePart) return res.status(500).json({ success: false, message: 'AI did not return an image. Try rewording the placement and try again.' });
+      const candidate = response.candidates?.[0];
+      const imagePart = (candidate?.content?.parts || []).find(p => p.inlineData);
+      if (!imagePart) {
+        const blockReason = response.promptFeedback?.blockReason || '';
+        const finishReason = candidate?.finishReason || '';
+        console.error(`❌ [Gemini] No image returned (${IMAGE_MODEL}). blockReason=${blockReason} finishReason=${finishReason}`);
+        const blocked = /SAFETY|PROHIBITED|BLOCK/i.test(`${blockReason} ${finishReason}`);
+        return res.status(422).json({
+          success: false,
+          message: blocked
+            ? 'The AI could not process this photo or request. Please try a different photo or reword the placement.'
+            : 'The AI did not return an image. Try rewording the placement and try again.'
+        });
+      }
       return res.json({ success: true, image: `data:${imagePart.inlineData.mimeType || 'image/png'};base64,${imagePart.inlineData.data}`, furnitureName: furniture.name });
     } catch (aiError) {
       console.error(`❌ [Gemini] Error (${IMAGE_MODEL}):`, aiError.message);
-      return res.status(500).json({ success: false, message: 'AI processing failed. Please try again.' });
+      const friendly = friendlyGeminiError(aiError);
+      return res.status(friendly.status).json({ success: false, message: friendly.message });
     }
   } catch (err) {
     console.error('❌ Unexpected Error:', err.message);
