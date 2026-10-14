@@ -423,89 +423,6 @@ function displayNoProducts() {
   if (productCount) productCount.textContent = 'Showing 0 products';
 }
 
-// Public homepage Successful Purchases
-async function loadPublicSuccessfulPurchases() {
-  const section = document.getElementById('successfulPurchases');
-  const grid = document.getElementById('successfulPurchasesGrid');
-  if (!section || !grid) return;
-
-  try {
-    const result = await API.getReviews(6);
-    const reviews = result && result.success && Array.isArray(result.data)
-      ? result.data
-          .slice()
-          .sort((a, b) => new Date(b.review_date || 0) - new Date(a.review_date || 0))
-          .slice(0, 6)
-      : [];
-
-    if (reviews.length === 0) {
-      section.classList.add('hidden');
-      grid.replaceChildren();
-      return;
-    }
-
-    const cards = reviews.map(review => {
-      const card = document.createElement('article');
-      card.className = 'successful-purchase-card';
-
-      const imageArea = document.createElement('div');
-      imageArea.className = 'successful-purchase-image';
-
-      if (review.image) {
-        const image = document.createElement('img');
-        image.src = review.image;
-        image.alt = review.product_name ? `${review.product_name} successful purchase` : 'Successful furniture purchase';
-        image.loading = 'lazy';
-        image.addEventListener('error', () => {
-          image.remove();
-          imageArea.classList.add('image-unavailable');
-          imageArea.textContent = 'Image unavailable';
-        }, { once: true });
-        imageArea.appendChild(image);
-      } else {
-        imageArea.classList.add('image-unavailable');
-        imageArea.textContent = 'No image available';
-      }
-
-      const content = document.createElement('div');
-      content.className = 'successful-purchase-content';
-
-      const productName = document.createElement('h3');
-      productName.textContent = review.product_name || 'Furniture Purchase';
-
-      const description = document.createElement('p');
-      description.className = 'successful-purchase-description';
-      description.textContent = review.review_text || '';
-
-      const date = document.createElement('time');
-      date.className = 'successful-purchase-date';
-      if (review.review_date) {
-        const parsedDate = new Date(review.review_date);
-        if (!Number.isNaN(parsedDate.getTime())) {
-          date.dateTime = parsedDate.toISOString();
-          date.textContent = parsedDate.toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric'
-          });
-        }
-      }
-
-      content.append(productName, description);
-      if (date.textContent) content.appendChild(date);
-      card.append(imageArea, content);
-      return card;
-    });
-
-    grid.replaceChildren(...cards);
-    section.classList.remove('hidden');
-  } catch (error) {
-    console.error('Load successful purchases error:', error);
-    section.classList.add('hidden');
-    grid.replaceChildren();
-  }
-}
-
 // Public homepage Special Offers (discounted furniture only)
 async function loadSpecialOffers() {
   const section = document.getElementById('specialOffers');
@@ -1623,191 +1540,6 @@ async function editAdminSalesRecord(id) {
 }
 
 // =============================================================================
-// REVIEWS MANAGEMENT
-// =============================================================================
-async function loadReviewsList() {
-  try {
-    const result = await API.getReviews();
-    if (result.success) {
-      const tbody = document.getElementById('reviewsList');
-      if (!tbody) return;
-      tbody.innerHTML = '';
-      if (result.data.length === 0) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#9ca3af;">No reviews found</td></tr>'; return; }
-      result.data.forEach(item => {
-        const imageCell = item.image
-          ? `<img src="${item.image}" alt="${item.product_name}" style="width:60px;height:60px;object-fit:cover;border-radius:0.375rem;">`
-          : `<span style="color:#9ca3af;font-size:0.8rem;">No image</span>`;
-        tbody.innerHTML += `
-          <tr>
-            <td>${imageCell}</td>
-            <td>${item.product_name}</td>
-            <td>${item.review_text.substring(0, 80)}${item.review_text.length > 80 ? '...' : ''}</td>
-            <td>${formatDate(item.review_date)}</td>
-            <td>
-              <button class="action-btn edit" onclick="editAdminReview(${item.id})" title="Edit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
-              <button class="action-btn delete" onclick="deleteReview(${item.id})" title="Delete"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
-            </td>
-          </tr>`;
-      });
-    }
-  } catch (error) { showToast('❌ Failed to load reviews', 'error'); }
-}
-
-async function loadStaffReviewsList() {
-  try {
-    const result = await API.getReviews();
-    if (result.success) {
-      const tbody = document.getElementById('staffReviewsList');
-      if (!tbody) return;
-      tbody.innerHTML = '';
-      if (result.data.length === 0) { tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#9ca3af;">No reviews found</td></tr>'; return; }
-      result.data.forEach(item => {
-        tbody.innerHTML += `
-          <tr>
-            <td>${item.product_name}</td>
-            <td>${item.review_text.substring(0, 100)}${item.review_text.length > 100 ? '...' : ''}</td>
-            <td>${formatDate(item.review_date)}</td>
-            <td>
-              <button class="action-btn edit" onclick="editStaffReview(${item.id})" title="Edit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
-              <button class="action-btn delete" onclick="deleteStaffReview(${item.id})" title="Delete"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
-            </td>
-          </tr>`;
-      });
-    }
-  } catch (error) { showToast('❌ Failed to load reviews', 'error'); }
-}
-
-let currentReviewImage = null;
-
-function openAddReviewModal() {
-  document.getElementById('reviewForm').reset();
-  currentReviewImage = null;
-  const preview = document.getElementById('reviewImagePreview');
-  if (preview) preview.style.display = 'none';
-  const today = new Date().toISOString().split('T')[0];
-  document.getElementById('reviewDate').value = today;
-  showModal('reviewModal');
-}
-
-function handleReviewImageUpload(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-  if (!file.type.startsWith('image/')) { showToast('Please select an image file', 'warning'); event.target.value = ''; return; }
-  if (file.size > 5 * 1024 * 1024) { showToast('File too large. Max 5MB.', 'warning'); event.target.value = ''; return; }
-  fileToBase64(file).then(base64String => {
-    currentReviewImage = base64String;
-    const preview = document.getElementById('reviewImagePreview');
-    const previewImg = document.getElementById('reviewImagePreviewImg');
-    if (preview && previewImg) { previewImg.src = base64String; preview.style.display = 'block'; }
-  });
-}
-
-async function handleReviewSubmit(event) {
-  event.preventDefault();
-  const data = {
-    product_name: document.getElementById('reviewProductName').value,
-    reviewer_name: 'Admin',
-    rating: 5,
-    review_text: document.getElementById('reviewTextInput').value,
-    review_date: document.getElementById('reviewDate').value,
-    image: currentReviewImage || ''
-  };
-  try {
-    const result = await API.createReview(data);
-    if (result.success) { showToast(result.message, 'success'); hideModal('reviewModal'); loadReviewsList(); }
-    else showToast(result.message, 'error');
-  } catch (error) { showToast('❌ Failed to save review', 'error'); }
-}
-
-async function handleStaffReviewSubmit(event) {
-  event.preventDefault();
-  const data = {
-    product_name: document.getElementById('reviewProduct').value,
-    reviewer_name: 'Staff',
-    rating: 5,
-    review_text: document.getElementById('reviewText').value,
-    review_date: document.getElementById('staffReviewDate').value || new Date().toISOString().split('T')[0]
-  };
-  try {
-    const result = await API.createReview(data);
-    if (result.success) { showToast('✅ ' + result.message, 'success'); document.getElementById('staffReviewForm').reset(); loadStaffReviewsList(); }
-    else showToast('❌ ' + result.message, 'error');
-  } catch (error) { showToast('❌ Failed to save review', 'error'); }
-}
-
-async function deleteReview(id) {
-  if (!confirm('Are you sure you want to delete this review?')) return;
-  try {
-    const result = await API.deleteReview(id);
-    if (result.success) { showToast(result.message, 'success'); loadReviewsList(); }
-    else showToast('❌ ' + result.message, 'error');
-  } catch (error) { showToast('❌ Failed to delete review', 'error'); }
-}
-
-async function editAdminReview(id) {
-  try {
-    const result = await API.getReviews();
-    if (result.success) {
-      const record = result.data.find(item => item.id === id);
-      if (record) {
-        document.getElementById('editAdminReviewId').value = record.id;
-        document.getElementById('editAdminReviewProduct').value = record.product_name;
-        document.getElementById('editAdminReviewText').value = record.review_text;
-        document.getElementById('editAdminReviewDate').value = record.review_date ? record.review_date.split('T')[0] : '';
-        currentReviewImage = null; // only set when a NEW file is picked; existing image is preserved otherwise
-        const imageInput = document.getElementById('editAdminReviewImage');
-        if (imageInput) imageInput.value = '';
-        const preview = document.getElementById('editAdminReviewImagePreview');
-        const previewImg = document.getElementById('editAdminReviewImagePreviewImg');
-        if (record.image && preview && previewImg) { previewImg.src = record.image; preview.style.display = 'block'; }
-        else if (preview) { preview.style.display = 'none'; }
-        showModal('editAdminReviewModal');
-      }
-    }
-  } catch (error) { showToast('❌ Failed to load review', 'error'); }
-}
-
-function handleEditReviewImageUpload(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-  if (!file.type.startsWith('image/')) { showToast('Please select an image file', 'warning'); event.target.value = ''; return; }
-  if (file.size > 5 * 1024 * 1024) { showToast('File too large. Max 5MB.', 'warning'); event.target.value = ''; return; }
-  fileToBase64(file).then(base64String => {
-    currentReviewImage = base64String;
-    const preview = document.getElementById('editAdminReviewImagePreview');
-    const previewImg = document.getElementById('editAdminReviewImagePreviewImg');
-    if (preview && previewImg) { previewImg.src = base64String; preview.style.display = 'block'; }
-  });
-}
-
-async function deleteStaffReview(id) {
-  if (!confirm('Are you sure you want to delete this review?')) return;
-  try {
-    const result = await API.deleteReview(id);
-    if (result.success) { showToast('✅ ' + result.message, 'success'); loadStaffReviewsList(); }
-    else showToast('❌ ' + result.message, 'error');
-  } catch (error) { showToast('❌ Failed to delete review', 'error'); }
-}
-
-async function editStaffReview(id) {
-  try {
-    const result = await API.getReviews();
-    if (result.success) {
-      const review = result.data.find(item => item.id === id);
-      if (review) {
-        document.getElementById('reviewProduct').value = review.product_name;
-        document.getElementById('reviewText').value = review.review_text;
-        document.getElementById('staffReviewDate').value = review.review_date.split('T')[0];
-        const form = document.getElementById('staffReviewForm');
-        form.dataset.editingId = id;
-        const submitBtn = form.querySelector('button[type="submit"]');
-        submitBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Update Review';
-      }
-    }
-  } catch (error) { showToast('❌ Failed to load review', 'error'); }
-}
-
-// =============================================================================
 // STAFF ACCOUNT MANAGEMENT (ADMIN)
 // =============================================================================
 async function loadStaffAccountsList() {
@@ -2084,8 +1816,6 @@ function initDashboardTabs() {
         else if (targetTab === 'sales' && isAdmin) { loadSalesList(); loadSalesAnalytics(); }
         else if (targetTab === 'sales' && isStaff) { loadStaffSalesList(); loadStaffSalesAnalytics(); }
         else if (targetTab === 'sales' && isManager) { loadManagerSalesList(); loadManagerSalesAnalytics(); }
-        else if (targetTab === 'reviews' && isAdmin) loadReviewsList();
-        else if (targetTab === 'reviews' && isStaff) loadStaffReviewsList();
         else if (targetTab === 'staff') loadStaffAccountsList();
          else if (targetTab === 'chatbot') loadChatbotList();
         else if (targetTab === 'feedback') { loadAdminInquiries(); loadAdminFeedback(); }
@@ -2120,7 +1850,6 @@ document.addEventListener('DOMContentLoaded', () => {
     bind('addStockBtn', openAddInventoryModal);
     bind('addDeliveryBtn', openAddDeliveryModal);
     bind('addSalesBtn', openAddSalesModal);
-    bind('addReviewBtn', openAddReviewModal);
     bind('addChatbotBtn', openAddChatbotModal);
     bind('logoutBtn', handleLogout);
     bind('confirmSendSmsBtn', confirmSendSms);
@@ -2133,7 +1862,6 @@ document.addEventListener('DOMContentLoaded', () => {
     bindSubmit('stockForm', handleInventorySubmit);
     bindSubmit('deliveryForm', handleDeliverySubmit);
     bindSubmit('salesForm', handleSalesSubmit);
-    bindSubmit('reviewForm', handleReviewSubmit);
     bindSubmit('chatbotForm', handleChatbotSubmit);
     bindSubmit('editAdminSalesForm', async (e) => {
       e.preventDefault();
@@ -2150,22 +1878,6 @@ document.addEventListener('DOMContentLoaded', () => {
         else showToast('❌ ' + result.message, 'error');
       } catch (err) { showToast('❌ Failed to update sales record', 'error'); }
     });
-    bindSubmit('editAdminReviewForm', async (e) => {
-      e.preventDefault();
-      const id = document.getElementById('editAdminReviewId').value;
-      const reviewDate = document.getElementById('editAdminReviewDate').value;
-      const data = {
-        product_name: document.getElementById('editAdminReviewProduct').value,
-        review_text: document.getElementById('editAdminReviewText').value
-      };
-      if (reviewDate) data.review_date = reviewDate;
-      if (currentReviewImage) data.image = currentReviewImage; // only send if a new image was picked, so the existing one is preserved otherwise
-      try {
-        const result = await API.updateReview(id, data);
-        if (result.success) { showToast('✅ Review updated', 'success'); hideModal('editAdminReviewModal'); loadReviewsList(); }
-        else showToast('❌ ' + result.message, 'error');
-      } catch (err) { showToast('❌ ' + (err.message || 'Failed to update review'), 'error'); }
-    });
 
     const furnitureImage = document.getElementById('furnitureImage');
     if (furnitureImage) furnitureImage.addEventListener('change', handleFurnitureImageUpload);
@@ -2173,11 +1885,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const stockImage = document.getElementById('stockImage');
     if (stockImage) stockImage.addEventListener('change', handleStockImageUpload);
 
-    const reviewImage = document.getElementById('reviewImage');
-    if (reviewImage) reviewImage.addEventListener('change', handleReviewImageUpload);
-
-    const editAdminReviewImage = document.getElementById('editAdminReviewImage');
-    if (editAdminReviewImage) editAdminReviewImage.addEventListener('change', handleEditReviewImageUpload);
   }
 
   // ---- STAFF PAGE ----
@@ -2186,10 +1893,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const staffNameEl = document.getElementById('staffName');
     if (staffNameEl && user.name) staffNameEl.textContent = user.name;
 
-    loadStaffReviewsList();
+    // Sales Records is now the default Staff tab, so load it on page open
+    loadStaffSalesList();
+    loadStaffSalesAnalytics();
 
     const bind = (id, handler) => { const el = document.getElementById(id); if (el) el.addEventListener('submit', handler); };
-    bind('staffReviewForm', handleStaffReviewSubmit);
     bind('staffDeliveryForm', handleStaffDeliverySubmit);
     const staffAddDeliveryBtn = document.getElementById('staffAddDeliveryBtn');
     if (staffAddDeliveryBtn) staffAddDeliveryBtn.addEventListener('click', openStaffAddDeliveryModal);
@@ -2313,7 +2021,6 @@ document.addEventListener('DOMContentLoaded', () => {
   if (window.location.pathname.includes('about')) loadAboutPageContent();
   if (window.location.pathname.includes('contact')) loadContactPageContent();
   if (window.location.pathname === '/' || window.location.pathname.endsWith('/index.html')) {
-    loadPublicSuccessfulPurchases();
     loadSpecialOffers();
   }
   if (window.location.pathname.includes('furniture-list')) { loadPublicFurnitureList(); initFurnitureListFilters(); }
