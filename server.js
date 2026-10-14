@@ -278,16 +278,32 @@ app.get('/inventory', async (req, res) => {
   res.json({ success: true, data });
 });
 
+// Validates the optional unit price of an inventory item.
+// Returns { ok: true, provided, value } or { ok: false, message }.
+// "provided" is false when the request did not include a price at all, so older
+// forms (e.g. the Manager's) that do not send one never overwrite an existing price.
+function parseInventoryPrice(raw) {
+  if (raw === undefined) return { ok: true, provided: false, value: null };
+  if (raw === null || String(raw).trim() === '') return { ok: true, provided: true, value: null };
+  const price = Number(raw);
+  if (!Number.isFinite(price) || price <= 0) return { ok: false, message: 'Price must be a valid number greater than 0' };
+  if (price > 9999999999) return { ok: false, message: 'Price is too large' };
+  return { ok: true, provided: true, value: Math.round(price * 100) / 100 };
+}
+
 app.post('/inventory', async (req, res) => {
-  const { name, category, quantity, item_code, image } = req.body;
+  const { name, category, quantity, item_code, image, price } = req.body;
   if (!name || !category || quantity === undefined || !item_code) {
     return res.status(400).json({ success: false, message: 'Name, item code, category, and quantity are required' });
   }
+  const parsedPrice = parseInventoryPrice(price);
+  if (!parsedPrice.ok) return res.status(400).json({ success: false, message: parsedPrice.message });
   const { data, error } = await db.from('inventory').insert({
     name,
     category,
     quantity,
     item_code,
+    price: parsedPrice.value,
     image: image || null
   }).select().single();
   if (error) {
@@ -298,18 +314,22 @@ app.post('/inventory', async (req, res) => {
 });
 
 app.put('/inventory/:id', async (req, res) => {
-  const { name, category, quantity, item_code, image } = req.body;
+  const { name, category, quantity, item_code, image, price } = req.body;
   if (!name || !category || quantity === undefined || !item_code) {
     return res.status(400).json({ success: false, message: 'Name, item code, category, and quantity are required' });
   }
-  const { error } = await db.from('inventory').update({
+  const parsedPrice = parseInventoryPrice(price);
+  if (!parsedPrice.ok) return res.status(400).json({ success: false, message: parsedPrice.message });
+  const updates = {
     name,
     category,
     quantity,
     item_code,
     image: image || null,
     last_updated: new Date()
-  }).eq('id', req.params.id);
+  };
+  if (parsedPrice.provided) updates.price = parsedPrice.value; // untouched when the request has no price
+  const { error } = await db.from('inventory').update(updates).eq('id', req.params.id);
   if (error) {
     if (error.code === '23505') return res.status(409).json({ success: false, message: 'Item code already exists. Please use a unique item code.' });
     return res.status(500).json({ success: false, message: 'Failed to update inventory' });

@@ -917,7 +917,7 @@ async function loadInventoryList() {
       const tbody = document.getElementById('adminInventoryList');
       if (!tbody) return;
       tbody.innerHTML = '';
-      if (result.data.length === 0) { tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#9ca3af;">No inventory items found</td></tr>'; return; }
+      if (result.data.length === 0) { tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#9ca3af;">No inventory items found</td></tr>'; return; }
       result.data.forEach(item => {
         const status = item.quantity > 10 ? 'in-stock' : 'low-stock';
         const statusText = item.quantity > 10 ? 'In Stock' : 'Low Stock';
@@ -927,6 +927,7 @@ async function loadInventoryList() {
             <td>${item.name}</td>
             <td style="font-family:monospace;font-size:0.8rem;">${item.item_code || '<span style="color:#9ca3af;">N/A</span>'}</td>
             <td>${item.category}</td>
+            <td>${item.price !== null && item.price !== undefined && item.price !== '' ? '₱' + Number(item.price).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '<span style="color:#9ca3af;">Not set</span>'}</td>
             <td>${item.quantity}</td>
             <td><span class="stock-status ${status}">${statusText}</span></td>
             <td>${formatDateTime(item.last_updated)}</td>
@@ -967,11 +968,14 @@ async function handleInventorySubmit(event) {
   event.preventDefault();
   const itemCode = document.getElementById('stockItemCode').value.trim();
   if (!itemCode) { showToast('Please enter an item code', 'warning'); return; }
+  const price = parseFloat(document.getElementById('stockPrice').value);
+  if (!Number.isFinite(price) || price <= 0) { showToast('Please enter a valid price greater than 0', 'warning'); return; }
   const data = {
     name: document.getElementById('stockName').value,
     item_code: itemCode,
     category: document.getElementById('stockCategory').value,
     quantity: parseInt(document.getElementById('stockQuantity').value),
+    price,
     image: currentStockImage || ''
   };
   try {
@@ -998,6 +1002,7 @@ async function editInventory(id) {
       document.getElementById('stockItemCode').value = item.item_code || '';
       document.getElementById('stockCategory').value = item.category;
       document.getElementById('stockQuantity').value = item.quantity;
+      document.getElementById('stockPrice').value = item.price !== null && item.price !== undefined ? item.price : '';
       const preview = document.getElementById('stockImagePreview');
       const previewImg = document.getElementById('stockImagePreviewImg');
       if (item.image && preview && previewImg) { previewImg.src = item.image; preview.style.display = 'block'; }
