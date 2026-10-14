@@ -5,6 +5,62 @@ const { createClient } = require('@supabase/supabase-js');
 const { GoogleGenAI } = require('@google/genai');
 const crypto = require('crypto');
 
+// =============================================================================
+// PASSWORD HASHING (Node built-in crypto.scrypt - no extra npm package needed)
+// Stored format:  scrypt$N$r$p$<salt base64>$<hash base64>
+// Each password gets its own random salt. Old plain-text passwords are still accepted
+// at login and are re-saved as hashes automatically.
+// =============================================================================
+const PREFIX = 'scrypt$';
+const PARAMS = { N: 16384, r: 8, p: 1, keylen: 64 };
+
+function scryptAsync(password, salt, keylen, opts) {
+  return new Promise((resolve, reject) => {
+    crypto.scrypt(password, salt, keylen, opts, (err, key) => (err ? reject(err) : resolve(key)));
+  });
+}
+
+function isHashed(value) {
+  return typeof value === 'string' && value.startsWith(PREFIX);
+}
+
+async function hashPassword(password) {
+  const salt = crypto.randomBytes(16);
+  const key = await scryptAsync(password, salt, PARAMS.keylen, { N: PARAMS.N, r: PARAMS.r, p: PARAMS.p });
+  return `${PREFIX}${PARAMS.N}$${PARAMS.r}$${PARAMS.p}$${salt.toString('base64')}$${key.toString('base64')}`;
+}
+
+// Constant-time comparison that also works for strings of different length
+function safeEqualText(a, b) {
+  const ha = crypto.createHash('sha256').update(String(a)).digest();
+  const hb = crypto.createHash('sha256').update(String(b)).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
+
+// Returns { ok, needsUpgrade }.
+//  - stored hash   -> verified with scrypt
+//  - old plain text -> compared directly; needsUpgrade = true so the caller can re-save it as a hash
+async function verifyPassword(password, stored) {
+  if (typeof password !== 'string' || typeof stored !== 'string' || stored === '') return { ok: false, needsUpgrade: false };
+  if (!isHashed(stored)) {
+    const ok = safeEqualText(password, stored);
+    return { ok, needsUpgrade: ok };
+  }
+  const parts = stored.split('$'); // ['scrypt', N, r, p, salt, hash]
+  if (parts.length !== 6) return { ok: false, needsUpgrade: false };
+  const N = Number(parts[1]), r = Number(parts[2]), p = Number(parts[3]);
+  if (![N, r, p].every(Number.isInteger)) return { ok: false, needsUpgrade: false };
+  try {
+    const salt = Buffer.from(parts[4], 'base64');
+    const expected = Buffer.from(parts[5], 'base64');
+    const actual = await scryptAsync(password, salt, expected.length, { N, r, p });
+    return { ok: actual.length === expected.length && crypto.timingSafeEqual(actual, expected), needsUpgrade: false };
+  } catch (e) {
+    return { ok: false, needsUpgrade: false };
+  }
+}
+
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -23,10 +79,39 @@ console.log('✅ Supabase client initialized');
 // =============================================================================
 const AUTH_SECRET = process.env.AUTH_SECRET || crypto.randomBytes(32).toString('hex');
 if (!process.env.AUTH_SECRET) console.warn('⚠️ AUTH_SECRET is not set. Add it to your environment so login tokens survive restarts.');
-const TOKEN_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+const TOKEN_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours (absolute maximum session length)
 
-function signToken(user) {
-  const payload = Buffer.from(JSON.stringify({ id: user.id, role: user.role, exp: Date.now() + TOKEN_TTL_MS })).toString('base64url');
+// Server-side session list: a login token only works while its session is in this list.
+// - Logout removes the session, so a copied token stops working immediately.
+// - A session that is not used for SESSION_IDLE_MS is dropped (the dashboards send a keep-alive while the user is active).
+// - The list lives in memory: restarting/redeploying the server logs everyone out (they simply log in again).
+const SESSION_IDLE_MS = (Number(process.env.SESSION_IDLE_MINUTES) || 35) * 60 * 1000;
+const MAX_SESSIONS = 5000;
+const sessions = new Map(); // jti -> { userId, createdAt, lastSeen }
+
+function createSession(user) {
+  const jti = crypto.randomUUID();
+  const now = Date.now();
+  sessions.set(jti, { userId: user.id, createdAt: now, lastSeen: now });
+  while (sessions.size > MAX_SESSIONS) sessions.delete(sessions.keys().next().value); // drop the oldest
+  return signToken(user, jti);
+}
+
+function revokeUserSessions(userId) {
+  for (const [jti, session] of sessions) {
+    if (String(session.userId) === String(userId)) sessions.delete(jti);
+  }
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [jti, session] of sessions) {
+    if (now - session.lastSeen > SESSION_IDLE_MS || now - session.createdAt > TOKEN_TTL_MS) sessions.delete(jti);
+  }
+}, 5 * 60 * 1000).unref();
+
+function signToken(user, jti) {
+  const payload = Buffer.from(JSON.stringify({ id: user.id, role: user.role, jti, exp: Date.now() + TOKEN_TTL_MS })).toString('base64url');
   const sig = crypto.createHmac('sha256', AUTH_SECRET).update(payload).digest('base64url');
   return `${payload}.${sig}`;
 }
@@ -53,11 +138,18 @@ function requireRole(...allowedRoles) {
     const token = header.startsWith('Bearer ') ? header.slice(7) : null;
     const decoded = verifyToken(token);
     if (!decoded) return res.status(401).json({ success: false, message: 'Session expired or not logged in. Please log out and log in again.' });
-    const { data: user, error } = await db.from('users').select('id,role').eq('id', decoded.id).single();
+    // The token must belong to a live server-side session (not logged out, not idle for too long)
+    const session = decoded.jti ? sessions.get(decoded.jti) : null;
+    if (!session || String(session.userId) !== String(decoded.id) || Date.now() - session.lastSeen > SESSION_IDLE_MS) {
+      if (decoded.jti) sessions.delete(decoded.jti);
+      return res.status(401).json({ success: false, message: 'Your session has expired. Please log in again.' });
+    }
+    const { data: user, error } = await db.from('users').select('id,name,email,role').eq('id', decoded.id).single();
     if (error || !user) return res.status(401).json({ success: false, message: 'Account not found. Please log in again.' });
     const role = user.role || 'staff';
     if (!allowedRoles.includes(role)) return res.status(403).json({ success: false, message: 'You do not have permission to perform this action.' });
-    req.authUser = { id: user.id, role };
+    session.lastSeen = Date.now();
+    req.authUser = { id: user.id, name: user.name, email: user.email, role };
     next();
   };
 }
@@ -71,12 +163,20 @@ function generateRefCode() {
 // =============================================================================
 // AUTH
 // =============================================================================
+// Hashes a password for storage. Returns null (and the caller answers 500) if hashing fails.
+async function hashForStorage(password) {
+  try { return await hashPassword(password); } catch (e) { console.error('Password hashing failed:', e.message); return null; }
+}
+
 app.post('/signup', async (req, res) => {
   const { name, email, password } = req.body;
   if (!name || !email || !password) return res.status(400).json({ success: false, message: 'All fields are required' });
+  if (typeof password !== 'string' || password.length > 128) return res.status(400).json({ success: false, message: 'Invalid password' });
   const { data: existing } = await db.from('users').select('id').eq('email', email).single();
   if (existing) return res.status(400).json({ success: false, message: 'Email already exists' });
-  const { data, error } = await db.from('users').insert({ name, email, password, role: 'staff' }).select().single();
+  const passwordHash = await hashForStorage(password);
+  if (!passwordHash) return res.status(500).json({ success: false, message: 'Failed to create account' });
+  const { data, error } = await db.from('users').insert({ name, email, password: passwordHash, role: 'staff' }).select().single();
   if (error) return res.status(500).json({ success: false, message: 'Failed to create account' });
   res.status(201).json({ success: true, message: 'Account created successfully', userId: data.id });
 });
@@ -84,10 +184,35 @@ app.post('/signup', async (req, res) => {
 app.post('/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ success: false, message: 'Email and password are required' });
-  const { data, error } = await db.from('users').select('id,name,email,role').eq('email', email).eq('password', password).single();
+  if (typeof email !== 'string' || typeof password !== 'string' || password.length > 128) return res.status(401).json({ success: false, message: 'Invalid email or password' });
+  const { data, error } = await db.from('users').select('id,name,email,role,password').eq('email', email).single();
   if (error || !data) return res.status(401).json({ success: false, message: 'Invalid email or password' });
+  const check = await verifyPassword(password, data.password);
+  if (!check.ok) return res.status(401).json({ success: false, message: 'Invalid email or password' });
+  if (check.needsUpgrade) {
+    // Old plain-text account: it logged in correctly, so re-save its password as a hash (login still succeeds if this fails)
+    const upgraded = await hashForStorage(password);
+    if (upgraded) {
+      const { error: upgradeError } = await db.from('users').update({ password: upgraded }).eq('id', data.id).eq('password', data.password);
+      if (upgradeError) console.error('Password upgrade failed:', upgradeError.message);
+    }
+  }
   const loggedInUser = { id: data.id, name: data.name, email: data.email, role: data.role || 'staff' };
-  res.json({ success: true, message: 'Login successful', user: loggedInUser, token: signToken(loggedInUser) });
+  res.json({ success: true, message: 'Login successful', user: loggedInUser, token: createSession(loggedInUser) });
+});
+
+// Checks the current session (used by the dashboards when they open and as a keep-alive while the user is active)
+app.get('/session', requireRole('admin', 'manager', 'staff'), (req, res) => {
+  const { id, name, email, role } = req.authUser;
+  res.json({ success: true, user: { id, name, email, role }, idleTimeoutMs: SESSION_IDLE_MS });
+});
+
+// Logout: ends the server-side session so the token can no longer be used. Always answers success.
+app.post('/logout', (req, res) => {
+  const header = req.headers.authorization || '';
+  const decoded = verifyToken(header.startsWith('Bearer ') ? header.slice(7) : null);
+  if (decoded && decoded.jti) sessions.delete(decoded.jti);
+  res.json({ success: true, message: 'Logged out' });
 });
 
 // =============================================================================
@@ -549,10 +674,13 @@ app.get('/staff', requireRole('admin'), async (req, res) => {
 app.post('/staff', requireRole('admin'), async (req, res) => {
   const { name, email, password, role } = req.body;
   if (!name || !email || !password) return res.status(400).json({ success: false, message: 'Name, email, and password are required' });
+  if (typeof password !== 'string' || password.length > 128) return res.status(400).json({ success: false, message: 'Invalid password' });
   const accountRole = role === 'manager' ? 'manager' : 'staff';
   const { data: existing } = await db.from('users').select('id').eq('email', email).single();
   if (existing) return res.status(400).json({ success: false, message: 'Email already exists' });
-  const { data, error } = await db.from('users').insert({ name, email, password, role: accountRole }).select().single();
+  const passwordHash = await hashForStorage(password);
+  if (!passwordHash) return res.status(500).json({ success: false, message: 'Failed to create account' });
+  const { data, error } = await db.from('users').insert({ name, email, password: passwordHash, role: accountRole }).select().single();
   if (error) return res.status(500).json({ success: false, message: 'Failed to create account' });
   res.status(201).json({ success: true, message: `${accountRole.charAt(0).toUpperCase() + accountRole.slice(1)} account created successfully`, id: data.id });
 });
@@ -596,7 +724,10 @@ app.put('/staff/:id', requireRole('admin'), async (req, res) => {
 
   // ---- update (the role filter makes the write fail if the account stopped being Staff meanwhile) ----
   const updates = { name: cleanName, email: cleanEmail, role: newRole };
-  if (changePassword) updates.password = password; // stored the same way the existing create/login flow stores it
+  if (changePassword) {
+    updates.password = await hashForStorage(password); // stored as a hash, same as signup/create
+    if (!updates.password) return res.status(500).json({ success: false, message: 'Failed to update account' });
+  }
   let query = db.from('users').update(updates).eq('id', targetId);
   query = target.role ? query.eq('role', target.role) : query.is('role', null);
   const { data: updated, error } = await query.select('id,name,email,role').single();
@@ -606,6 +737,7 @@ app.put('/staff/:id', requireRole('admin'), async (req, res) => {
     console.error('Staff update error:', error.message);
     return res.status(500).json({ success: false, message: 'Failed to update account' });
   }
+  if (changePassword || updated.role !== target.role) revokeUserSessions(updated.id); // they must log in again with the new details
   const promoted = updated.role !== 'staff';
   res.json({
     success: true,
@@ -617,6 +749,7 @@ app.put('/staff/:id', requireRole('admin'), async (req, res) => {
 app.delete('/staff/:id', requireRole('admin'), async (req, res) => {
   const { error } = await db.from('users').delete().eq('id', req.params.id);
   if (error) return res.status(500).json({ success: false, message: 'Failed to delete account' });
+  revokeUserSessions(req.params.id);
   res.json({ success: true, message: 'Account deleted successfully' });
 });
 

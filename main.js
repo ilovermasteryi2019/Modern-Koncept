@@ -68,6 +68,158 @@ function authHeaders(extra = {}) {
 }
 
 // =============================================================================
+// SESSION MANAGEMENT
+// - Dashboard pages (admin / manager / staff) need a login and the matching role
+// - Automatic logout after inactivity (with a 60-second warning) + keep-alive while the user is active
+// - Expired / revoked sessions send the user back to the login page with a clear message
+// - Logout also ends the session on the server
+// =============================================================================
+const IDLE_LIMIT_MS = 30 * 60 * 1000;   // log out after 30 minutes without activity
+const IDLE_WARNING_MS = 60 * 1000;      // warn 60 seconds before that
+const KEEPALIVE_MS = 4 * 60 * 1000;     // tell the server the user is still active (only while active)
+let sessionEnding = false;
+
+const DASHBOARD_ROLE = (() => {
+  const page = (window.location.pathname.split('/').pop() || '').toLowerCase().replace(/\.html$/, '');
+  return ['admin', 'manager', 'staff'].includes(page) ? page : null;
+})();
+
+function readLocalSession() {
+  try {
+    const token = sessionStorage.getItem('authToken');
+    const user = JSON.parse(sessionStorage.getItem('currentUser') || 'null');
+    if (!token || !user || typeof user !== 'object') return null;
+    return { token, user: { ...user, role: user.role || 'staff' } };
+  } catch (e) { return null; }
+}
+
+function clearLocalSession() {
+  sessionStorage.removeItem('currentUser');
+  sessionStorage.removeItem('authToken');
+}
+
+function dashboardPageFor(role) {
+  return role === 'admin' ? 'admin.html' : (role === 'manager' ? 'manager.html' : 'staff.html');
+}
+
+function goToLogin(reason) {
+  document.documentElement.style.visibility = 'hidden'; // never leave a dashboard on screen while leaving
+  window.location.replace('login.html' + (reason ? `?reason=${reason}` : ''));
+}
+
+function handleSessionExpired(reason) {
+  if (sessionEnding) return;
+  sessionEnding = true;
+  clearLocalSession();
+  if (DASHBOARD_ROLE) goToLogin(reason || 'expired');
+}
+
+// Any API answer of 401 to a request that carried our login token means the session is over
+const nativeFetch = window.fetch.bind(window);
+window.fetch = async function (input, init) {
+  const response = await nativeFetch(input, init);
+  try {
+    const url = typeof input === 'string' ? input : ((input && input.url) || '');
+    const sentToken = !!(init && init.headers && init.headers.Authorization);
+    if (response.status === 401 && sentToken && url.startsWith(API_URL)) handleSessionExpired('expired');
+  } catch (e) { /* never break a request because of this check */ }
+  return response;
+};
+
+// Dashboard access check that runs immediately: no login, or the wrong role for this page
+if (DASHBOARD_ROLE) {
+  const local = readLocalSession();
+  if (!local) { sessionEnding = true; goToLogin('required'); }
+  else if (local.user.role !== DASHBOARD_ROLE) { sessionEnding = true; document.documentElement.style.visibility = 'hidden'; window.location.replace(dashboardPageFor(local.user.role)); }
+}
+
+// Back/forward cache: a dashboard shown again after logout must re-check
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted && DASHBOARD_ROLE && !readLocalSession()) goToLogin('required');
+});
+
+function startSessionManager() {
+  let lastActivity = Date.now();
+  let lastPing = Date.now();
+  let warningEl = null;
+
+  const markActivity = () => { if (!warningEl) lastActivity = Date.now(); };
+  ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click'].forEach(name => window.addEventListener(name, markActivity, { passive: true }));
+
+  async function ping() {
+    lastPing = Date.now();
+    try { await fetch(`${API_URL}/session`, { headers: authHeaders() }); } catch (e) { /* offline: try again later */ }
+  }
+
+  function endForIdle() {
+    if (sessionEnding) return;
+    sessionEnding = true;
+    const headers = authHeaders();
+    try { fetch(`${API_URL}/logout`, { method: 'POST', headers, keepalive: true }); } catch (e) { /* ignore */ }
+    clearLocalSession();
+    goToLogin('idle');
+  }
+
+  function removeWarning() {
+    if (warningEl) { warningEl.remove(); warningEl = null; }
+  }
+
+  function showWarning() {
+    if (warningEl) return;
+    warningEl = document.createElement('div');
+    warningEl.className = 'modal active';
+    warningEl.style.zIndex = '10000';
+    warningEl.innerHTML = `
+      <div class="modal-content">
+        <div class="modal-header"><h3 class="modal-title">Are you still there?</h3></div>
+        <div class="modal-body">
+          <p style="margin-bottom:1rem;color:#4b5563;">You will be logged out in <strong id="idleCountdown">60</strong> seconds because of inactivity.</p>
+          <div style="display:flex;gap:0.75rem;">
+            <button type="button" class="btn btn-accent" id="idleStayBtn" style="flex:1;">Stay logged in</button>
+            <button type="button" class="btn btn-secondary" id="idleLogoutBtn" style="flex:1;">Log out now</button>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(warningEl);
+    document.getElementById('idleStayBtn').addEventListener('click', () => { removeWarning(); lastActivity = Date.now(); ping(); });
+    document.getElementById('idleLogoutBtn').addEventListener('click', () => { removeWarning(); handleLogout(); });
+  }
+
+  setInterval(() => {
+    if (sessionEnding) return;
+    const idleFor = Date.now() - lastActivity;
+    if (idleFor >= IDLE_LIMIT_MS) { endForIdle(); return; }
+    if (idleFor >= IDLE_LIMIT_MS - IDLE_WARNING_MS) {
+      showWarning();
+      const countdown = document.getElementById('idleCountdown');
+      if (countdown) countdown.textContent = String(Math.max(0, Math.ceil((IDLE_LIMIT_MS - idleFor) / 1000)));
+    } else if (lastActivity > lastPing && Date.now() - lastPing >= KEEPALIVE_MS) {
+      ping(); // the user is active, so keep the server session alive
+    }
+  }, 1000);
+}
+
+// Runs when a dashboard page opens: confirm the session (and role) with the server, then start the inactivity timer
+async function initDashboardSession() {
+  if (!DASHBOARD_ROLE || sessionEnding) return;
+  startSessionManager();
+  try {
+    const response = await fetch(`${API_URL}/session`, { headers: authHeaders() });
+    if (response.status === 401) return; // handled by the fetch check above
+    const result = await response.json();
+    if (result && result.success && result.user) {
+      const role = result.user.role || 'staff';
+      sessionStorage.setItem('currentUser', JSON.stringify({ id: result.user.id, name: result.user.name, email: result.user.email, role }));
+      if (role !== DASHBOARD_ROLE) {
+        sessionEnding = true;
+        document.documentElement.style.visibility = 'hidden';
+        window.location.replace(dashboardPageFor(role));
+      }
+    }
+  } catch (e) { /* server unreachable (e.g. waking up): keep the page, the next request will re-check */ }
+}
+
+// =============================================================================
 // API OBJECT
 // =============================================================================
 const API = {
@@ -282,10 +434,18 @@ async function handleLogin(event) {
   }
 }
 
-function handleLogout() {
-  sessionStorage.removeItem('currentUser');
-  sessionStorage.removeItem('authToken');
-  window.location.href = 'login.html';
+async function handleLogout() {
+  sessionEnding = true;
+  const headers = authHeaders();
+  try {
+    // End the session on the server too (waits at most 2 seconds)
+    await Promise.race([
+      fetch(`${API_URL}/logout`, { method: 'POST', headers, keepalive: true }),
+      new Promise(resolve => setTimeout(resolve, 2000))
+    ]);
+  } catch (error) { /* log out locally even if the server cannot be reached */ }
+  clearLocalSession();
+  window.location.replace('login.html');
 }
 
 // =============================================================================
@@ -2147,6 +2307,7 @@ document.addEventListener('DOMContentLoaded', () => {
   console.log('🚀 Furniture Management System Initialized');
   initDashboardTabs();
   initModalCloseButtons();
+  initDashboardSession();
 
   // ---- ADMIN PAGE ----
   if (window.location.pathname.includes('admin')) {
@@ -2330,6 +2491,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ---- LOGIN PAGE ----
   if (window.location.pathname.includes('login')) {
+    const reasons = {
+      expired: 'Your session has expired. Please log in again.',
+      idle: 'You were logged out because of inactivity.',
+      required: 'Please log in to continue.'
+    };
+    const reason = new URLSearchParams(window.location.search).get('reason');
+    if (reason && reasons[reason]) {
+      showToast(reasons[reason], 'info', 6000);
+      window.history.replaceState({}, '', window.location.pathname);
+    }
     const loginForm = document.getElementById('loginForm');
     if (loginForm) loginForm.addEventListener('submit', handleLogin);
     const signupForm = document.getElementById('signupForm');
