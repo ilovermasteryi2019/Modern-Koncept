@@ -540,13 +540,13 @@ app.post('/contact-info', async (req, res) => {
 // =============================================================================
 // STAFF/MANAGER ACCOUNTS
 // =============================================================================
-app.get('/staff', async (req, res) => {
+app.get('/staff', requireRole('admin'), async (req, res) => {
   const { data, error } = await db.from('users').select('id,name,email,role,created_at').neq('role', 'admin').order('created_at', { ascending: false });
   if (error) return res.status(500).json({ success: false, message: 'Failed to fetch staff accounts' });
   res.json({ success: true, data });
 });
 
-app.post('/staff', async (req, res) => {
+app.post('/staff', requireRole('admin'), async (req, res) => {
   const { name, email, password, role } = req.body;
   if (!name || !email || !password) return res.status(400).json({ success: false, message: 'Name, email, and password are required' });
   const accountRole = role === 'manager' ? 'manager' : 'staff';
@@ -557,7 +557,64 @@ app.post('/staff', async (req, res) => {
   res.status(201).json({ success: true, message: `${accountRole.charAt(0).toUpperCase() + accountRole.slice(1)} account created successfully`, id: data.id });
 });
 
-app.delete('/staff/:id', async (req, res) => {
+// Edit a STAFF account (Admin only). Only accounts whose CURRENT role in the database is 'staff'
+// can be edited here; Manager and Admin accounts are always rejected. The role can be changed to
+// the same roles the existing "Create Account" flow can assign (staff / manager) - never admin.
+const STAFF_EDITABLE_ROLES = ['staff', 'manager'];
+const STAFF_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+app.put('/staff/:id', requireRole('admin'), async (req, res) => {
+  const rawId = String(req.params.id || '');
+  const targetId = /^\d+$/.test(rawId) ? Number(rawId) : (UUID_RE.test(rawId) ? rawId : null);
+  if (targetId === null) return res.status(400).json({ success: false, message: 'Invalid account.' });
+
+  // ---- validate submitted fields ----
+  const { name, email, role, password } = req.body || {};
+  const cleanName = typeof name === 'string' ? name.trim() : '';
+  const cleanEmail = typeof email === 'string' ? email.trim() : '';
+  const newRole = typeof role === 'string' ? role.trim().toLowerCase() : '';
+  if (!cleanName || cleanName.length > 100) return res.status(400).json({ success: false, message: 'Full name is required (maximum 100 characters).' });
+  if (!cleanEmail || cleanEmail.length > 254 || !STAFF_EMAIL_RE.test(cleanEmail)) return res.status(400).json({ success: false, message: 'A valid email is required.' });
+  if (newRole === 'admin') return res.status(403).json({ success: false, message: 'You cannot assign the Admin role.' });
+  if (!STAFF_EDITABLE_ROLES.includes(newRole)) return res.status(400).json({ success: false, message: 'Invalid role. Choose Staff or Manager.' });
+  const changePassword = password !== undefined && password !== null && password !== '';
+  if (changePassword && (typeof password !== 'string' || password.length > 128)) {
+    return res.status(400).json({ success: false, message: 'Invalid password.' });
+  }
+
+  // ---- the target must currently be a Staff account (checked in the database, by unique id) ----
+  const { data: target, error: targetError } = await db.from('users').select('id,name,email,role').eq('id', targetId).single();
+  if (targetError && targetError.code !== 'PGRST116') return res.status(500).json({ success: false, message: 'Failed to load the account.' });
+  if (!target) return res.status(404).json({ success: false, message: 'Account not found. Please refresh the list.' });
+  if (String(target.id) === String(req.authUser.id)) return res.status(403).json({ success: false, message: 'You cannot edit your own account here.' });
+  if ((target.role || 'staff') !== 'staff') return res.status(403).json({ success: false, message: 'Only Staff accounts can be edited here.' });
+
+  // ---- email must not belong to another account ----
+  const { data: clash, error: clashError } = await db.from('users').select('id').ilike('email', cleanEmail.replace(/[\\%_]/g, '\\$&')).neq('id', targetId).limit(1);
+  if (clashError) return res.status(500).json({ success: false, message: 'Failed to validate the email.' });
+  if (clash && clash.length > 0) return res.status(409).json({ success: false, message: 'Email already exists' });
+
+  // ---- update (the role filter makes the write fail if the account stopped being Staff meanwhile) ----
+  const updates = { name: cleanName, email: cleanEmail, role: newRole };
+  if (changePassword) updates.password = password; // stored the same way the existing create/login flow stores it
+  let query = db.from('users').update(updates).eq('id', targetId);
+  query = target.role ? query.eq('role', target.role) : query.is('role', null);
+  const { data: updated, error } = await query.select('id,name,email,role').single();
+  if (error) {
+    if (error.code === '23505') return res.status(409).json({ success: false, message: 'Email already exists' });
+    if (error.code === 'PGRST116') return res.status(409).json({ success: false, message: 'This account changed while you were editing. Please refresh the list.' });
+    console.error('Staff update error:', error.message);
+    return res.status(500).json({ success: false, message: 'Failed to update account' });
+  }
+  const promoted = updated.role !== 'staff';
+  res.json({
+    success: true,
+    message: promoted ? 'Account updated. It is now a Manager account and can no longer be edited here.' : 'Staff account updated successfully',
+    data: { id: updated.id, name: updated.name, email: updated.email, role: updated.role }
+  });
+});
+
+app.delete('/staff/:id', requireRole('admin'), async (req, res) => {
   const { error } = await db.from('users').delete().eq('id', req.params.id);
   if (error) return res.status(500).json({ success: false, message: 'Failed to delete account' });
   res.json({ success: true, message: 'Account deleted successfully' });

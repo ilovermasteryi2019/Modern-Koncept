@@ -105,9 +105,10 @@ const API = {
   createReview: async (data) => (await fetch(`${API_URL}/reviews`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
   updateReview: async (id, data) => (await fetch(`${API_URL}/reviews/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
   deleteReview: async (id) => (await fetch(`${API_URL}/reviews/${id}`, { method: 'DELETE' })).json(),
-  getStaff: async () => (await fetch(`${API_URL}/staff`)).json(),
-  createStaff: async (data) => (await fetch(`${API_URL}/staff`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
-  deleteStaff: async (id) => (await fetch(`${API_URL}/staff/${id}`, { method: 'DELETE' })).json(),
+  getStaff: async () => (await fetch(`${API_URL}/staff`, { headers: authHeaders() })).json(),
+  createStaff: async (data) => (await fetch(`${API_URL}/staff`, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(data) })).json(),
+  updateStaff: async (id, data) => (await fetch(`${API_URL}/staff/${id}`, { method: 'PUT', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(data) })).json(),
+  deleteStaff: async (id) => (await fetch(`${API_URL}/staff/${id}`, { method: 'DELETE', headers: authHeaders() })).json(),
   getBusinessInfo: async () => (await fetch(`${API_URL}/business-info`)).json(),
   saveBusinessInfo: async (data) => (await fetch(`${API_URL}/business-info`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
   getContactInfo: async () => (await fetch(`${API_URL}/contact-info`)).json(),
@@ -1756,6 +1757,9 @@ async function editAdminSalesRecord(id) {
 // =============================================================================
 // STAFF ACCOUNT MANAGEMENT (ADMIN)
 // =============================================================================
+let staffAccountsCache = {}; // id -> account row from the last GET /staff
+let staffEditSubmitting = false;
+
 async function loadStaffAccountsList() {
   try {
     const result = await API.getStaff();
@@ -1763,8 +1767,13 @@ async function loadStaffAccountsList() {
       const tbody = document.getElementById('staffAccountsList');
       if (!tbody) return;
       tbody.innerHTML = '';
+      staffAccountsCache = {};
       if (result.data.length === 0) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#9ca3af;">No accounts found</td></tr>'; return; }
       result.data.forEach(item => {
+        staffAccountsCache[item.id] = item;
+        const editBtn = (item.role || 'staff') === 'staff'
+          ? `<button class="action-btn edit" onclick="openEditStaffModal(${item.id})" title="Edit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Edit</button> `
+          : '';
         const roleColor = item.role === 'manager' ? '#8b5cf6' : '#065f46';
         const roleBg = item.role === 'manager' ? '#ede9fe' : '#d1fae5';
         const roleLabel = item.role === 'manager' ? 'Manager' : 'Staff';
@@ -1774,7 +1783,7 @@ async function loadStaffAccountsList() {
             <td>${item.email}</td>
             <td><span style="padding:0.25rem 0.75rem;background:${roleBg};color:${roleColor};border-radius:9999px;font-size:0.75rem;font-weight:600;">${roleLabel}</span></td>
             <td>${formatDate(item.created_at)}</td>
-            <td><button class="action-btn delete" onclick="deleteStaffAccount(${item.id})" title="Delete"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button></td>
+            <td>${editBtn}<button class="action-btn delete" onclick="deleteStaffAccount(${item.id})" title="Delete"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button></td>
           </tr>`;
       });
     }
@@ -1848,6 +1857,96 @@ async function deleteStaffAccount(id) {
     if (result.success) { showToast(result.message, 'success'); loadStaffAccountsList(); }
     else showToast('❌ ' + result.message, 'error');
   } catch (error) { showToast('❌ Failed to delete account', 'error'); }
+}
+
+function closeEditStaffModal() {
+  const modal = document.getElementById('editStaffAccountModal');
+  if (modal) modal.remove();
+}
+
+function openEditStaffModal(id) {
+  const account = staffAccountsCache[id];
+  // Only actual Staff accounts are editable here (the backend enforces this again)
+  if (!account) { showToast('Account not found. Please refresh the list.', 'error'); return; }
+  if ((account.role || 'staff') !== 'staff') { showToast('Only Staff accounts can be edited here.', 'error'); return; }
+  closeEditStaffModal();
+  const modalHTML = `
+    <div id="editStaffAccountModal" class="modal active">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 class="modal-title">Edit Staff Account</h3>
+          <button class="modal-close" type="button" onclick="closeEditStaffModal()">×</button>
+        </div>
+        <div class="modal-body">
+          <form id="editStaffAccountForm">
+            <input type="hidden" id="editStaffAccountId">
+            <div class="form-group">
+              <label class="form-label">Full Name</label>
+              <input type="text" id="editStaffAccountName" class="form-input" maxlength="100" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Email</label>
+              <input type="email" id="editStaffAccountEmail" class="form-input" maxlength="254" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Role</label>
+              <select id="editStaffAccountRole" class="form-input" required>
+                <option value="staff">Staff</option>
+                <option value="manager">Manager</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">New Password</label>
+              <input type="password" id="editStaffAccountPassword" class="form-input" maxlength="128" autocomplete="new-password" placeholder="Leave blank to keep the current password">
+            </div>
+            <div style="display:flex;gap:0.75rem;">
+              <button type="submit" class="btn btn-accent" style="flex:1;">Save Changes</button>
+              <button type="button" class="btn btn-secondary" onclick="closeEditStaffModal()" style="flex:1;">Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', modalHTML);
+  // Values are set through the DOM (not the HTML string) so names/emails can never break the markup
+  document.getElementById('editStaffAccountId').value = account.id;
+  document.getElementById('editStaffAccountName').value = account.name || '';
+  document.getElementById('editStaffAccountEmail').value = account.email || '';
+  document.getElementById('editStaffAccountRole').value = 'staff';
+  document.getElementById('editStaffAccountForm').addEventListener('submit', handleEditStaffSubmit);
+}
+
+async function handleEditStaffSubmit(event) {
+  event.preventDefault();
+  if (staffEditSubmitting) return; // a save is already running
+  const form = document.getElementById('editStaffAccountForm');
+  const btn = form ? form.querySelector('button[type="submit"]') : null;
+  const id = document.getElementById('editStaffAccountId').value;
+  const name = document.getElementById('editStaffAccountName').value.trim();
+  const email = document.getElementById('editStaffAccountEmail').value.trim();
+  const role = document.getElementById('editStaffAccountRole').value;
+  const password = document.getElementById('editStaffAccountPassword').value;
+  if (!name) { showToast('Please enter the full name', 'warning'); return; }
+  if (!email) { showToast('Please enter the email', 'warning'); return; }
+  const data = { name, email, role };
+  if (password) data.password = password; // blank = keep the current password
+  staffEditSubmitting = true;
+  if (btn) btn.disabled = true;
+  try {
+    const result = await API.updateStaff(id, data);
+    if (result.success) {
+      showToast(result.message || 'Staff account updated successfully', 'success');
+      closeEditStaffModal();
+      await loadStaffAccountsList();
+    } else {
+      showToast('❌ ' + result.message, 'error');
+    }
+  } catch (error) {
+    showToast('❌ Failed to update account', 'error');
+  } finally {
+    staffEditSubmitting = false;
+    if (btn) btn.disabled = false;
+  }
 }
 
 // =============================================================================
