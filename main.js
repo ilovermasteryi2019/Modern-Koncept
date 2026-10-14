@@ -231,6 +231,11 @@ const API = {
     const r = await fetch(`${API_URL}/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
     return r.json();
   },
+  // Two-factor authentication (these calls carry the short-lived mfaToken from the login step, not a login token)
+  mfaLogin: async (mfaToken, code) => (await fetch(`${API_URL}/login/mfa`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mfaToken, code }) })).json(),
+  mfaSetup: async (mfaToken) => (await fetch(`${API_URL}/mfa/setup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mfaToken }) })).json(),
+  mfaEnable: async (mfaToken, code) => (await fetch(`${API_URL}/mfa/enable`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mfaToken, code }) })).json(),
+  resetStaffMfa: async (id) => (await fetch(`${API_URL}/staff/${id}/reset-mfa`, { method: 'POST', headers: authHeaders() })).json(),
   getFurniture: async () => (await fetch(`${API_URL}/products`)).json(),
   createFurniture: async (data) => (await fetch(`${API_URL}/add-product`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
   updateFurniture: async (id, data) => (await fetch(`${API_URL}/products/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
@@ -405,33 +410,194 @@ async function handleSignup(event) {
   }
 }
 
-// Handle Login - redirects based on role
+// Handle Login - password first; accounts with two-factor authentication then enter a 6-digit code.
+// Accounts that have not set it up yet are taken through the setup first (the server only hands out the
+// real login token after that). Short-lived tokens are kept in memory only, never saved in the browser.
+let pendingMfaToken = null;     // challenge token from the server (valid for a few minutes)
+let pendingSession = null;      // login result held back until the user confirms their backup codes are saved
+let pendingBackupCodes = [];
+
+function showLoginStep(step) {
+  const panels = { password: 'loginForm', code: 'mfaCodeForm', setup: 'mfaSetupForm', backup: 'mfaBackupStep' };
+  Object.keys(panels).forEach(name => {
+    const el = document.getElementById(panels[name]);
+    if (el) el.classList.toggle('hidden', name !== step);
+  });
+  const header = document.getElementById('loginHeader');
+  if (header) header.classList.toggle('hidden', step !== 'password');
+  const focusId = { password: 'loginEmail', code: 'mfaCode', setup: 'mfaSetupCode' }[step];
+  const focusEl = focusId ? document.getElementById(focusId) : null;
+  if (focusEl) setTimeout(() => focusEl.focus(), 50);
+}
+
+function backToPasswordStep() {
+  pendingMfaToken = null;
+  pendingSession = null;
+  pendingBackupCodes = [];
+  ['loginPassword', 'mfaCode', 'mfaSetupCode'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  const qr = document.getElementById('mfaQr');
+  if (qr) qr.innerHTML = '';
+  showLoginStep('password');
+}
+
+function completeLogin(result) {
+  sessionStorage.setItem('currentUser', JSON.stringify(result.user));
+  sessionStorage.setItem('authToken', result.token || '');
+  showToast('Login successful!', 'success');
+  setTimeout(() => { window.location.href = dashboardPageFor(result.user.role); }, 1500);
+}
+
 async function handleLogin(event) {
   event.preventDefault();
   const email = document.getElementById('loginEmail').value;
   const password = document.getElementById('loginPassword').value;
   try {
     const result = await API.login(email, password);
-    if (result.success) {
-      sessionStorage.setItem('currentUser', JSON.stringify(result.user));
-      sessionStorage.setItem('authToken', result.token || '');
-      showToast('Login successful!', 'success');
-      setTimeout(() => {
-        const role = result.user.role;
-        if (role === 'admin') {
-          window.location.href = 'admin.html';
-        } else if (role === 'manager') {
-          window.location.href = 'manager.html';
-        } else {
-          window.location.href = 'staff.html';
-        }
-      }, 1500);
+    if (result.success && result.mfaRequired) {
+      pendingMfaToken = result.mfaToken;
+      document.getElementById('loginPassword').value = '';
+      showLoginStep('code');
+    } else if (result.success && result.mfaSetupRequired) {
+      document.getElementById('loginPassword').value = '';
+      await startMfaSetup(result.mfaToken);
+    } else if (result.success && result.user) {
+      completeLogin(result);
     } else {
-      showToast(result.message, 'error');
+      showToast(result.message || 'Login failed.', 'error');
     }
   } catch (error) {
     showToast('Failed to login. Please check your connection.', 'error');
   }
+}
+
+// ---- Two-factor authentication: first-time setup ----
+async function startMfaSetup(mfaToken) {
+  pendingMfaToken = mfaToken;
+  const result = await API.mfaSetup(mfaToken);
+  if (!result.success) {
+    showToast(result.message || 'Could not start two-factor setup.', 'error');
+    backToPasswordStep();
+    return;
+  }
+  document.getElementById('mfaSecretText').value = String(result.secret).match(/.{1,4}/g).join(' ');
+  showLoginStep('setup');
+  renderMfaQr(result.otpauthUrl);
+}
+
+// The QR code is drawn in the browser (the setup key never goes to a third party). If the small
+// library cannot load, the manual setup key shown under the QR code still works.
+function loadQrLibrary() {
+  return new Promise((resolve, reject) => {
+    if (window.QRCode) { resolve(); return; }
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
+    script.onload = () => (window.QRCode ? resolve() : reject(new Error('QR library missing')));
+    script.onerror = () => reject(new Error('QR library failed to load'));
+    document.head.appendChild(script);
+  });
+}
+
+async function renderMfaQr(otpauthUrl) {
+  const box = document.getElementById('mfaQr');
+  const errorEl = document.getElementById('mfaQrError');
+  if (!box) return;
+  box.innerHTML = '';
+  if (errorEl) errorEl.classList.add('hidden');
+  try {
+    await loadQrLibrary();
+    new QRCode(box, { text: otpauthUrl, width: 192, height: 192, correctLevel: QRCode.CorrectLevel.M });
+  } catch (e) {
+    if (errorEl) errorEl.classList.remove('hidden');
+  }
+}
+
+async function handleMfaSetupSubmit(event) {
+  event.preventDefault();
+  const input = document.getElementById('mfaSetupCode');
+  const button = document.getElementById('mfaSetupSubmit');
+  const code = input.value.trim();
+  if (!code) return;
+  button.disabled = true;
+  try {
+    const result = await API.mfaEnable(pendingMfaToken, code);
+    if (result.success) {
+      pendingSession = { user: result.user, token: result.token };
+      pendingBackupCodes = result.backupCodes || [];
+      const list = document.getElementById('mfaBackupList');
+      list.innerHTML = '';
+      pendingBackupCodes.forEach(c => { const row = document.createElement('div'); row.textContent = c; list.appendChild(row); });
+      document.getElementById('mfaBackupSaved').checked = false;
+      document.getElementById('mfaBackupContinue').disabled = true;
+      pendingMfaToken = null;
+      showLoginStep('backup');
+    } else if (result.code === 'MFA_EXPIRED') {
+      showToast(result.message, 'info', 6000);
+      backToPasswordStep();
+    } else {
+      showToast(result.message || 'That code is not correct.', 'error');
+      input.value = '';
+      input.focus();
+    }
+  } catch (error) {
+    showToast('Failed to verify the code. Please check your connection.', 'error');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+// ---- Two-factor authentication: every later login ----
+async function handleMfaCodeSubmit(event) {
+  event.preventDefault();
+  const input = document.getElementById('mfaCode');
+  const button = document.getElementById('mfaCodeSubmit');
+  const code = input.value.trim();
+  if (!code) return;
+  button.disabled = true;
+  try {
+    const result = await API.mfaLogin(pendingMfaToken, code);
+    if (result.success) {
+      if (result.usedBackupCode) {
+        const left = result.backupCodesLeft;
+        showToast(`Backup code used. ${left} left.${left <= 2 ? ' Ask the Admin to reset your two-factor setup soon to get new codes.' : ''}`, 'warning', 7000);
+      }
+      completeLogin(result);
+    } else if (result.code === 'MFA_EXPIRED') {
+      showToast(result.message, 'info', 6000);
+      backToPasswordStep();
+    } else {
+      showToast(result.message || 'That code is not correct.', 'error');
+      input.value = '';
+      input.focus();
+    }
+  } catch (error) {
+    showToast('Failed to verify the code. Please check your connection.', 'error');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function initMfaLoginUi() {
+  const on = (id, eventName, handler) => { const el = document.getElementById(id); if (el) el.addEventListener(eventName, handler); };
+  on('mfaCodeForm', 'submit', handleMfaCodeSubmit);
+  on('mfaSetupForm', 'submit', handleMfaSetupSubmit);
+  on('mfaCodeBack', 'click', backToPasswordStep);
+  on('mfaSetupBack', 'click', backToPasswordStep);
+  on('mfaBackupSaved', 'change', (e) => { document.getElementById('mfaBackupContinue').disabled = !e.target.checked; });
+  on('mfaBackupContinue', 'click', () => { if (pendingSession) completeLogin(pendingSession); });
+  on('mfaBackupCopy', 'click', async () => {
+    try { await navigator.clipboard.writeText(pendingBackupCodes.join('\n')); showToast('Backup codes copied.', 'success'); }
+    catch (e) { showToast('Could not copy. Please write the codes down or use Download.', 'warning'); }
+  });
+  on('mfaBackupDownload', 'click', () => {
+    const text = 'Modern Koncept - two-factor backup codes\nEach code works once. Keep this file somewhere safe.\n\n' + pendingBackupCodes.join('\n') + '\n';
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+    link.download = 'modern-koncept-backup-codes.txt';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  });
 }
 
 async function handleLogout() {
@@ -1988,7 +2154,7 @@ async function loadStaffAccountsList() {
       if (!tbody) return;
       tbody.innerHTML = '';
       staffAccountsCache = {};
-      if (result.data.length === 0) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#9ca3af;">No accounts found</td></tr>'; return; }
+      if (result.data.length === 0) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#9ca3af;">No accounts found</td></tr>'; return; }
       result.data.forEach(item => {
         staffAccountsCache[item.id] = item;
         const editBtn = (item.role || 'staff') === 'staff'
@@ -1997,13 +2163,20 @@ async function loadStaffAccountsList() {
         const roleColor = item.role === 'manager' ? '#8b5cf6' : '#065f46';
         const roleBg = item.role === 'manager' ? '#ede9fe' : '#d1fae5';
         const roleLabel = item.role === 'manager' ? 'Manager' : 'Staff';
+        const mfaBadge = item.mfa_enabled
+          ? '<span style="padding:0.25rem 0.75rem;background:#d1fae5;color:#065f46;border-radius:9999px;font-size:0.75rem;font-weight:600;">On</span>'
+          : '<span style="padding:0.25rem 0.75rem;background:#f3f4f6;color:#6b7280;border-radius:9999px;font-size:0.75rem;font-weight:600;">Not set up</span>';
+        const resetMfaBtn = item.mfa_enabled
+          ? `<button class="action-btn edit" onclick="resetStaffMfa(${item.id})" title="Reset two-factor authentication"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg> Reset 2FA</button> `
+          : '';
         tbody.innerHTML += `
           <tr>
             <td>${item.name}</td>
             <td>${item.email}</td>
             <td><span style="padding:0.25rem 0.75rem;background:${roleBg};color:${roleColor};border-radius:9999px;font-size:0.75rem;font-weight:600;">${roleLabel}</span></td>
+            <td>${mfaBadge}</td>
             <td>${formatDate(item.created_at)}</td>
-            <td>${editBtn}<button class="action-btn delete" onclick="deleteStaffAccount(${item.id})" title="Delete"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button></td>
+            <td>${resetMfaBtn}${editBtn}<button class="action-btn delete" onclick="deleteStaffAccount(${item.id})" title="Delete"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button></td>
           </tr>`;
       });
     }
@@ -2077,6 +2250,17 @@ async function deleteStaffAccount(id) {
     if (result.success) { showToast(result.message, 'success'); loadStaffAccountsList(); }
     else showToast('❌ ' + result.message, 'error');
   } catch (error) { showToast('❌ Failed to delete account', 'error'); }
+}
+
+async function resetStaffMfa(id) {
+  const account = staffAccountsCache[id];
+  const who = account && account.name ? account.name : 'this account';
+  if (!confirm(`Reset two-factor authentication for ${who}? They will be logged out and must set it up again at their next login.`)) return;
+  try {
+    const result = await API.resetStaffMfa(id);
+    if (result.success) { showToast(result.message, 'success'); loadStaffAccountsList(); }
+    else showToast('❌ ' + result.message, 'error');
+  } catch (error) { showToast('❌ Failed to reset two-factor authentication', 'error'); }
 }
 
 function closeEditStaffModal() {
@@ -2570,6 +2754,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     const loginForm = document.getElementById('loginForm');
     if (loginForm) loginForm.addEventListener('submit', handleLogin);
+    initMfaLoginUi();
     const signupForm = document.getElementById('signupForm');
     if (signupForm) signupForm.addEventListener('submit', handleSignup);
   }

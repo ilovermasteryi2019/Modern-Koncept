@@ -137,7 +137,7 @@ function requireRole(...allowedRoles) {
     const header = req.headers.authorization || '';
     const token = header.startsWith('Bearer ') ? header.slice(7) : null;
     const decoded = verifyToken(token);
-    if (!decoded) return res.status(401).json({ success: false, message: 'Session expired or not logged in. Please log out and log in again.' });
+    if (!decoded || decoded.purpose) return res.status(401).json({ success: false, message: 'Session expired or not logged in. Please log out and log in again.' });
     // The token must belong to a live server-side session (not logged out, not idle for too long)
     const session = decoded.jti ? sessions.get(decoded.jti) : null;
     if (!session || String(session.userId) !== String(decoded.id) || Date.now() - session.lastSeen > SESSION_IDLE_MS) {
@@ -161,6 +161,185 @@ function generateRefCode() {
 }
 
 // =============================================================================
+// TWO-FACTOR AUTHENTICATION (MFA) - authenticator-app codes (TOTP, RFC 6238)
+// Built-in crypto only (no new npm package). How it works:
+//  - Admin / Manager / Staff log in with password, then a 6-digit code from an authenticator app.
+//  - Accounts without MFA must set it up at their next login (the real login token is only
+//    issued AFTER setup). Set MFA_REQUIRED=false to only challenge accounts that already have it.
+//  - The secret is stored encrypted (AES-256-GCM). Backup codes are stored as hashes and work once.
+// Environment: MFA_ENCRYPTION_KEY (recommended, set once and never change it; falls back to
+// AUTH_SECRET), MFA_REQUIRED (default true), MFA_ISSUER (name shown in the authenticator app).
+// =============================================================================
+const MFA_REQUIRED = String(process.env.MFA_REQUIRED || 'true').toLowerCase() !== 'false';
+const MFA_ISSUER = process.env.MFA_ISSUER || 'Modern Koncept';
+const MFA_KEY_SOURCE = process.env.MFA_ENCRYPTION_KEY || process.env.AUTH_SECRET || '';
+const MFA_KEY = MFA_KEY_SOURCE ? crypto.createHash('sha256').update(`mfa-encryption-key:${MFA_KEY_SOURCE}`).digest() : null;
+if (!MFA_KEY) console.warn('⚠️ MFA is OFF: set MFA_ENCRYPTION_KEY (or AUTH_SECRET) in your environment to turn on two-factor login.');
+const MFA_CHALLENGE_TTL_MS = 5 * 60 * 1000;   // time allowed to type the code after the password step
+const MFA_SETUP_TTL_MS = 15 * 60 * 1000;      // time allowed to finish the first-time setup
+const MFA_STEP_MS = 30 * 1000;                // a TOTP code changes every 30 seconds
+const MFA_MAX_FAILS = 5;                      // wrong codes allowed ...
+const MFA_LOCK_MS = 15 * 60 * 1000;           // ... then the account is locked for this long
+const MFA_BACKUP_COUNT = 8;
+
+// ---- base32 (the format authenticator apps use for secrets) ----
+const B32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+function base32Encode(buffer) {
+  let bits = 0, value = 0, out = '';
+  for (const byte of buffer) {
+    value = (value << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      out += B32_ALPHABET[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+    value &= (1 << bits) - 1;
+  }
+  if (bits > 0) out += B32_ALPHABET[(value << (5 - bits)) & 31];
+  return out;
+}
+
+function base32Decode(text) {
+  const clean = String(text || '').replace(/=+$/, '').toUpperCase();
+  let bits = 0, value = 0;
+  const bytes = [];
+  for (const ch of clean) {
+    const index = B32_ALPHABET.indexOf(ch);
+    if (index < 0) throw new Error('Invalid base32 secret');
+    value = (value << 5) | index;
+    bits += 5;
+    if (bits >= 8) {
+      bytes.push((value >>> (bits - 8)) & 255);
+      bits -= 8;
+      value &= (1 << bits) - 1;
+    }
+  }
+  return Buffer.from(bytes);
+}
+
+// ---- TOTP (RFC 4226 / 6238: HMAC-SHA1, 6 digits, 30-second steps) ----
+function hotp(secretBuffer, counter) {
+  const msg = Buffer.alloc(8);
+  msg.writeBigUInt64BE(BigInt(counter));
+  const hash = crypto.createHmac('sha1', secretBuffer).update(msg).digest();
+  const offset = hash[hash.length - 1] & 0x0f;
+  const binary = ((hash[offset] & 0x7f) << 24) | (hash[offset + 1] << 16) | (hash[offset + 2] << 8) | hash[offset + 3];
+  return String(binary % 1000000).padStart(6, '0');
+}
+
+// Returns the matching time step, or null when the code is wrong or was already used.
+// Accepts the previous / current / next 30-second window (phone clocks drift a little).
+function verifyTotp(secretBase32, code, lastUsedStep) {
+  const clean = String(code || '').replace(/\s+/g, '');
+  if (!/^\d{6}$/.test(clean)) return null;
+  let secret;
+  try { secret = base32Decode(secretBase32); } catch (e) { return null; }
+  const nowStep = Math.floor(Date.now() / MFA_STEP_MS);
+  let matched = null;
+  for (let drift = -1; drift <= 1; drift++) {
+    const step = nowStep + drift;
+    if (safeEqualText(hotp(secret, step), clean) && matched === null) matched = step;
+  }
+  if (matched === null) return null;
+  if (lastUsedStep !== null && lastUsedStep !== undefined && matched <= Number(lastUsedStep)) return null; // replay
+  return matched;
+}
+
+// ---- secret encryption (AES-256-GCM) ----
+function encryptMfaSecret(plain) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', MFA_KEY, iv);
+  const encrypted = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
+  return ['v1', iv.toString('base64url'), cipher.getAuthTag().toString('base64url'), encrypted.toString('base64url')].join('.');
+}
+
+function decryptMfaSecret(stored) {
+  const [version, iv, tag, encrypted] = String(stored || '').split('.');
+  if (version !== 'v1' || !iv || !tag || !encrypted) return null;
+  try {
+    const decipher = crypto.createDecipheriv('aes-256-gcm', MFA_KEY, Buffer.from(iv, 'base64url'));
+    decipher.setAuthTag(Buffer.from(tag, 'base64url'));
+    return Buffer.concat([decipher.update(Buffer.from(encrypted, 'base64url')), decipher.final()]).toString('utf8');
+  } catch (e) { return null; }
+}
+
+// ---- backup codes (shown once, stored only as hashes, each works one time) ----
+const BACKUP_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I so they are easy to read
+
+function normalizeBackupCode(code) {
+  return String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function hashBackupCode(code) {
+  return crypto.createHmac('sha256', MFA_KEY).update(normalizeBackupCode(code)).digest('hex');
+}
+
+function generateBackupCodes() {
+  const codes = [];
+  for (let i = 0; i < MFA_BACKUP_COUNT; i++) {
+    const bytes = crypto.randomBytes(10);
+    let raw = '';
+    for (const byte of bytes) raw += BACKUP_ALPHABET[byte % 32];
+    codes.push(`${raw.slice(0, 5)}-${raw.slice(5)}`);
+  }
+  return codes;
+}
+
+// ---- short-lived challenge tokens (NOT login tokens: requireRole rejects any token with a purpose) ----
+function signPurposeToken(userId, purpose, ttlMs) {
+  const payload = Buffer.from(JSON.stringify({ id: userId, purpose, exp: Date.now() + ttlMs })).toString('base64url');
+  const sig = crypto.createHmac('sha256', AUTH_SECRET).update(payload).digest('base64url');
+  return `${payload}.${sig}`;
+}
+
+function verifyPurposeToken(token, purpose) {
+  const data = verifyToken(token);
+  return data && data.purpose === purpose && data.id !== undefined && data.id !== null ? data : null;
+}
+
+// ---- wrong-code limiter (in memory, like the sessions list: a restart clears it) ----
+const mfaFails = new Map(); // userId -> { count, lastFail, lockedUntil }
+
+function mfaLockedForMs(userId) {
+  const entry = mfaFails.get(String(userId));
+  return entry && entry.lockedUntil > Date.now() ? entry.lockedUntil - Date.now() : 0;
+}
+
+function mfaRecordFail(userId) {
+  const key = String(userId);
+  const now = Date.now();
+  let entry = mfaFails.get(key) || { count: 0, lastFail: 0, lockedUntil: 0 };
+  if (now - entry.lastFail > MFA_LOCK_MS || (entry.lockedUntil && entry.lockedUntil <= now)) entry = { count: 0, lastFail: 0, lockedUntil: 0 };
+  entry.count += 1;
+  entry.lastFail = now;
+  if (entry.count >= MFA_MAX_FAILS) entry.lockedUntil = now + MFA_LOCK_MS;
+  mfaFails.set(key, entry);
+}
+
+function mfaClearFails(userId) { mfaFails.delete(String(userId)); }
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of mfaFails) if (now - entry.lastFail > MFA_LOCK_MS) mfaFails.delete(key);
+}, 10 * 60 * 1000).unref();
+
+function mfaLockMessage(ms) {
+  return `Too many wrong codes. Please try again in ${Math.max(1, Math.ceil(ms / 60000))} minute(s).`;
+}
+
+// Looks up whether this account already has MFA turned on. Returns null if the lookup fails
+// (for example the mfa-migration.sql script has not been run yet).
+async function getMfaState(userId) {
+  const { data, error } = await db.from('users').select('mfa_enabled').eq('id', userId).single();
+  if (error || !data) {
+    console.error('MFA lookup failed (did you run mfa-migration.sql in Supabase?):', error ? error.message : 'no row');
+    return null;
+  }
+  return { enabled: data.mfa_enabled === true };
+}
+
+// =============================================================================
 // AUTH
 // =============================================================================
 // Hashes a password for storage. Returns null (and the caller answers 500) if hashing fails.
@@ -168,7 +347,8 @@ async function hashForStorage(password) {
   try { return await hashPassword(password); } catch (e) { console.error('Password hashing failed:', e.message); return null; }
 }
 
-app.post('/signup', async (req, res) => {
+// Accounts are created by the Admin only (Staff Accounts module -> POST /staff). This older route is kept but now needs an Admin login.
+app.post('/signup', requireRole('admin'), async (req, res) => {
   const { name, email, password } = req.body;
   if (!name || !email || !password) return res.status(400).json({ success: false, message: 'All fields are required' });
   if (typeof password !== 'string' || password.length > 128) return res.status(400).json({ success: false, message: 'Invalid password' });
@@ -198,8 +378,134 @@ app.post('/login', async (req, res) => {
     }
   }
   const loggedInUser = { id: data.id, name: data.name, email: data.email, role: data.role || 'staff' };
+
+  // Second step: no login token is handed out until the account has passed (or set up) two-factor authentication
+  if (MFA_KEY) {
+    const mfa = await getMfaState(data.id);
+    if (!mfa) return res.status(500).json({ success: false, message: 'Login is temporarily unavailable. Please try again later.' });
+    if (mfa.enabled) {
+      return res.json({ success: true, mfaRequired: true, mfaToken: signPurposeToken(data.id, 'mfa', MFA_CHALLENGE_TTL_MS), message: 'Enter the 6-digit code from your authenticator app.' });
+    }
+    if (MFA_REQUIRED) {
+      return res.json({ success: true, mfaSetupRequired: true, mfaToken: signPurposeToken(data.id, 'mfa-setup', MFA_SETUP_TTL_MS), message: 'Two-factor authentication must be set up before you can continue.' });
+    }
+  }
   res.json({ success: true, message: 'Login successful', user: loggedInUser, token: createSession(loggedInUser) });
 });
+
+// -----------------------------------------------------------------------------
+// MFA routes
+//  POST /login/mfa          step 2 of login: password was right, now check the 6-digit (or backup) code
+//  POST /mfa/setup          first-time setup, part 1: create a secret and return it for the QR code
+//  POST /mfa/enable         first-time setup, part 2: check the first code, turn MFA on, return backup codes
+//  POST /staff/:id/reset-mfa (Admin only, further below)
+// -----------------------------------------------------------------------------
+app.post('/login/mfa', async (req, res) => {
+  if (!MFA_KEY) return res.status(503).json({ success: false, message: 'Two-factor login is not available right now.' });
+  const { mfaToken, code } = req.body || {};
+  const challenge = verifyPurposeToken(mfaToken, 'mfa');
+  if (!challenge) return res.status(401).json({ success: false, code: 'MFA_EXPIRED', message: 'This step expired. Please enter your email and password again.' });
+  const lockedFor = mfaLockedForMs(challenge.id);
+  if (lockedFor) return res.status(429).json({ success: false, message: mfaLockMessage(lockedFor) });
+
+  const { data: user, error } = await db.from('users').select('id,name,email,role,mfa_enabled,mfa_secret,mfa_backup_codes,mfa_last_step').eq('id', challenge.id).single();
+  if (error || !user || user.mfa_enabled !== true || !user.mfa_secret) {
+    return res.status(401).json({ success: false, code: 'MFA_EXPIRED', message: 'This step expired. Please enter your email and password again.' });
+  }
+  const secret = decryptMfaSecret(user.mfa_secret);
+  if (!secret) {
+    console.error('MFA secret could not be decrypted for user', user.id, '(was MFA_ENCRYPTION_KEY changed?)');
+    return res.status(500).json({ success: false, message: 'Two-factor login is not working for this account. Please ask the Admin to reset it.' });
+  }
+
+  const clean = String(code || '').replace(/[\s-]/g, '');
+  let accepted = false;
+  let usedBackupCode = false;
+  let backupCodesLeft = null;
+
+  if (/^\d{6}$/.test(clean)) {
+    const step = verifyTotp(secret, clean, user.mfa_last_step);
+    if (step !== null) {
+      // Remember the step in the database; the filter makes sure the same code can never be used twice, even by two requests at once
+      const { data: rows, error: stepError } = await db.from('users').update({ mfa_last_step: step }).eq('id', user.id).or(`mfa_last_step.is.null,mfa_last_step.lt.${step}`).select('id');
+      if (stepError) return res.status(500).json({ success: false, message: 'Login failed. Please try again.' });
+      accepted = Array.isArray(rows) && rows.length > 0;
+    }
+  } else if (clean.length === 10) {
+    const hash = hashBackupCode(clean);
+    const stored = Array.isArray(user.mfa_backup_codes) ? user.mfa_backup_codes : [];
+    const index = stored.findIndex(h => safeEqualText(h, hash));
+    if (index >= 0) {
+      const remaining = stored.filter((_, i) => i !== index);
+      const { error: backupError } = await db.from('users').update({ mfa_backup_codes: remaining }).eq('id', user.id);
+      if (backupError) return res.status(500).json({ success: false, message: 'Login failed. Please try again.' });
+      accepted = true;
+      usedBackupCode = true;
+      backupCodesLeft = remaining.length;
+    }
+  }
+
+  if (!accepted) {
+    mfaRecordFail(user.id);
+    const nowLocked = mfaLockedForMs(user.id);
+    if (nowLocked) return res.status(429).json({ success: false, message: mfaLockMessage(nowLocked) });
+    return res.status(401).json({ success: false, message: 'That code is not correct. Check your authenticator app and try again.' });
+  }
+
+  mfaClearFails(user.id);
+  const loggedInUser = { id: user.id, name: user.name, email: user.email, role: user.role || 'staff' };
+  res.json({ success: true, message: 'Login successful', user: loggedInUser, token: createSession(loggedInUser), usedBackupCode, backupCodesLeft });
+});
+
+app.post('/mfa/setup', async (req, res) => {
+  if (!MFA_KEY) return res.status(503).json({ success: false, message: 'Two-factor login is not available right now.' });
+  const challenge = verifyPurposeToken((req.body || {}).mfaToken, 'mfa-setup');
+  if (!challenge) return res.status(401).json({ success: false, code: 'MFA_EXPIRED', message: 'This setup step expired. Please log in again.' });
+  const { data: user, error } = await db.from('users').select('id,email,mfa_enabled').eq('id', challenge.id).single();
+  if (error || !user) return res.status(401).json({ success: false, code: 'MFA_EXPIRED', message: 'This setup step expired. Please log in again.' });
+  if (user.mfa_enabled === true) return res.status(409).json({ success: false, message: 'Two-factor authentication is already set up for this account.' });
+
+  const secret = base32Encode(crypto.randomBytes(20));
+  const { error: saveError } = await db.from('users').update({ mfa_secret: encryptMfaSecret(secret), mfa_last_step: null }).eq('id', user.id).eq('mfa_enabled', false);
+  if (saveError) return res.status(500).json({ success: false, message: 'Could not start two-factor setup. Please try again.' });
+  const otpauthUrl = `otpauth://totp/${encodeURIComponent(MFA_ISSUER)}:${encodeURIComponent(user.email)}?secret=${secret}&issuer=${encodeURIComponent(MFA_ISSUER)}&algorithm=SHA1&digits=6&period=30`;
+  res.json({ success: true, secret, otpauthUrl });
+});
+
+app.post('/mfa/enable', async (req, res) => {
+  if (!MFA_KEY) return res.status(503).json({ success: false, message: 'Two-factor login is not available right now.' });
+  const { mfaToken, code } = req.body || {};
+  const challenge = verifyPurposeToken(mfaToken, 'mfa-setup');
+  if (!challenge) return res.status(401).json({ success: false, code: 'MFA_EXPIRED', message: 'This setup step expired. Please log in again.' });
+  const lockedFor = mfaLockedForMs(challenge.id);
+  if (lockedFor) return res.status(429).json({ success: false, message: mfaLockMessage(lockedFor) });
+
+  const { data: user, error } = await db.from('users').select('id,name,email,role,mfa_enabled,mfa_secret').eq('id', challenge.id).single();
+  if (error || !user) return res.status(401).json({ success: false, code: 'MFA_EXPIRED', message: 'This setup step expired. Please log in again.' });
+  if (user.mfa_enabled === true) return res.status(409).json({ success: false, message: 'Two-factor authentication is already set up for this account.' });
+  if (!user.mfa_secret) return res.status(400).json({ success: false, message: 'Please start the setup again.' });
+  const secret = decryptMfaSecret(user.mfa_secret);
+  if (!secret) return res.status(500).json({ success: false, message: 'Could not read the setup key. Please start the setup again.' });
+
+  const step = verifyTotp(secret, code, null);
+  if (step === null) {
+    mfaRecordFail(user.id);
+    const nowLocked = mfaLockedForMs(user.id);
+    if (nowLocked) return res.status(429).json({ success: false, message: mfaLockMessage(nowLocked) });
+    return res.status(401).json({ success: false, message: 'That code is not correct. Check your authenticator app and try again.' });
+  }
+
+  const backupCodes = generateBackupCodes();
+  const { data: rows, error: enableError } = await db.from('users')
+    .update({ mfa_enabled: true, mfa_last_step: step, mfa_backup_codes: backupCodes.map(hashBackupCode) })
+    .eq('id', user.id).eq('mfa_enabled', false).select('id');
+  if (enableError || !rows || rows.length === 0) return res.status(500).json({ success: false, message: 'Could not turn on two-factor authentication. Please try again.' });
+
+  mfaClearFails(user.id);
+  const loggedInUser = { id: user.id, name: user.name, email: user.email, role: user.role || 'staff' };
+  res.json({ success: true, message: 'Two-factor authentication is now on.', backupCodes, user: loggedInUser, token: createSession(loggedInUser) });
+});
+
 
 // Checks the current session (used by the dashboards when they open and as a keep-alive while the user is active)
 app.get('/session', requireRole('admin', 'manager', 'staff'), (req, res) => {
@@ -715,7 +1021,7 @@ app.post('/contact-info', async (req, res) => {
 // STAFF/MANAGER ACCOUNTS
 // =============================================================================
 app.get('/staff', requireRole('admin'), async (req, res) => {
-  const { data, error } = await db.from('users').select('id,name,email,role,created_at').neq('role', 'admin').order('created_at', { ascending: false });
+  const { data, error } = await db.from('users').select('id,name,email,role,created_at,mfa_enabled').neq('role', 'admin').order('created_at', { ascending: false });
   if (error) return res.status(500).json({ success: false, message: 'Failed to fetch staff accounts' });
   res.json({ success: true, data });
 });
@@ -800,6 +1106,24 @@ app.delete('/staff/:id', requireRole('admin'), async (req, res) => {
   if (error) return res.status(500).json({ success: false, message: 'Failed to delete account' });
   revokeUserSessions(req.params.id);
   res.json({ success: true, message: 'Account deleted successfully' });
+});
+
+// Reset a Staff/Manager's two-factor authentication (Admin only), for example after they lose their phone.
+// They are logged out and must set it up again at their next login. Admin accounts cannot be reset here.
+app.post('/staff/:id/reset-mfa', requireRole('admin'), async (req, res) => {
+  const rawId = String(req.params.id || '');
+  const targetId = /^\d+$/.test(rawId) ? Number(rawId) : (UUID_RE.test(rawId) ? rawId : null);
+  if (targetId === null) return res.status(400).json({ success: false, message: 'Invalid account.' });
+  const { data: target, error: targetError } = await db.from('users').select('id,name,role').eq('id', targetId).single();
+  if (targetError || !target) return res.status(404).json({ success: false, message: 'Account not found. Please refresh the list.' });
+  if (String(target.id) === String(req.authUser.id) || (target.role || 'staff') === 'admin') {
+    return res.status(403).json({ success: false, message: 'Admin accounts cannot be reset here. Use a backup code, or reset it directly in the database.' });
+  }
+  const { error } = await db.from('users').update({ mfa_enabled: false, mfa_secret: null, mfa_backup_codes: [], mfa_last_step: null }).eq('id', target.id);
+  if (error) return res.status(500).json({ success: false, message: 'Failed to reset two-factor authentication' });
+  revokeUserSessions(target.id);
+  mfaClearFails(target.id);
+  res.json({ success: true, message: `Two-factor authentication was reset for ${target.name}. They will set it up again at their next login.` });
 });
 
 // =============================================================================
