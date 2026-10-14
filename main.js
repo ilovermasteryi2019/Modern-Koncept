@@ -95,9 +95,9 @@ const API = {
   deleteDelivery: async (id) => (await fetch(`${API_URL}/deliveries/${id}`, { method: 'DELETE', headers: authHeaders() })).json(),
   sendDeliverySms: async (id) => (await fetch(`${API_URL}/deliveries/${id}/send-sms`, { method: 'POST', headers: authHeaders() })).json(),
   getSales: async () => (await fetch(`${API_URL}/sales`)).json(),
-  createSales: async (data) => (await fetch(`${API_URL}/sales`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
-  updateSales: async (id, data) => (await fetch(`${API_URL}/sales/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
-  deleteSales: async (id) => (await fetch(`${API_URL}/sales/${id}`, { method: 'DELETE' })).json(),
+  createSales: async (data) => (await fetch(`${API_URL}/sales`, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(data) })).json(),
+  updateSales: async (id, data) => (await fetch(`${API_URL}/sales/${id}`, { method: 'PUT', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(data) })).json(),
+  deleteSales: async (id) => (await fetch(`${API_URL}/sales/${id}`, { method: 'DELETE', headers: authHeaders() })).json(),
   getReviews: async (limit) => {
     const query = Number.isInteger(limit) && limit > 0 ? `?limit=${limit}` : '';
     return (await fetch(`${API_URL}/reviews${query}`)).json();
@@ -1199,7 +1199,7 @@ async function loadSalesList() {
           <tr>
             <td>${formatDate(item.sale_date)}</td>
             <td>${item.customer_name}</td>
-            <td>${item.product_name}</td>
+            <td>${formatSaleProduct(item)}</td>
             <td>${formatCurrency(item.amount)}</td>
             <td>
               <button class="action-btn edit" onclick="editAdminSalesRecord(${item.id})" title="Edit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
@@ -1278,7 +1278,7 @@ async function loadStaffSalesList() {
           <tr>
             <td>${formatDate(item.sale_date)}</td>
             <td>${item.customer_name}</td>
-            <td>${item.product_name}</td>
+            <td>${formatSaleProduct(item)}</td>
             <td>${formatCurrency(item.amount)}</td>
             <td><button class="action-btn edit" onclick="editStaffSalesRecord(${item.id})" title="Edit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Edit</button></td>
           </tr>`;
@@ -1310,20 +1310,15 @@ async function loadManagerSalesList() {
 }
 
 async function editStaffSalesRecord(id) {
-  try {
-    const result = await API.getSales();
-    if (result.success) {
-      const record = result.data.find(item => item.id === id);
-      if (record) {
-        document.getElementById('editSalesId').value = record.id;
-        document.getElementById('editSalesCustomer').value = record.customer_name;
-        document.getElementById('editSalesProduct').value = record.product_name;
-        document.getElementById('editSalesAmount').value = record.amount;
-        document.getElementById('editSalesDate').value = record.sale_date.split('T')[0];
-        showModal('editSalesModal');
-      }
-    }
-  } catch (error) { showToast('❌ Failed to load sales record', 'error'); }
+  await openSalesEditForm(id, {
+    idField: 'editSalesId',
+    customer: 'editSalesCustomer',
+    product: 'editSalesProduct',
+    quantity: 'editSalesQuantity',
+    amount: 'editSalesAmount',
+    date: 'editSalesDate',
+    modal: 'editSalesModal'
+  });
 }
 
 async function editManagerSalesRecord(id) {
@@ -1454,44 +1449,268 @@ function renderManagerSalesLineChart(labels, data) {
   });
 }
 
+// =============================================================================
+// SALES - INVENTORY PRODUCT DROPDOWN + STOCK DEDUCTION (Admin and Staff)
+// Both dashboards read the SAME inventory table through GET /inventory, and the
+// backend (Postgres functions) deducts / restores stock atomically.
+// =============================================================================
+const SALES_QTY_FIELD = {
+  salesProductName: 'salesQuantity',
+  salesProduct: 'salesQuantity',
+  editAdminSalesProduct: 'editAdminSalesQuantity',
+  editSalesProduct: 'editSalesQuantity'
+};
+const salesInventoryItems = {}; // selectId -> { inventoryId: item } (used for the stock hint)
+const saleRequestIds = {};      // 'admin' | 'staff' -> id that stops duplicate submissions
+const saleSubmitting = {};      // formId -> true while a request is in flight
+
+function newSaleRequestId() {
+  if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
+
+// Product cell for the All Sales Records table (adds "× qty" for sales that deducted stock)
+function formatSaleProduct(item) {
+  const qty = item.stock_deducted && item.quantity ? ` <span style="color:#6b7280;">× ${item.quantity}</span>` : '';
+  return `${item.product_name}${qty}`;
+}
+
+function updateSalesStockHint(selectId) {
+  const select = document.getElementById(selectId);
+  if (!select) return;
+  const hint = document.getElementById(selectId + 'Hint');
+  const qtyInput = document.getElementById(SALES_QTY_FIELD[selectId]);
+  const isKeep = select.value === '__keep__';
+  if (qtyInput) qtyInput.disabled = isKeep;
+  const item = (salesInventoryItems[selectId] || {})[select.value];
+  if (!item) {
+    if (hint) hint.textContent = isKeep ? 'Stock will not change for this older record.' : '';
+    if (qtyInput) qtyInput.removeAttribute('max');
+    return;
+  }
+  let available = parseInt(item.quantity, 10) || 0;
+  if (select.dataset.extraId && String(select.dataset.extraId) === String(item.id)) {
+    available += parseInt(select.dataset.extraQty, 10) || 0; // units this sale already holds
+  }
+  if (hint) hint.textContent = available > 0 ? `Available stock: ${available}` : 'Out of stock';
+  if (qtyInput) qtyInput.max = String(Math.max(available, 1));
+}
+
+// Fills a <select> with the CURRENT inventory records (never a hardcoded list).
+async function loadSalesProductOptions(selectId, opts = {}) {
+  const select = document.getElementById(selectId);
+  if (!select) return false;
+  const previous = select.value;
+  select.disabled = true;
+  select.innerHTML = '';
+  const loading = document.createElement('option');
+  loading.value = '';
+  loading.textContent = 'Loading inventory...';
+  select.appendChild(loading);
+  select.dataset.extraId = opts.extraId != null ? String(opts.extraId) : '';
+  select.dataset.extraQty = opts.extraQty != null ? String(opts.extraQty) : '0';
+  if (!select.dataset.bound) {
+    select.addEventListener('change', () => updateSalesStockHint(selectId));
+    select.dataset.bound = '1';
+  }
+  try {
+    const result = await API.getInventory();
+    if (!result || !result.success || !Array.isArray(result.data)) throw new Error((result && result.message) || 'Invalid inventory response');
+    const items = result.data.slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    salesInventoryItems[selectId] = {};
+    select.innerHTML = '';
+
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = items.length ? 'Select an available inventory item' : 'No inventory items available';
+    select.appendChild(placeholder);
+
+    if (opts.keepName) {
+      const keep = document.createElement('option');
+      keep.value = '__keep__';
+      keep.textContent = `Keep current: ${opts.keepName} (stock will not change)`;
+      select.appendChild(keep);
+      select.dataset.keepName = opts.keepName;
+    }
+
+    items.forEach(item => {
+      salesInventoryItems[selectId][item.id] = item;
+      const qty = parseInt(item.quantity, 10) || 0;
+      const isCurrent = opts.extraId != null && String(opts.extraId) === String(item.id);
+      const option = document.createElement('option');
+      option.value = String(item.id);
+      option.textContent = `${item.name}${item.item_code ? ' (' + item.item_code + ')' : ''} — ${qty > 0 ? qty + ' in stock' : 'Out of stock'}`;
+      if (qty <= 0 && !isCurrent) option.disabled = true;
+      select.appendChild(option);
+    });
+
+    const wanted = opts.selectedId != null ? String(opts.selectedId) : (opts.keepName ? '__keep__' : previous);
+    select.value = Array.from(select.options).some(o => o.value === wanted && !o.disabled) ? wanted : '';
+    select.disabled = false;
+    updateSalesStockHint(selectId);
+    return true;
+  } catch (error) {
+    console.error('Load sales product options error:', error);
+    select.innerHTML = '';
+    const failed = document.createElement('option');
+    failed.value = '';
+    failed.textContent = 'Unable to load inventory items';
+    select.appendChild(failed);
+    select.disabled = false;
+    showToast('❌ Unable to load inventory items. Please close and reopen this form to try again.', 'error');
+    return false;
+  }
+}
+
 function openAddSalesModal() {
   document.getElementById('salesForm').reset();
+  saleRequestIds.admin = newSaleRequestId();
   showModal('salesModal');
+  loadSalesProductOptions('salesProductName');
 }
 
-async function handleSalesSubmit(event) {
-  event.preventDefault();
-  const dateField = document.getElementById('salesDateInput') || document.getElementById('salesDate');
-  const data = {
-    customer_name: document.getElementById('salesCustomerName').value,
-    product_name: document.getElementById('salesProductName').value,
-    amount: parseFloat(document.getElementById('salesAmount').value),
-    sale_date: dateField ? dateField.value : new Date().toISOString().split('T')[0]
-  };
-  try {
-    const result = await API.createSales(data);
-    if (result.success) { showToast(result.message, 'success'); hideModal('salesModal'); loadSalesList(); }
-    else showToast('❌ ' + result.message, 'error');
-  } catch (error) { showToast('❌ Failed to save sales record', 'error'); }
-}
+// Shared "add sale" submit for the Admin modal and the Staff form.
+async function submitNewSale(cfg) {
+  if (saleSubmitting[cfg.formId]) return; // a request is already running
+  const form = document.getElementById(cfg.formId);
+  const btn = form ? form.querySelector('button[type="submit"]') : null;
+  const select = document.getElementById(cfg.productId);
+  const inventoryId = select ? parseInt(select.value, 10) : NaN;
+  if (!inventoryId) { showToast('Please select a product from the inventory list', 'warning'); return; }
+  const quantity = Number(document.getElementById(cfg.quantityId).value);
+  if (!Number.isInteger(quantity) || quantity < 1) { showToast('Quantity must be a positive whole number', 'warning'); return; }
+  const amount = parseFloat(document.getElementById(cfg.amountId).value);
+  if (!(amount > 0)) { showToast('Please enter a valid amount', 'warning'); return; }
+  const dateField = document.getElementById(cfg.dateId);
+  if (!saleRequestIds[cfg.key]) saleRequestIds[cfg.key] = newSaleRequestId();
 
-async function handleStaffSalesSubmit(event) {
-  event.preventDefault();
   const data = {
-    customer_name: document.getElementById('salesCustomer').value,
-    product_name: document.getElementById('salesProduct').value,
-    amount: parseFloat(document.getElementById('salesAmount').value),
-    sale_date: document.getElementById('salesDate').value || new Date().toISOString().split('T')[0]
+    customer_name: document.getElementById(cfg.customerId).value.trim(),
+    inventory_id: inventoryId,
+    quantity,
+    amount,
+    sale_date: dateField && dateField.value ? dateField.value : new Date().toISOString().split('T')[0],
+    request_id: saleRequestIds[cfg.key]
   };
+
+  saleSubmitting[cfg.formId] = true;
+  if (btn) btn.disabled = true;
   try {
     const result = await API.createSales(data);
     if (result.success) {
-      showToast(result.message, 'success');
+      showToast(result.message || 'Sales record added successfully', 'success');
+      saleRequestIds[cfg.key] = null;
+      try { await cfg.onSuccess(); } catch (refreshError) { console.error('Refresh after sale failed:', refreshError); }
+    } else {
+      showToast('❌ ' + result.message, 'error');
+      saleRequestIds[cfg.key] = null; // the server rejected it, so nothing was saved
+      if (['INSUFFICIENT_STOCK', 'OUT_OF_STOCK', 'ITEM_NOT_FOUND'].includes(result.code)) loadSalesProductOptions(cfg.productId);
+    }
+  } catch (error) {
+    // Outcome unknown (network error): keep the same request id so a retry cannot deduct twice
+    showToast('❌ Failed to save sales record', 'error');
+  } finally {
+    saleSubmitting[cfg.formId] = false;
+    if (btn) btn.disabled = false;
+  }
+}
+
+function handleSalesSubmit(event) {
+  event.preventDefault();
+  return submitNewSale({
+    key: 'admin',
+    formId: 'salesForm',
+    customerId: 'salesCustomerName',
+    productId: 'salesProductName',
+    quantityId: 'salesQuantity',
+    amountId: 'salesAmount',
+    dateId: 'salesDateInput',
+    onSuccess: async () => {
+      hideModal('salesModal');
+      await Promise.all([loadSalesList(), loadInventoryList()]);
+    }
+  });
+}
+
+function handleStaffSalesSubmit(event) {
+  event.preventDefault();
+  return submitNewSale({
+    key: 'staff',
+    formId: 'staffSalesForm',
+    customerId: 'salesCustomer',
+    productId: 'salesProduct',
+    quantityId: 'salesQuantity',
+    amountId: 'salesAmount',
+    dateId: 'salesDate',
+    onSuccess: async () => {
       document.getElementById('staffSalesForm').reset();
-      loadStaffSalesList();
-      loadStaffSalesAnalytics();
-    } else showToast('❌ ' + result.message, 'error');
-  } catch (error) { showToast('❌ Failed to save sales record', 'error'); }
+      await Promise.all([loadSalesProductOptions('salesProduct'), loadStaffSalesList(), loadStaffSalesAnalytics(), loadStaffInventoryList()]);
+    }
+  });
+}
+
+// Shared "edit sale" opener / submit for Admin and Staff.
+async function openSalesEditForm(id, f) {
+  try {
+    const result = await API.getSales();
+    if (!result.success) return;
+    const record = result.data.find(item => item.id === id);
+    if (!record) return;
+    document.getElementById(f.idField).value = record.id;
+    document.getElementById(f.customer).value = record.customer_name;
+    document.getElementById(f.amount).value = record.amount;
+    document.getElementById(f.date).value = record.sale_date.split('T')[0];
+    const tracked = !!(record.stock_deducted && record.inventory_id);
+    document.getElementById(f.quantity).value = tracked ? record.quantity : 1;
+    showModal(f.modal);
+    await loadSalesProductOptions(f.product, tracked
+      ? { selectedId: record.inventory_id, extraId: record.inventory_id, extraQty: record.quantity }
+      : { keepName: record.product_name });
+  } catch (error) { showToast('❌ Failed to load sales record', 'error'); }
+}
+
+async function submitSalesEdit(cfg) {
+  if (saleSubmitting[cfg.formId]) return;
+  const form = document.getElementById(cfg.formId);
+  const btn = form ? form.querySelector('button[type="submit"]') : null;
+  const select = document.getElementById(cfg.productId);
+  const productValue = select ? select.value : '';
+  const data = {
+    customer_name: document.getElementById(cfg.customerId).value.trim(),
+    amount: parseFloat(document.getElementById(cfg.amountId).value),
+    sale_date: document.getElementById(cfg.dateId).value
+  };
+  if (!(data.amount > 0)) { showToast('Please enter a valid amount', 'warning'); return; }
+  if (productValue === '__keep__') {
+    data.product_name = select.dataset.keepName || '';
+  } else {
+    const inventoryId = parseInt(productValue, 10);
+    if (!inventoryId) { showToast('Please select a product from the inventory list', 'warning'); return; }
+    const quantity = Number(document.getElementById(cfg.quantityId).value);
+    if (!Number.isInteger(quantity) || quantity < 1) { showToast('Quantity must be a positive whole number', 'warning'); return; }
+    data.inventory_id = inventoryId;
+    data.quantity = quantity;
+  }
+  saleSubmitting[cfg.formId] = true;
+  if (btn) btn.disabled = true;
+  try {
+    const result = await API.updateSales(document.getElementById(cfg.idField).value, data);
+    if (result.success) {
+      showToast('✅ Sales record updated', 'success');
+      hideModal(cfg.modalId);
+      try { await cfg.onSuccess(); } catch (refreshError) { console.error('Refresh after edit failed:', refreshError); }
+    } else {
+      showToast('❌ ' + result.message, 'error');
+      if (['INSUFFICIENT_STOCK', 'OUT_OF_STOCK', 'ITEM_NOT_FOUND'].includes(result.code)) cfg.onStockChanged && cfg.onStockChanged();
+    }
+  } catch (err) { showToast('❌ Failed to update sales record', 'error'); }
+  finally {
+    saleSubmitting[cfg.formId] = false;
+    if (btn) btn.disabled = false;
+  }
 }
 
 async function handleManagerSalesSubmit(event) {
@@ -1517,26 +1736,21 @@ async function deleteSales(id) {
   if (!confirm('Are you sure you want to delete this sales record?')) return;
   try {
     const result = await API.deleteSales(id);
-    if (result.success) { showToast('✅ ' + result.message, 'success'); loadSalesList(); }
+    if (result.success) { showToast('✅ ' + result.message, 'success'); loadSalesList(); loadInventoryList(); }
     else showToast('❌ ' + result.message, 'error');
   } catch (error) { showToast('❌ Failed to delete sales record', 'error'); }
 }
 
 async function editAdminSalesRecord(id) {
-  try {
-    const result = await API.getSales();
-    if (result.success) {
-      const record = result.data.find(item => item.id === id);
-      if (record) {
-        document.getElementById('editAdminSalesId').value = record.id;
-        document.getElementById('editAdminSalesCustomer').value = record.customer_name;
-        document.getElementById('editAdminSalesProduct').value = record.product_name;
-        document.getElementById('editAdminSalesAmount').value = record.amount;
-        document.getElementById('editAdminSalesDate').value = record.sale_date.split('T')[0];
-        showModal('editAdminSalesModal');
-      }
-    }
-  } catch (error) { showToast('❌ Failed to load sales record', 'error'); }
+  await openSalesEditForm(id, {
+    idField: 'editAdminSalesId',
+    customer: 'editAdminSalesCustomer',
+    product: 'editAdminSalesProduct',
+    quantity: 'editAdminSalesQuantity',
+    amount: 'editAdminSalesAmount',
+    date: 'editAdminSalesDate',
+    modal: 'editAdminSalesModal'
+  });
 }
 
 // =============================================================================
@@ -1814,7 +2028,7 @@ function initDashboardTabs() {
         else if (targetTab === 'delivery' && isManager) { loadManagerDeliveryList(); loadDeliveryStats(); }
         else if (targetTab === 'delivery' && isStaff) { loadStaffDeliveryList(); loadDeliveryStats(); }
         else if (targetTab === 'sales' && isAdmin) { loadSalesList(); loadSalesAnalytics(); }
-        else if (targetTab === 'sales' && isStaff) { loadStaffSalesList(); loadStaffSalesAnalytics(); }
+        else if (targetTab === 'sales' && isStaff) { loadStaffSalesList(); loadStaffSalesAnalytics(); loadSalesProductOptions('salesProduct'); }
         else if (targetTab === 'sales' && isManager) { loadManagerSalesList(); loadManagerSalesAnalytics(); }
         else if (targetTab === 'staff') loadStaffAccountsList();
          else if (targetTab === 'chatbot') loadChatbotList();
@@ -1863,20 +2077,20 @@ document.addEventListener('DOMContentLoaded', () => {
     bindSubmit('deliveryForm', handleDeliverySubmit);
     bindSubmit('salesForm', handleSalesSubmit);
     bindSubmit('chatbotForm', handleChatbotSubmit);
-    bindSubmit('editAdminSalesForm', async (e) => {
+    bindSubmit('editAdminSalesForm', (e) => {
       e.preventDefault();
-      const id = document.getElementById('editAdminSalesId').value;
-      const data = {
-        customer_name: document.getElementById('editAdminSalesCustomer').value,
-        product_name: document.getElementById('editAdminSalesProduct').value,
-        amount: document.getElementById('editAdminSalesAmount').value,
-        sale_date: document.getElementById('editAdminSalesDate').value
-      };
-      try {
-        const result = await API.updateSales(id, data);
-        if (result.success) { showToast('✅ Sales record updated', 'success'); hideModal('editAdminSalesModal'); loadSalesList(); loadSalesAnalytics(); }
-        else showToast('❌ ' + result.message, 'error');
-      } catch (err) { showToast('❌ Failed to update sales record', 'error'); }
+      submitSalesEdit({
+        formId: 'editAdminSalesForm',
+        modalId: 'editAdminSalesModal',
+        idField: 'editAdminSalesId',
+        customerId: 'editAdminSalesCustomer',
+        productId: 'editAdminSalesProduct',
+        quantityId: 'editAdminSalesQuantity',
+        amountId: 'editAdminSalesAmount',
+        dateId: 'editAdminSalesDate',
+        onSuccess: async () => { await Promise.all([loadSalesList(), loadSalesAnalytics(), loadInventoryList()]); },
+        onStockChanged: () => { loadSalesProductOptions('editAdminSalesProduct'); loadInventoryList(); }
+      });
     });
 
     const furnitureImage = document.getElementById('furnitureImage');
@@ -1896,26 +2110,31 @@ document.addEventListener('DOMContentLoaded', () => {
     // Sales Records is now the default Staff tab, so load it on page open
     loadStaffSalesList();
     loadStaffSalesAnalytics();
+    loadSalesProductOptions('salesProduct');
+    document.addEventListener('visibilitychange', () => {
+      const salesModule = document.getElementById('salesModule');
+      if (!document.hidden && salesModule && salesModule.classList.contains('active')) loadSalesProductOptions('salesProduct');
+    });
 
     const bind = (id, handler) => { const el = document.getElementById(id); if (el) el.addEventListener('submit', handler); };
     bind('staffDeliveryForm', handleStaffDeliverySubmit);
     const staffAddDeliveryBtn = document.getElementById('staffAddDeliveryBtn');
     if (staffAddDeliveryBtn) staffAddDeliveryBtn.addEventListener('click', openStaffAddDeliveryModal);
     bind('staffSalesForm', handleStaffSalesSubmit);
-    bind('editStaffSalesForm', async (e) => {
+    bind('editStaffSalesForm', (e) => {
       e.preventDefault();
-      const id = document.getElementById('editSalesId').value;
-      const data = {
-        customer_name: document.getElementById('editSalesCustomer').value,
-        product_name: document.getElementById('editSalesProduct').value,
-        amount: document.getElementById('editSalesAmount').value,
-        sale_date: document.getElementById('editSalesDate').value
-      };
-      try {
-        const result = await API.updateSales(id, data);
-        if (result.success) { showToast('✅ Sales record updated', 'success'); hideModal('editSalesModal'); loadStaffSalesList(); loadStaffSalesAnalytics(); }
-        else showToast('❌ ' + result.message, 'error');
-      } catch (err) { showToast('❌ Failed to update sales record', 'error'); }
+      submitSalesEdit({
+        formId: 'editStaffSalesForm',
+        modalId: 'editSalesModal',
+        idField: 'editSalesId',
+        customerId: 'editSalesCustomer',
+        productId: 'editSalesProduct',
+        quantityId: 'editSalesQuantity',
+        amountId: 'editSalesAmount',
+        dateId: 'editSalesDate',
+        onSuccess: async () => { await Promise.all([loadStaffSalesList(), loadStaffSalesAnalytics(), loadStaffInventoryList(), loadSalesProductOptions('salesProduct')]); },
+        onStockChanged: () => { loadSalesProductOptions('editSalesProduct'); loadSalesProductOptions('salesProduct'); loadStaffInventoryList(); }
+      });
     });
 
     const logoutBtn = document.getElementById('logoutBtn');

@@ -321,26 +321,123 @@ app.get('/sales', async (req, res) => {
   res.json({ success: true, data });
 });
 
-app.post('/sales', async (req, res) => {
-  const { customer_name, product_name, amount, sale_date } = req.body;
-  if (!customer_name || !product_name || !amount) return res.status(400).json({ success: false, message: 'Customer name, product name, and amount are required' });
-  const { data, error } = await db.from('sales').insert({ customer_name, product_name, amount, sale_date: sale_date || new Date() }).select().single();
-  if (error) return res.status(500).json({ success: false, message: 'Failed to add sales record' });
-  res.status(201).json({ success: true, message: 'Sales record added successfully', id: data.id });
+// Sales + inventory: stock is deducted / restored INSIDE Postgres functions
+// (see sales-inventory-migration.sql) so the sale and the stock change are one
+// atomic transaction and concurrent sales cannot oversell an item.
+const SALE_ERROR_STATUS = { INVALID_QUANTITY: 400, ITEM_NOT_FOUND: 404, NOT_FOUND: 404, OUT_OF_STOCK: 409, INSUFFICIENT_STOCK: 409 };
+const hasValue = (v) => v !== undefined && v !== null && v !== '';
+const toPositiveInt = (v) => { const n = Number(v); return Number.isInteger(n) && n > 0 ? n : null; };
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function respondSaleFailure(res, result) {
+  const code = result && result.code;
+  return res.status(SALE_ERROR_STATUS[code] || 400).json({
+    success: false,
+    code,
+    available: result ? result.available : undefined,
+    message: (result && result.message) || 'The sales request could not be completed'
+  });
+}
+
+app.post('/sales', requireRole('admin', 'manager', 'staff'), async (req, res) => {
+  const { customer_name, product_name, amount, sale_date, inventory_id, quantity, request_id } = req.body;
+  const customer = typeof customer_name === 'string' ? customer_name.trim() : '';
+  const amt = Number(amount);
+  if (!customer || !Number.isFinite(amt) || amt <= 0) {
+    return res.status(400).json({ success: false, message: 'Customer name and a valid amount are required' });
+  }
+
+  // Manager dashboard still sends a typed product name (no stock change, as before).
+  if (!hasValue(inventory_id)) {
+    if (req.authUser.role !== 'manager') {
+      return res.status(400).json({ success: false, message: 'Please select a product from the inventory list' });
+    }
+    if (!product_name) return res.status(400).json({ success: false, message: 'Customer name, product name, and amount are required' });
+    const { data, error } = await db.from('sales').insert({ customer_name: customer, product_name, amount: amt, sale_date: sale_date || new Date() }).select().single();
+    if (error) return res.status(500).json({ success: false, message: 'Failed to add sales record' });
+    return res.status(201).json({ success: true, message: 'Sales record added successfully', id: data.id });
+  }
+
+  const invId = toPositiveInt(inventory_id);
+  const qty = toPositiveInt(quantity);
+  if (!invId) return res.status(400).json({ success: false, message: 'Please select a valid product from the inventory list' });
+  if (!qty) return res.status(400).json({ success: false, message: 'Quantity must be a positive whole number' });
+
+  const { data, error } = await db.rpc('create_sale_with_inventory', {
+    p_customer_name: customer,
+    p_inventory_id: invId,
+    p_quantity: qty,
+    p_amount: amt,
+    p_sale_date: sale_date || null,
+    p_request_id: typeof request_id === 'string' && UUID_RE.test(request_id) ? request_id : null
+  });
+  if (error) {
+    console.error('create_sale_with_inventory error:', error.message);
+    return res.status(500).json({ success: false, message: 'Failed to add sales record' });
+  }
+  if (!data || !data.success) return respondSaleFailure(res, data);
+  res.status(201).json({
+    success: true,
+    id: data.sale_id,
+    remaining: data.remaining,
+    duplicate: !!data.duplicate,
+    message: data.duplicate
+      ? 'This sales record was already saved.'
+      : `Sales record added successfully. Remaining stock: ${data.remaining}`
+  });
 });
 
-app.put('/sales/:id', async (req, res) => {
-  const { customer_name, product_name, amount, sale_date } = req.body;
-  if (!customer_name || !product_name || !amount) return res.status(400).json({ success: false, message: 'All fields required' });
-  const { error } = await db.from('sales').update({ customer_name, product_name, amount, sale_date }).eq('id', req.params.id);
-  if (error) return res.status(500).json({ success: false, message: 'Failed to update sales record' });
+app.put('/sales/:id', requireRole('admin', 'manager', 'staff'), async (req, res) => {
+  const saleId = toPositiveInt(req.params.id);
+  if (!saleId) return res.status(400).json({ success: false, message: 'Invalid sales record' });
+  const { customer_name, product_name, amount, sale_date, inventory_id, quantity } = req.body;
+  const customer = typeof customer_name === 'string' ? customer_name.trim() : '';
+  const amt = Number(amount);
+  if (!customer || !Number.isFinite(amt) || amt <= 0) {
+    return res.status(400).json({ success: false, message: 'All fields required' });
+  }
+
+  let invId = null;
+  let qty = null;
+  if (hasValue(inventory_id)) {
+    invId = toPositiveInt(inventory_id);
+    qty = toPositiveInt(quantity);
+    if (!invId) return res.status(400).json({ success: false, message: 'Please select a valid product from the inventory list' });
+    if (!qty) return res.status(400).json({ success: false, message: 'Quantity must be a positive whole number' });
+  }
+
+  const { data, error } = await db.rpc('update_sale_with_inventory', {
+    p_sale_id: saleId,
+    p_customer_name: customer,
+    p_amount: amt,
+    p_sale_date: sale_date || null,
+    p_inventory_id: invId,
+    p_quantity: qty,
+    p_product_name: typeof product_name === 'string' ? product_name.trim() : null
+  });
+  if (error) {
+    console.error('update_sale_with_inventory error:', error.message);
+    return res.status(500).json({ success: false, message: 'Failed to update sales record' });
+  }
+  if (!data || !data.success) return respondSaleFailure(res, data);
   res.json({ success: true, message: 'Sales record updated successfully' });
 });
 
-app.delete('/sales/:id', async (req, res) => {
-  const { error } = await db.from('sales').delete().eq('id', req.params.id);
-  if (error) return res.status(500).json({ success: false, message: 'Failed to delete sales record' });
-  res.json({ success: true, message: 'Sales record deleted successfully' });
+app.delete('/sales/:id', requireRole('admin'), async (req, res) => {
+  const saleId = toPositiveInt(req.params.id);
+  if (!saleId) return res.status(400).json({ success: false, message: 'Invalid sales record' });
+  const { data, error } = await db.rpc('delete_sale_with_inventory', { p_sale_id: saleId });
+  if (error) {
+    console.error('delete_sale_with_inventory error:', error.message);
+    return res.status(500).json({ success: false, message: 'Failed to delete sales record' });
+  }
+  if (!data || !data.success) return respondSaleFailure(res, data);
+  res.json({
+    success: true,
+    message: data.restored > 0
+      ? `Sales record deleted. ${data.restored} unit(s) returned to inventory.`
+      : 'Sales record deleted successfully'
+  });
 });
 
 app.get('/sales/monthly', async (req, res) => {
