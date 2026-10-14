@@ -1624,7 +1624,9 @@ const SALES_QTY_FIELD = {
   managerEditSalesProduct: 'managerEditSalesQuantity'
 };
 
-// Product dropdown -> { quantity input, amount input } so Amount = item price x quantity (Admin, Manager, Staff)
+// Product dropdown -> { quantity input, amount input }.
+// Amount = the inventory item's price x quantity (Admin, Manager and Staff). The Amount field is
+// read-only; the server recomputes the same value from the inventory price when the sale is saved.
 const SALES_AMOUNT_FIELDS = {
   salesProductName: { qty: 'salesQuantity', amount: 'salesAmount' },
   salesProduct: { qty: 'salesQuantity', amount: 'salesAmount' },
@@ -1634,52 +1636,40 @@ const SALES_AMOUNT_FIELDS = {
   managerEditSalesProduct: { qty: 'managerEditSalesQuantity', amount: 'managerEditSalesAmount' }
 };
 
-// The inventory table has no price column, so the unit price comes from the furniture
-// catalog by matching the inventory item name to the furniture name (case/space-insensitive).
-// A discounted furniture price is used when one is active (what the customer actually pays).
-let furniturePriceMapPromise = null;
-function normalizeItemName(name) {
-  return String(name || '').toLowerCase().replace(/\s+/g, ' ').trim();
-}
-function getFurniturePriceMap() {
-  if (!furniturePriceMapPromise) {
-    furniturePriceMapPromise = API.getFurniture().then(result => {
-      if (!result || !result.success || !Array.isArray(result.data)) throw new Error('Invalid furniture response');
-      const map = {};
-      result.data.forEach(f => {
-        const price = getEffectivePrice(f);
-        if (Number.isFinite(price) && price > 0) map[normalizeItemName(f.name)] = price;
-      });
-      return map;
-    }).catch(err => {
-      furniturePriceMapPromise = null; // try again next time
-      throw err;
-    });
-  }
-  return furniturePriceMapPromise;
+function setSalesAmountLocked(amountEl, locked) {
+  amountEl.readOnly = locked;
+  amountEl.style.backgroundColor = locked ? '#f3f4f6' : '';
+  amountEl.style.cursor = locked ? 'not-allowed' : '';
 }
 
-async function applySalesAutoAmount(selectId) {
+// Unit price of an inventory item, or null when no valid price has been set yet
+function getInventoryUnitPrice(item) {
+  const price = Number(item && item.price);
+  return Number.isFinite(price) && price > 0 ? price : null;
+}
+
+function applySalesAutoAmount(selectId) {
   const fields = SALES_AMOUNT_FIELDS[selectId];
   const select = document.getElementById(selectId);
-  if (!fields || !select) return;
+  const amountEl = fields ? document.getElementById(fields.amount) : null;
+  if (!fields || !select || !amountEl) return;
+  // Older record that is not linked to an inventory item: keep its amount editable, as before
+  if (select.value === '__keep__') { setSalesAmountLocked(amountEl, false); return; }
+  setSalesAmountLocked(amountEl, true);
   const item = (salesInventoryItems[selectId] || {})[select.value];
-  if (!item) return; // nothing chosen (or an older record kept as-is): leave the amount alone
+  if (!item) { amountEl.value = ''; return; }
   updateSalesStockHint(selectId); // refresh the stock hint, then add the price note below
   const hint = document.getElementById(selectId + 'Hint');
-  let price = null;
-  try {
-    const map = await getFurniturePriceMap();
-    price = map[normalizeItemName(item.name)] || null;
-  } catch (e) { /* price list unavailable: amount stays manual */ }
-  if (select.value !== String(item.id)) return; // the selection changed while loading
+  const addHint = (text) => { if (hint) hint.textContent = (hint.textContent ? hint.textContent + ' · ' : '') + text; };
+  const price = getInventoryUnitPrice(item);
   if (!price) {
-    if (hint) hint.textContent = (hint.textContent ? hint.textContent + ' · ' : '') + 'No price found for this item - please enter the amount manually.';
+    amountEl.value = '';
+    addHint('No price set for this item. Ask the Admin or Manager to add it in Inventory.');
     return;
   }
   const qty = Number(document.getElementById(fields.qty).value);
-  if (Number.isInteger(qty) && qty >= 1) document.getElementById(fields.amount).value = (price * qty).toFixed(2);
-  if (hint) hint.textContent = (hint.textContent ? hint.textContent + ' · ' : '') + `Price: ${formatCurrency(price)} each`;
+  amountEl.value = Number.isInteger(qty) && qty >= 1 ? (price * qty).toFixed(2) : '';
+  addHint(`Price: ${formatCurrency(price)} each`);
 }
 const salesInventoryItems = {}; // selectId -> { inventoryId: item } (used for the stock hint)
 const saleRequestIds = {};      // 'admin' | 'staff' -> id that stops duplicate submissions
@@ -1779,6 +1769,7 @@ async function loadSalesProductOptions(selectId, opts = {}) {
     select.value = Array.from(select.options).some(o => o.value === wanted && !o.disabled) ? wanted : '';
     select.disabled = false;
     updateSalesStockHint(selectId);
+    applySalesAutoAmount(selectId);
     return true;
   } catch (error) {
     console.error('Load sales product options error:', error);
@@ -1810,6 +1801,8 @@ async function submitNewSale(cfg) {
   if (!inventoryId) { showToast('Please select a product from the inventory list', 'warning'); return; }
   const quantity = Number(document.getElementById(cfg.quantityId).value);
   if (!Number.isInteger(quantity) || quantity < 1) { showToast('Quantity must be a positive whole number', 'warning'); return; }
+  const chosenItem = (salesInventoryItems[cfg.productId] || {})[inventoryId];
+  if (!getInventoryUnitPrice(chosenItem)) { showToast('This item has no price yet. Ask the Admin or Manager to set its price in Inventory.', 'warning'); return; }
   const amount = parseFloat(document.getElementById(cfg.amountId).value);
   if (!(amount > 0)) { showToast('Please enter a valid amount', 'warning'); return; }
   const dateField = document.getElementById(cfg.dateId);
@@ -1919,6 +1912,7 @@ async function submitSalesEdit(cfg) {
     if (!inventoryId) { showToast('Please select a product from the inventory list', 'warning'); return; }
     const quantity = Number(document.getElementById(cfg.quantityId).value);
     if (!Number.isInteger(quantity) || quantity < 1) { showToast('Quantity must be a positive whole number', 'warning'); return; }
+    if (!getInventoryUnitPrice((salesInventoryItems[cfg.productId] || {})[inventoryId])) { showToast('This item has no price yet. Ask the Admin or Manager to set its price in Inventory.', 'warning'); return; }
     data.inventory_id = inventoryId;
     data.quantity = quantity;
   }
@@ -2186,7 +2180,7 @@ async function loadStaffInventoryList() {
     if (!tbody) return;
     tbody.innerHTML = '';
     if (!result.success || result.data.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#9ca3af;padding:2rem;">No inventory items found</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#9ca3af;padding:2rem;">No inventory items found</td></tr>';
       return;
     }
     result.data.forEach(item => {
@@ -2198,6 +2192,7 @@ async function loadStaffInventoryList() {
           <td style="font-family:monospace;font-size:0.8rem;">${item.item_code || '<span style="color:#9ca3af;">N/A</span>'}</td>
           <td>${item.name}</td>
           <td>${item.category}</td>
+          <td>${getInventoryUnitPrice(item) ? formatCurrency(getInventoryUnitPrice(item)) : '<span style="color:#9ca3af;">Not set</span>'}</td>
           <td><strong>${item.quantity}</strong></td>
           <td><span class="stock-status ${status}">${statusText}</span></td>
         </tr>`;
@@ -2215,7 +2210,7 @@ async function loadManagerInventoryList() {
       if (!container) return;
       container.innerHTML = '';
       if (result.data.length === 0) { container.innerHTML = '<p style="text-align:center;color:#9ca3af;padding:2rem;">No inventory items found</p>'; return; }
-      let tableHTML = `<div class="table-container"><table><thead><tr><th>Image</th><th>Item Name</th><th>Item Code</th><th>Category</th><th>Quantity</th><th>Stock Status</th><th>Last Updated</th><th>Actions</th></tr></thead><tbody>`;
+      let tableHTML = `<div class="table-container"><table><thead><tr><th>Image</th><th>Item Name</th><th>Item Code</th><th>Category</th><th>Price</th><th>Quantity</th><th>Stock Status</th><th>Last Updated</th><th>Actions</th></tr></thead><tbody>`;
       result.data.forEach(item => {
         const status = item.quantity > 10 ? 'in-stock' : 'low-stock';
         const statusText = item.quantity > 10 ? 'In Stock' : 'Low Stock';
@@ -2225,6 +2220,7 @@ async function loadManagerInventoryList() {
             <td>${item.name}</td>
             <td style="font-family:monospace;font-size:0.8rem;">${item.item_code || '<span style="color:#9ca3af;">N/A</span>'}</td>
             <td>${item.category}</td>
+            <td>${getInventoryUnitPrice(item) ? formatCurrency(getInventoryUnitPrice(item)) : '<span style="color:#9ca3af;">Not set</span>'}</td>
             <td><strong>${item.quantity}</strong></td>
             <td><span class="stock-status ${status}">${statusText}</span></td>
             <td>${formatDateTime(item.last_updated)}</td>
@@ -2270,11 +2266,13 @@ async function handleManagerAddInventorySubmit(event) {
   const itemCode = document.getElementById('managerStockItemCode').value.trim();
   const category = document.getElementById('managerStockCategory').value;
   const quantity = parseInt(document.getElementById('managerStockQuantity').value);
+  const price = parseFloat(document.getElementById('managerStockPrice').value);
   if (!name || !itemCode || !category || isNaN(quantity) || quantity < 0) {
     showToast('Please fill all fields correctly', 'warning');
     return;
   }
-  const data = { name, item_code: itemCode, category, quantity, image: currentManagerStockImage || '' };
+  if (!Number.isFinite(price) || price <= 0) { showToast('Please enter a valid price greater than 0', 'warning'); return; }
+  const data = { name, item_code: itemCode, category, quantity, price, image: currentManagerStockImage || '' };
   try {
     const result = await API.createInventory(data);
     if (result.success) { showToast(result.message || 'Inventory item added successfully', 'success'); hideModal('managerAddInventoryModal'); loadManagerInventoryList(); }
@@ -2294,6 +2292,7 @@ async function openManagerEditInventoryModal(id) {
     document.getElementById('managerEditInventoryItemCode').value = item.item_code || '';
     document.getElementById('managerEditInventoryCategory').value = item.category;
     document.getElementById('managerEditInventoryQuantity').value = item.quantity;
+    document.getElementById('managerEditInventoryPrice').value = item.price !== null && item.price !== undefined ? item.price : '';
     const preview = document.getElementById('managerEditInventoryImagePreview');
     const previewImg = document.getElementById('managerEditInventoryImagePreviewImg');
     const imageInput = document.getElementById('managerEditInventoryImage');
@@ -2514,8 +2513,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const itemCode = document.getElementById('managerEditInventoryItemCode').value.trim();
         const category = document.getElementById('managerEditInventoryCategory').value;
         const quantity = parseInt(document.getElementById('managerEditInventoryQuantity').value);
+        const price = parseFloat(document.getElementById('managerEditInventoryPrice').value);
         if (!itemCode || !category || quantity < 0) { showToast('Please fill all fields correctly', 'error'); return; }
-        const data = { name, item_code: itemCode, category, quantity };
+        if (!Number.isFinite(price) || price <= 0) { showToast('Please enter a valid price greater than 0', 'error'); return; }
+        const data = { name, item_code: itemCode, category, quantity, price };
         if (currentManagerStockImage) data.image = currentManagerStockImage; // only send image if a new one was picked, so the existing one is preserved otherwise
         try {
           const result = await API.updateInventory(id, data);

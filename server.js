@@ -484,16 +484,36 @@ function respondSaleFailure(res, result) {
   });
 }
 
+// The sale amount for an inventory item is ALWAYS computed here (inventory price x quantity),
+// so the amount sent by the browser can never change what is saved.
+// Returns { ok: true, amount } or { ok: false, status, body } (ready to send as the response).
+async function computeSaleAmount(inventoryId, quantity) {
+  const { data: item, error } = await db.from('inventory').select('id,price').eq('id', inventoryId).maybeSingle();
+  if (error) {
+    console.error('Inventory price lookup error:', error.message);
+    return { ok: false, status: 500, body: { success: false, message: 'Failed to look up the item price' } };
+  }
+  if (!item) return { ok: false, status: 404, body: { success: false, code: 'ITEM_NOT_FOUND', message: 'That inventory item no longer exists. Please reselect the product.' } };
+  const unitPrice = Number(item.price);
+  if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
+    return { ok: false, status: 409, body: { success: false, code: 'NO_PRICE', message: 'This item has no price yet. Ask the Admin or Manager to set its price in Inventory first.' } };
+  }
+  return { ok: true, amount: Math.round(unitPrice * quantity * 100) / 100 };
+}
+
 app.post('/sales', requireRole('admin', 'manager', 'staff'), async (req, res) => {
   const { customer_name, product_name, amount, sale_date, inventory_id, quantity, request_id } = req.body;
   const customer = typeof customer_name === 'string' ? customer_name.trim() : '';
-  const amt = Number(amount);
-  if (!customer || !Number.isFinite(amt) || amt <= 0) {
+  if (!customer) {
     return res.status(400).json({ success: false, message: 'Customer name and a valid amount are required' });
   }
 
   // Manager dashboard still sends a typed product name (no stock change, as before).
   if (!hasValue(inventory_id)) {
+    const amt = Number(amount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      return res.status(400).json({ success: false, message: 'Customer name and a valid amount are required' });
+    }
     if (req.authUser.role !== 'manager') {
       return res.status(400).json({ success: false, message: 'Please select a product from the inventory list' });
     }
@@ -508,11 +528,14 @@ app.post('/sales', requireRole('admin', 'manager', 'staff'), async (req, res) =>
   if (!invId) return res.status(400).json({ success: false, message: 'Please select a valid product from the inventory list' });
   if (!qty) return res.status(400).json({ success: false, message: 'Quantity must be a positive whole number' });
 
+  const computed = await computeSaleAmount(invId, qty);
+  if (!computed.ok) return res.status(computed.status).json(computed.body);
+
   const { data, error } = await db.rpc('create_sale_with_inventory', {
     p_customer_name: customer,
     p_inventory_id: invId,
     p_quantity: qty,
-    p_amount: amt,
+    p_amount: computed.amount,
     p_sale_date: sale_date || null,
     p_request_id: typeof request_id === 'string' && UUID_RE.test(request_id) ? request_id : null
   });
@@ -537,18 +560,24 @@ app.put('/sales/:id', requireRole('admin', 'manager', 'staff'), async (req, res)
   if (!saleId) return res.status(400).json({ success: false, message: 'Invalid sales record' });
   const { customer_name, product_name, amount, sale_date, inventory_id, quantity } = req.body;
   const customer = typeof customer_name === 'string' ? customer_name.trim() : '';
-  const amt = Number(amount);
-  if (!customer || !Number.isFinite(amt) || amt <= 0) {
+  if (!customer) {
     return res.status(400).json({ success: false, message: 'All fields required' });
   }
 
   let invId = null;
   let qty = null;
+  let amt = Number(amount);
   if (hasValue(inventory_id)) {
     invId = toPositiveInt(inventory_id);
     qty = toPositiveInt(quantity);
     if (!invId) return res.status(400).json({ success: false, message: 'Please select a valid product from the inventory list' });
     if (!qty) return res.status(400).json({ success: false, message: 'Quantity must be a positive whole number' });
+    const computed = await computeSaleAmount(invId, qty); // amount is inventory price x quantity, never the browser's value
+    if (!computed.ok) return res.status(computed.status).json(computed.body);
+    amt = computed.amount;
+  } else if (!Number.isFinite(amt) || amt <= 0) {
+    // older record kept as-is (no inventory item): its amount is still entered by hand
+    return res.status(400).json({ success: false, message: 'All fields required' });
   }
 
   const { data, error } = await db.rpc('update_sale_with_inventory', {
