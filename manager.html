@@ -250,8 +250,15 @@
             </div>
             <div class="form-group">
               <label class="form-label">Product</label>
-              <input type="text" id="managerSalesProduct" class="form-input" placeholder="Enter product name" required>
+              <select id="managerSalesProduct" class="form-input" required>
+                <option value="">Loading inventory...</option>
+              </select>
+              <small id="managerSalesProductHint" style="display:block;margin-top:0.25rem;font-size:0.75rem;color:#6b7280;"></small>
             </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Quantity Sold</label>
+            <input type="number" id="managerSalesQuantity" class="form-input" min="1" step="1" value="1" required>
           </div>
           <div class="form-row">
             <div class="form-group">
@@ -349,7 +356,14 @@
           </div>
           <div class="form-group">
             <label class="form-label">Product</label>
-            <input type="text" id="managerEditSalesProduct" class="form-input" required>
+            <select id="managerEditSalesProduct" class="form-input" required>
+              <option value="">Loading inventory...</option>
+            </select>
+            <small id="managerEditSalesProductHint" style="display:block;margin-top:0.25rem;font-size:0.75rem;color:#6b7280;"></small>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Quantity Sold</label>
+            <input type="number" id="managerEditSalesQuantity" class="form-input" min="1" step="1" value="1" required>
           </div>
           <div class="form-group">
             <label class="form-label">Amount (₱)</label>

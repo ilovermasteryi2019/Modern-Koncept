@@ -1461,7 +1461,7 @@ async function loadManagerSalesList() {
           <tr>
             <td>${formatDate(item.sale_date)}</td>
             <td>${item.customer_name}</td>
-            <td>${item.product_name}</td>
+            <td>${formatSaleProduct(item)}</td>
             <td>${formatCurrency(item.amount)}</td>
             <td><button class="action-btn edit" onclick="editManagerSalesRecord(${item.id})" title="Edit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Edit</button></td>
           </tr>`;
@@ -1483,20 +1483,15 @@ async function editStaffSalesRecord(id) {
 }
 
 async function editManagerSalesRecord(id) {
-  try {
-    const result = await API.getSales();
-    if (result.success) {
-      const record = result.data.find(item => item.id === id);
-      if (record) {
-        document.getElementById('managerEditSalesId').value = record.id;
-        document.getElementById('managerEditSalesCustomer').value = record.customer_name;
-        document.getElementById('managerEditSalesProduct').value = record.product_name;
-        document.getElementById('managerEditSalesAmount').value = record.amount;
-        document.getElementById('managerEditSalesDate').value = record.sale_date.split('T')[0];
-        showModal('managerEditSalesModal');
-      }
-    }
-  } catch (error) { showToast('❌ Failed to load sales record', 'error'); }
+  await openSalesEditForm(id, {
+    idField: 'managerEditSalesId',
+    customer: 'managerEditSalesCustomer',
+    product: 'managerEditSalesProduct',
+    quantity: 'managerEditSalesQuantity',
+    amount: 'managerEditSalesAmount',
+    date: 'managerEditSalesDate',
+    modal: 'managerEditSalesModal'
+  });
 }
 
 async function loadStaffSalesAnalytics() {
@@ -1619,8 +1614,68 @@ const SALES_QTY_FIELD = {
   salesProductName: 'salesQuantity',
   salesProduct: 'salesQuantity',
   editAdminSalesProduct: 'editAdminSalesQuantity',
-  editSalesProduct: 'editSalesQuantity'
+  editSalesProduct: 'editSalesQuantity',
+  managerSalesProduct: 'managerSalesQuantity',
+  managerEditSalesProduct: 'managerEditSalesQuantity'
 };
+
+// Product dropdown -> { quantity input, amount input } so Amount = item price x quantity (Admin, Manager, Staff)
+const SALES_AMOUNT_FIELDS = {
+  salesProductName: { qty: 'salesQuantity', amount: 'salesAmount' },
+  salesProduct: { qty: 'salesQuantity', amount: 'salesAmount' },
+  editAdminSalesProduct: { qty: 'editAdminSalesQuantity', amount: 'editAdminSalesAmount' },
+  editSalesProduct: { qty: 'editSalesQuantity', amount: 'editSalesAmount' },
+  managerSalesProduct: { qty: 'managerSalesQuantity', amount: 'managerSalesAmount' },
+  managerEditSalesProduct: { qty: 'managerEditSalesQuantity', amount: 'managerEditSalesAmount' }
+};
+
+// The inventory table has no price column, so the unit price comes from the furniture
+// catalog by matching the inventory item name to the furniture name (case/space-insensitive).
+// A discounted furniture price is used when one is active (what the customer actually pays).
+let furniturePriceMapPromise = null;
+function normalizeItemName(name) {
+  return String(name || '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+function getFurniturePriceMap() {
+  if (!furniturePriceMapPromise) {
+    furniturePriceMapPromise = API.getFurniture().then(result => {
+      if (!result || !result.success || !Array.isArray(result.data)) throw new Error('Invalid furniture response');
+      const map = {};
+      result.data.forEach(f => {
+        const price = getEffectivePrice(f);
+        if (Number.isFinite(price) && price > 0) map[normalizeItemName(f.name)] = price;
+      });
+      return map;
+    }).catch(err => {
+      furniturePriceMapPromise = null; // try again next time
+      throw err;
+    });
+  }
+  return furniturePriceMapPromise;
+}
+
+async function applySalesAutoAmount(selectId) {
+  const fields = SALES_AMOUNT_FIELDS[selectId];
+  const select = document.getElementById(selectId);
+  if (!fields || !select) return;
+  const item = (salesInventoryItems[selectId] || {})[select.value];
+  if (!item) return; // nothing chosen (or an older record kept as-is): leave the amount alone
+  updateSalesStockHint(selectId); // refresh the stock hint, then add the price note below
+  const hint = document.getElementById(selectId + 'Hint');
+  let price = null;
+  try {
+    const map = await getFurniturePriceMap();
+    price = map[normalizeItemName(item.name)] || null;
+  } catch (e) { /* price list unavailable: amount stays manual */ }
+  if (select.value !== String(item.id)) return; // the selection changed while loading
+  if (!price) {
+    if (hint) hint.textContent = (hint.textContent ? hint.textContent + ' · ' : '') + 'No price found for this item - please enter the amount manually.';
+    return;
+  }
+  const qty = Number(document.getElementById(fields.qty).value);
+  if (Number.isInteger(qty) && qty >= 1) document.getElementById(fields.amount).value = (price * qty).toFixed(2);
+  if (hint) hint.textContent = (hint.textContent ? hint.textContent + ' · ' : '') + `Price: ${formatCurrency(price)} each`;
+}
 const salesInventoryItems = {}; // selectId -> { inventoryId: item } (used for the stock hint)
 const saleRequestIds = {};      // 'admin' | 'staff' -> id that stops duplicate submissions
 const saleSubmitting = {};      // formId -> true while a request is in flight
@@ -1676,6 +1731,13 @@ async function loadSalesProductOptions(selectId, opts = {}) {
   if (!select.dataset.bound) {
     select.addEventListener('change', () => updateSalesStockHint(selectId));
     select.dataset.bound = '1';
+  }
+  const amountFields = SALES_AMOUNT_FIELDS[selectId];
+  if (amountFields && !select.dataset.amountBound) {
+    const qtyInput = document.getElementById(amountFields.qty);
+    select.addEventListener('change', () => applySalesAutoAmount(selectId));
+    if (qtyInput) qtyInput.addEventListener('input', () => applySalesAutoAmount(selectId));
+    select.dataset.amountBound = '1';
   }
   try {
     const result = await API.getInventory();
@@ -1874,23 +1936,22 @@ async function submitSalesEdit(cfg) {
   }
 }
 
-async function handleManagerSalesSubmit(event) {
+// Manager "add sale": same inventory dropdown + atomic stock deduction as Admin and Staff
+function handleManagerSalesSubmit(event) {
   event.preventDefault();
-  const data = {
-    customer_name: document.getElementById('managerSalesCustomer').value,
-    product_name: document.getElementById('managerSalesProduct').value,
-    amount: parseFloat(document.getElementById('managerSalesAmount').value),
-    sale_date: document.getElementById('managerSalesDate').value || new Date().toISOString().split('T')[0]
-  };
-  try {
-    const result = await API.createSales(data);
-    if (result.success) {
-      showToast(result.message, 'success');
+  return submitNewSale({
+    key: 'manager',
+    formId: 'managerSalesForm',
+    customerId: 'managerSalesCustomer',
+    productId: 'managerSalesProduct',
+    quantityId: 'managerSalesQuantity',
+    amountId: 'managerSalesAmount',
+    dateId: 'managerSalesDate',
+    onSuccess: async () => {
       document.getElementById('managerSalesForm').reset();
-      loadManagerSalesList();
-      loadManagerSalesAnalytics();
-    } else showToast('❌ ' + result.message, 'error');
-  } catch (error) { showToast('❌ Failed to save sales record', 'error'); }
+      await Promise.all([loadSalesProductOptions('managerSalesProduct'), loadManagerSalesList(), loadManagerSalesAnalytics(), loadManagerInventoryList()]);
+    }
+  });
 }
 
 async function deleteSales(id) {
@@ -2288,7 +2349,7 @@ function initDashboardTabs() {
         else if (targetTab === 'delivery' && isStaff) { loadStaffDeliveryList(); loadDeliveryStats(); }
         else if (targetTab === 'sales' && isAdmin) { loadSalesList(); loadSalesAnalytics(); }
         else if (targetTab === 'sales' && isStaff) { loadStaffSalesList(); loadStaffSalesAnalytics(); loadSalesProductOptions('salesProduct'); }
-        else if (targetTab === 'sales' && isManager) { loadManagerSalesList(); loadManagerSalesAnalytics(); }
+        else if (targetTab === 'sales' && isManager) { loadManagerSalesList(); loadManagerSalesAnalytics(); loadSalesProductOptions('managerSalesProduct'); }
         else if (targetTab === 'staff') loadStaffAccountsList();
          else if (targetTab === 'chatbot') loadChatbotList();
         else if (targetTab === 'feedback') { loadAdminInquiries(); loadAdminFeedback(); }
@@ -2421,20 +2482,20 @@ document.addEventListener('DOMContentLoaded', () => {
     // Manager edit sales form
     const managerEditSalesForm = document.getElementById('managerEditSalesForm');
     if (managerEditSalesForm) {
-      managerEditSalesForm.addEventListener('submit', async (e) => {
+      managerEditSalesForm.addEventListener('submit', (e) => {
         e.preventDefault();
-        const id = document.getElementById('managerEditSalesId').value;
-        const data = {
-          customer_name: document.getElementById('managerEditSalesCustomer').value,
-          product_name: document.getElementById('managerEditSalesProduct').value,
-          amount: document.getElementById('managerEditSalesAmount').value,
-          sale_date: document.getElementById('managerEditSalesDate').value
-        };
-        try {
-          const result = await API.updateSales(id, data);
-          if (result.success) { showToast('✅ Sales record updated', 'success'); hideModal('managerEditSalesModal'); loadManagerSalesList(); loadManagerSalesAnalytics(); }
-          else showToast('❌ ' + result.message, 'error');
-        } catch (err) { showToast('❌ Failed to update sales record', 'error'); }
+        submitSalesEdit({
+          formId: 'managerEditSalesForm',
+          modalId: 'managerEditSalesModal',
+          idField: 'managerEditSalesId',
+          customerId: 'managerEditSalesCustomer',
+          productId: 'managerEditSalesProduct',
+          quantityId: 'managerEditSalesQuantity',
+          amountId: 'managerEditSalesAmount',
+          dateId: 'managerEditSalesDate',
+          onSuccess: async () => { await Promise.all([loadManagerSalesList(), loadManagerSalesAnalytics(), loadManagerInventoryList(), loadSalesProductOptions('managerSalesProduct')]); },
+          onStockChanged: () => { loadSalesProductOptions('managerEditSalesProduct'); loadSalesProductOptions('managerSalesProduct'); loadManagerInventoryList(); }
+        });
       });
     }
 
