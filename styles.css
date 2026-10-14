@@ -70,8 +70,8 @@ body {
 }
 
 .logo {
-  height: 92px;
-  width: 92px;
+  height: 80px;
+  width: 80px;
   cursor: pointer;
   object-fit: cover;
   flex-shrink: 0;
@@ -79,8 +79,8 @@ body {
 }
 
 .header .logo {
-  height: 96px;
-  width: 96px;
+  height: 80px;
+  width: 80px;
   border-radius: 50%;
 }
 
@@ -145,8 +145,8 @@ body {
 
 .footer .logo {
   filter: none;
-  height: 72px;
-  width: 72px;
+  height: 64px;
+  width: 64px;
   margin-bottom: 0.5rem;
   border-radius: 50%;
   object-fit: cover;
@@ -1175,4 +1175,160 @@ body > .toast-container .toast {
   #contact {
     min-height: 280px;
   }
+}
+
+
+/* =============================================================================
+   BOOTSTRAP 5 COMPATIBILITY  (customer pages only)
+   -----------------------------------------------------------------------------
+   Only active when the page has <body class="bs-customer">, so the Admin,
+   Manager, Staff and Login pages (which do not load Bootstrap) are unaffected.
+   Bootstrap is loaded BEFORE this file, so the existing design keeps priority.
+   ============================================================================= */
+
+/* 1. Undo Bootstrap "reboot" defaults so existing spacing/typography stay the same.
+      :where() keeps specificity low: your class rules and Bootstrap utilities still win. */
+:where(body.bs-customer) :is(p, h1, h2, h3, h4, h5, h6, ul, ol, dl, blockquote, figure, pre) {
+  margin: 0;
+}
+:where(body.bs-customer) :is(h1, h2, h3, h4, h5, h6) {
+  font-weight: 700;
+  line-height: inherit;
+}
+:where(body.bs-customer) h1 { font-size: 2em; }
+:where(body.bs-customer) h2 { font-size: 1.5em; }
+:where(body.bs-customer) h3 { font-size: 1.17em; }
+:where(body.bs-customer) h4 { font-size: 1em; }
+:where(body.bs-customer) h5 { font-size: 0.83em; }
+:where(body.bs-customer) h6 { font-size: 0.67em; }
+:where(body.bs-customer) :is(ul, ol) { padding-left: 0; }
+:where(body.bs-customer) :is(img, svg) { vertical-align: baseline; }
+:where(body.bs-customer) label { display: inline; }
+
+/* 2. Buttons: Bootstrap also defines .btn, .btn-primary and .btn-secondary.
+      Map your existing button looks onto Bootstrap's button variables so hover,
+      active, focus and disabled states keep your colors. */
+body.bs-customer .btn-primary {
+  --bs-btn-color: #000;
+  --bs-btn-bg: #fff;
+  --bs-btn-border-color: #000;
+  --bs-btn-hover-color: #000;
+  --bs-btn-hover-bg: #f3f4f6;
+  --bs-btn-hover-border-color: #000;
+  --bs-btn-active-color: #000;
+  --bs-btn-active-bg: #e5e7eb;
+  --bs-btn-active-border-color: #000;
+  --bs-btn-disabled-color: #000;
+  --bs-btn-disabled-bg: #fff;
+  --bs-btn-disabled-border-color: #000;
+  --bs-btn-focus-shadow-rgb: 0, 0, 0;
+}
+body.bs-customer .btn-secondary {
+  --bs-btn-color: #000;
+  --bs-btn-bg: transparent;
+  --bs-btn-border-color: #000;
+  --bs-btn-hover-color: #000;
+  --bs-btn-hover-bg: rgba(255, 255, 255, 0.1);
+  --bs-btn-hover-border-color: #000;
+  --bs-btn-active-color: #000;
+  --bs-btn-active-bg: rgba(0, 0, 0, 0.05);
+  --bs-btn-active-border-color: #000;
+  --bs-btn-disabled-color: #000;
+  --bs-btn-disabled-bg: transparent;
+  --bs-btn-disabled-border-color: #000;
+  --bs-btn-focus-shadow-rgb: 0, 0, 0;
+}
+body.bs-customer .btn-accent {
+  --bs-btn-color: #fff;
+  --bs-btn-bg: #DC143C;
+  --bs-btn-border-color: #DC143C;
+  --bs-btn-hover-color: #fff;
+  --bs-btn-hover-bg: #A80728;
+  --bs-btn-hover-border-color: #A80728;
+  --bs-btn-active-color: #fff;
+  --bs-btn-active-bg: #8f0623;
+  --bs-btn-active-border-color: #8f0623;
+  --bs-btn-disabled-color: #fff;
+  --bs-btn-disabled-bg: #DC143C;
+  --bs-btn-disabled-border-color: #DC143C;
+  --bs-btn-focus-shadow-rgb: 220, 20, 60;
+}
+body.bs-customer .btn-ai {
+  --bs-btn-color: #fff;
+  --bs-btn-bg: transparent;
+  --bs-btn-border-color: transparent;
+  --bs-btn-hover-color: #fff;
+  --bs-btn-hover-bg: transparent;
+  --bs-btn-hover-border-color: transparent;
+  --bs-btn-active-color: #fff;
+  --bs-btn-active-bg: transparent;
+  --bs-btn-active-border-color: transparent;
+  --bs-btn-disabled-color: #fff;
+  --bs-btn-disabled-bg: transparent;
+  --bs-btn-disabled-border-color: transparent;
+  --bs-btn-focus-shadow-rgb: 124, 58, 237;
+}
+
+/* 3. Cards: Bootstrap's .card is display:flex (column). Keep your block layout. */
+:where(body.bs-customer) .card { display: block; }
+
+/* 4. Navbar (Bootstrap collapse replaces the old hamburger + mobile menu). */
+:where(body.bs-customer) .header-container { gap: 0 2rem; }
+:where(body.bs-customer) .navbar-toggler {
+  border-color: #e5e7eb;
+  border-radius: 0.5rem;
+}
+:where(body.bs-customer) .navbar-toggler:focus {
+  box-shadow: 0 0 0 3px rgba(220, 20, 60, 0.15);
+}
+
+/* 5. Homepage hero: keep text above the decorative teal shape when it stacks on mobile. */
+:where(body.bs-customer) .hero-text {
+  position: relative;
+  z-index: 2;
+}
+
+/* 6. Form fields: Bootstrap .form-control / .form-select with your look. */
+:where(body.bs-customer) :is(.form-control, .form-select) {
+  padding: 0.75rem 1rem;
+  border-color: #d1d5db;
+  border-radius: 0.5rem;
+  font-size: 1rem;
+}
+:where(body.bs-customer) .form-select {
+  padding-right: 2.25rem;
+}
+:where(body.bs-customer) :is(.form-control, .form-select):focus {
+  border-color: #DC143C;
+  box-shadow: 0 0 0 3px rgba(220, 20, 60, 0.1);
+}
+
+/* 7. Toasts: Bootstrap hides .toast unless it also has .show, but showToast() in
+      main.js never adds .show, so make them visible and styled. */
+body.bs-customer .toast {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: #fff;
+  color: #111827;
+  border: 1px solid #e5e7eb;
+  border-left: 4px solid #3b82f6;
+  border-radius: 0.5rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  font-size: 0.9rem;
+  transition: opacity 0.3s ease;
+}
+body.bs-customer .toast.success { border-left-color: #16a34a; }
+body.bs-customer .toast.error { border-left-color: #DC143C; }
+body.bs-customer .toast.warning { border-left-color: #f59e0b; }
+body.bs-customer .toast.removing { opacity: 0; }
+body.bs-customer .toast-message { flex: 1; }
+body.bs-customer .toast-close {
+  background: none;
+  border: 0;
+  font-size: 1.25rem;
+  line-height: 1;
+  color: #6b7280;
+  cursor: pointer;
 }
