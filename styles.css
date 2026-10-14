@@ -1332,3 +1332,82 @@ body.bs-customer .toast-close {
   color: #6b7280;
   cursor: pointer;
 }
+
+
+/* =============================================================================
+   BOOTSTRAP 5 - DASHBOARDS (Admin / Manager / Staff)  +  LOGIN LOGO SIZES
+   -----------------------------------------------------------------------------
+   Dashboards use <body class="bs-dashboard">. Everything below is scoped to that
+   class (except the small .logo-* helpers), so the customer pages are unchanged.
+   The Login page uses <body class="bs-customer">, so it reuses the existing
+   customer compatibility block above.
+   ============================================================================= */
+
+/* Smaller logos (was 80px header / 64px footer / 10rem login card) */
+.header .logo.logo-sm { height: 60px; width: 60px; }
+.footer .logo.logo-sm { height: 48px; width: 48px; }
+.logo.logo-md { height: 7rem; width: 7rem; }
+
+/* 1. Undo Bootstrap "reboot" defaults so existing spacing/typography stay the same. */
+:where(body.bs-dashboard) :is(p, h1, h2, h3, h4, h5, h6, ul, ol, dl, blockquote, figure, pre) { margin: 0; }
+:where(body.bs-dashboard) :is(h1, h2, h3, h4, h5, h6) { font-weight: 700; line-height: inherit; }
+:where(body.bs-dashboard) h1 { font-size: 2em; }
+:where(body.bs-dashboard) h2 { font-size: 1.5em; }
+:where(body.bs-dashboard) h3 { font-size: 1.17em; }
+:where(body.bs-dashboard) h4 { font-size: 1em; }
+:where(body.bs-dashboard) h5 { font-size: 0.83em; }
+:where(body.bs-dashboard) h6 { font-size: 0.67em; }
+:where(body.bs-dashboard) :is(ul, ol) { padding-left: 0; }
+:where(body.bs-dashboard) :is(img, svg) { vertical-align: baseline; }
+:where(body.bs-dashboard) label { display: inline; }
+
+/* 2. Buttons: map existing looks onto Bootstrap's button variables. */
+body.bs-dashboard .btn-secondary {
+  --bs-btn-color: #000; --bs-btn-bg: transparent; --bs-btn-border-color: #000;
+  --bs-btn-hover-color: #000; --bs-btn-hover-bg: rgba(0, 0, 0, 0.05); --bs-btn-hover-border-color: #000;
+  --bs-btn-active-color: #000; --bs-btn-active-bg: rgba(0, 0, 0, 0.08); --bs-btn-active-border-color: #000;
+  --bs-btn-disabled-color: #000; --bs-btn-disabled-bg: transparent; --bs-btn-disabled-border-color: #000;
+  --bs-btn-focus-shadow-rgb: 0, 0, 0;
+}
+body.bs-dashboard .btn-accent {
+  --bs-btn-color: #fff; --bs-btn-bg: #DC143C; --bs-btn-border-color: #DC143C;
+  --bs-btn-hover-color: #fff; --bs-btn-hover-bg: #A80728; --bs-btn-hover-border-color: #A80728;
+  --bs-btn-active-color: #fff; --bs-btn-active-bg: #8f0623; --bs-btn-active-border-color: #8f0623;
+  --bs-btn-disabled-color: #fff; --bs-btn-disabled-bg: #DC143C; --bs-btn-disabled-border-color: #DC143C;
+  --bs-btn-focus-shadow-rgb: 220, 20, 60;
+}
+
+/* 3. Cards: Bootstrap's .card is flex + bordered. Keep the existing look. */
+:where(body.bs-dashboard) .card { display: block; border: 0; }
+
+/* 4. Modals: Bootstrap's .modal-content is display:flex with a border; keep the existing block layout. */
+:where(body.bs-dashboard) .modal-content { display: block; border: 0; }
+
+/* 5. Toasts: Bootstrap hides .toast unless it also has .show, but showToast() never adds .show. */
+body.bs-dashboard .toast { display: flex; width: auto; border: 0; }
+
+/* 6. Header: role pill + logout button (one color per user level) */
+.role-pill {
+  display: inline-flex; align-items: center; padding: 0.25rem 0.75rem; border-radius: 9999px;
+  font-size: 0.75rem; font-weight: 600; letter-spacing: 0.02em; white-space: nowrap;
+}
+.role-pill.role-admin   { background: rgba(220, 20, 60, 0.1); color: #DC143C; }
+.role-pill.role-manager { background: rgba(124, 58, 237, 0.1); color: #7c3aed; }
+.role-pill.role-staff   { background: #d1fae5; color: #065f46; }
+
+body.bs-dashboard .btn-logout {
+  --bs-btn-color: #4b5563; --bs-btn-bg: transparent; --bs-btn-border-color: #d1d5db;
+  --bs-btn-hover-color: #DC143C; --bs-btn-hover-bg: rgba(220, 20, 60, 0.06); --bs-btn-hover-border-color: #DC143C;
+  --bs-btn-active-color: #DC143C; --bs-btn-active-bg: rgba(220, 20, 60, 0.1); --bs-btn-active-border-color: #DC143C;
+  padding: 0.5rem 1rem; font-size: 0.875rem; font-weight: 500; border: 1px solid #d1d5db;
+}
+
+/* 7. Mobile: header fits, tabs scroll sideways inside their own row instead of wrapping into a tall block */
+@media (max-width: 768px) {
+  body.bs-dashboard .header-container { gap: 0.75rem; padding: 0.5rem 1rem; }
+  body.bs-dashboard .dashboard-nav {
+    flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch;
+    padding-bottom: 0.5rem; scrollbar-width: thin;
+  }
+  body.bs-dashboard .dashboard-tab { flex: 0 0 auto; white-space: nowrap; }
+}
