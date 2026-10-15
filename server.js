@@ -198,8 +198,15 @@ app.post('/login', async (req, res) => {
       if (upgradeError) console.error('Password upgrade failed:', upgradeError.message);
     }
   }
-  const loggedInUser = { id: data.id, name: data.name, email: data.email, role: data.role || 'staff' };
-  res.json({ success: true, message: 'Login successful', user: loggedInUser, token: createSession(loggedInUser) });
+  // Correct password, but NO session yet: the user must still pass the SMS verification (see "SMS OTP MFA" below).
+  // The number comes from this account's own record - never from the browser.
+  const phone = await getMfaPhoneForUser(data.id);
+  if (!phone.ok) {
+    if (phone.code === 'ACCOUNT_NOT_FOUND') return res.status(401).json({ success: false, message: 'Invalid email or password' });
+    return res.status(403).json({ success: false, code: phone.code, message: phone.message });
+  }
+  const challengeId = createMfaChallenge(data.id, phone.phone);
+  res.json({ success: true, mfaRequired: true, challengeId, maskedPhone: phone.maskedPhone, expiresInSeconds: MFA_CHALLENGE_TTL_MS / 1000 });
 });
 
 // Checks the current session (used by the dashboards when they open and as a keep-alive while the user is active)
@@ -214,6 +221,231 @@ app.post('/logout', (req, res) => {
   const decoded = verifyToken(header.startsWith('Bearer ') ? header.slice(7) : null);
   if (decoded && decoded.jti) sessions.delete(decoded.jti);
   res.json({ success: true, message: 'Logged out' });
+});
+
+// =============================================================================
+// SMS OTP MFA (Semaphore) - applies to Admin, Manager and Staff
+//
+//   POST /login              password OK -> { mfaRequired, challengeId, maskedPhone }   (NO token)
+//   POST /login/mfa/send     { challengeId }        generate an OTP and send it by SMS (first code)
+//   POST /login/mfa/resend   { challengeId }        same, the cooldown is enforced here
+//   POST /login/mfa/verify   { challengeId, code }  the ONLY place a login token is issued
+//   POST /login/mfa/cancel   { challengeId }        forget the pending login
+//
+// A "challenge" is a pending login kept in server memory (like the session list above): it is bound to ONE user,
+// is addressed by an unguessable id, and holds only an HMAC of the OTP (never the OTP itself). Restarting the server
+// drops pending challenges - users simply log in again.
+// Environment: SEMAPHORE_API_KEY (required) and SEMAPHORE_SENDER_NAME (your approved sender name).
+// =============================================================================
+const SEMAPHORE_OTP_URL = 'https://api.semaphore.co/api/v4/otp'; // Semaphore's dedicated OTP route (2 credits / SMS)
+const MFA_OTP_LENGTH = 6;
+const MFA_OTP_TTL_MS = 5 * 60 * 1000;            // a code is valid for 5 minutes
+const MFA_CHALLENGE_TTL_MS = 10 * 60 * 1000;     // the pending login (password step) is valid for 10 minutes
+const MFA_RESEND_COOLDOWN_MS = 60 * 1000;        // minimum time between two SMS for the same login
+const MFA_RETRY_AFTER_FAILURE_MS = 5 * 1000;     // minimum spacing after a provider failure
+const MFA_MAX_VERIFY_ATTEMPTS = 5;               // wrong codes allowed per code; then the login must start over
+const MFA_MAX_SENDS_PER_CHALLENGE = 3;           // successful SMS per login
+const MFA_MAX_FAILED_SENDS_PER_CHALLENGE = 5;    // provider failures tolerated per login
+const MFA_MAX_SMS_PER_USER_PER_HOUR = 5;         // SMS-bombing / credit protection per account
+const MFA_SMS_TIMEOUT_MS = 15 * 1000;
+const MFA_MAX_CHALLENGES = 2000;
+const MFA_CHALLENGE_ID_RE = /^[A-Za-z0-9_-]{43}$/;
+
+const mfaChallenges = new Map(); // challengeId -> challenge
+const mfaSmsLog = new Map();     // userId -> timestamps of successful SMS (last hour)
+
+if (!process.env.SEMAPHORE_API_KEY) console.warn('⚠️ SEMAPHORE_API_KEY is not set. Nobody can complete the SMS login until it is configured.');
+if (!process.env.SEMAPHORE_SENDER_NAME) console.warn('⚠️ SEMAPHORE_SENDER_NAME is not set. SMS codes will use the default sender name of your Semaphore account.');
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, challenge] of mfaChallenges) if (challenge.expiresAt <= now) mfaChallenges.delete(id);
+  for (const [userId, stamps] of mfaSmsLog) {
+    const recent = stamps.filter(t => now - t < 60 * 60 * 1000);
+    if (recent.length) mfaSmsLog.set(userId, recent); else mfaSmsLog.delete(userId);
+  }
+}, 60 * 1000).unref();
+
+function mfaFail(res, status, code, message, extra) {
+  return res.status(status).json({ success: false, code, message, ...(extra || {}) });
+}
+
+function generateOtp() {
+  return String(crypto.randomInt(0, 10 ** MFA_OTP_LENGTH)).padStart(MFA_OTP_LENGTH, '0'); // cryptographically secure
+}
+
+// The OTP is only stored as an HMAC bound to this challenge AND this user, so a code can never be replayed
+// against another login or another account.
+function mfaOtpHash(challengeId, userId, otp) {
+  return crypto.createHmac('sha256', AUTH_SECRET).update(`mfa|${challengeId}|${userId}|${otp}`).digest();
+}
+
+function createMfaChallenge(userId, phone) {
+  for (const [id, challenge] of mfaChallenges) { // one pending login per account: a new password login replaces the old one
+    if (String(challenge.userId) === String(userId)) mfaChallenges.delete(id);
+  }
+  const id = crypto.randomBytes(32).toString('base64url');
+  const now = Date.now();
+  mfaChallenges.set(id, {
+    userId, phone, createdAt: now, expiresAt: now + MFA_CHALLENGE_TTL_MS,
+    otpHash: null, otpExpiresAt: 0, verifyAttempts: 0,
+    sendCount: 0, failedSends: 0, lastSentAt: 0, lastFailedAt: 0, sending: false
+  });
+  while (mfaChallenges.size > MFA_MAX_CHALLENGES) mfaChallenges.delete(mfaChallenges.keys().next().value); // drop the oldest
+  return id;
+}
+
+// Returns { id, challenge } or { error: { status, code, message } }
+function findMfaChallenge(rawId) {
+  const gone = { error: { status: 404, code: 'CHALLENGE_NOT_FOUND', message: 'Your verification session was not found. Please log in again.' } };
+  if (typeof rawId !== 'string' || !MFA_CHALLENGE_ID_RE.test(rawId)) return gone;
+  const challenge = mfaChallenges.get(rawId);
+  if (!challenge) return gone;
+  if (challenge.expiresAt <= Date.now()) {
+    mfaChallenges.delete(rawId);
+    return { error: { status: 410, code: 'CHALLENGE_EXPIRED', message: 'Your verification session expired. Please log in again.' } };
+  }
+  return { id: rawId, challenge };
+}
+
+// Never log the OTP: provider answers can echo the message text, so any 6-digit run is masked.
+function mfaSafeLog(value) {
+  return String(value).replace(/\d{6}/g, '******').slice(0, 300);
+}
+
+// Sends the code with Semaphore's OTP route. `phone` is the stored +639XXXXXXXXX number of the account.
+async function sendOtpSms(phone, otp) {
+  const apiKey = process.env.SEMAPHORE_API_KEY;
+  if (!apiKey) return { ok: false, reason: 'CONFIG' };
+  const checked = normalizePhPhone(phone);
+  if (!checked.ok) return { ok: false, reason: 'PHONE' };
+  const number = '0' + checked.value.slice(3); // +639171234567 -> 09171234567 (the format used in Semaphore's own examples)
+  const params = new URLSearchParams({
+    apikey: apiKey,
+    number,
+    message: 'Modern Koncept Furniture Centre: Your verification code is {otp}. It expires in 5 minutes. Do not share it with anyone.',
+    code: otp // our own code, so the server (not the provider) decides what is valid
+  });
+  if (process.env.SEMAPHORE_SENDER_NAME) params.set('sendername', process.env.SEMAPHORE_SENDER_NAME);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), MFA_SMS_TIMEOUT_MS);
+  try {
+    const response = await fetch(SEMAPHORE_OTP_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params,
+      signal: controller.signal
+    });
+    let body = null;
+    try { body = await response.json(); } catch (e) { body = null; }
+    const first = Array.isArray(body) ? body[0] : null;
+    const providerStatus = first && first.status ? String(first.status).toLowerCase() : '';
+    if (!response.ok || !first || providerStatus === 'failed' || providerStatus === 'refunded') {
+      const detail = Array.isArray(body) ? `status=${providerStatus || 'none'}` : mfaSafeLog(JSON.stringify(body));
+      const lowCredits = /credit|balance|insufficient/i.test(detail);
+      console.error(`❌ [Semaphore OTP] rejected (HTTP ${response.status}) ${detail}${lowCredits ? ' - the account may be out of credits' : ''}`);
+      return { ok: false, reason: 'PROVIDER' };
+    }
+    return { ok: true };
+  } catch (error) {
+    console.error(`❌ [Semaphore OTP] request failed: ${error && error.name === 'AbortError' ? 'timed out' : 'network error'}`);
+    return { ok: false, reason: 'NETWORK' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function mfaSendHandler(req, res) {
+  const found = findMfaChallenge((req.body || {}).challengeId);
+  if (found.error) return mfaFail(res, found.error.status, found.error.code, found.error.message);
+  const { id, challenge } = found;
+  const now = Date.now();
+
+  if (challenge.sending) return mfaFail(res, 429, 'SMS_IN_PROGRESS', 'A code is already being sent. Please wait a moment.');
+  if (challenge.lastSentAt && now - challenge.lastSentAt < MFA_RESEND_COOLDOWN_MS) {
+    const retry = Math.ceil((MFA_RESEND_COOLDOWN_MS - (now - challenge.lastSentAt)) / 1000);
+    return mfaFail(res, 429, 'MFA_COOLDOWN', `Please wait ${retry} seconds before requesting another code.`, { retryAfterSeconds: retry });
+  }
+  if (challenge.lastFailedAt && now - challenge.lastFailedAt < MFA_RETRY_AFTER_FAILURE_MS) {
+    const retry = Math.ceil((MFA_RETRY_AFTER_FAILURE_MS - (now - challenge.lastFailedAt)) / 1000);
+    return mfaFail(res, 429, 'MFA_COOLDOWN', `Please wait ${retry} seconds and try again.`, { retryAfterSeconds: retry });
+  }
+  if (challenge.sendCount >= MFA_MAX_SENDS_PER_CHALLENGE || challenge.failedSends >= MFA_MAX_FAILED_SENDS_PER_CHALLENGE) {
+    return mfaFail(res, 429, 'MFA_SEND_LIMIT', 'Too many codes were requested for this login. Please go back and log in again.');
+  }
+  const recent = (mfaSmsLog.get(String(challenge.userId)) || []).filter(t => now - t < 60 * 60 * 1000);
+  if (recent.length >= MFA_MAX_SMS_PER_USER_PER_HOUR) {
+    return mfaFail(res, 429, 'MFA_SEND_LIMIT', 'Too many verification codes were requested for this account. Please try again later.');
+  }
+  if (!process.env.SEMAPHORE_API_KEY) {
+    console.error('❌ [Semaphore OTP] SEMAPHORE_API_KEY is missing in the server environment.');
+    return mfaFail(res, 503, 'MFA_UNAVAILABLE', 'SMS verification is not available right now. Please contact the Administrator.');
+  }
+
+  const otp = generateOtp();
+  challenge.sending = true; // set before the first await: a double click cannot send two SMS
+  let result;
+  try { result = await sendOtpSms(challenge.phone, otp); } finally { challenge.sending = false; }
+
+  if (mfaChallenges.get(id) !== challenge) return mfaFail(res, 404, 'CHALLENGE_NOT_FOUND', 'Your verification session was not found. Please log in again.'); // cancelled meanwhile
+  if (!result.ok) {
+    challenge.failedSends += 1;
+    challenge.lastFailedAt = Date.now();
+    if (result.reason === 'CONFIG') return mfaFail(res, 503, 'MFA_UNAVAILABLE', 'SMS verification is not available right now. Please contact the Administrator.');
+    return mfaFail(res, 502, 'SMS_FAILED', 'We could not send the SMS. Please try again in a moment.');
+  }
+
+  // The new code replaces any earlier one (the old code stops working) and the attempt counter starts again
+  challenge.otpHash = mfaOtpHash(id, challenge.userId, otp);
+  challenge.otpExpiresAt = Date.now() + MFA_OTP_TTL_MS;
+  challenge.verifyAttempts = 0;
+  challenge.lastSentAt = Date.now();
+  challenge.sendCount += 1;
+  recent.push(Date.now());
+  mfaSmsLog.set(String(challenge.userId), recent);
+  res.json({ success: true, cooldownSeconds: MFA_RESEND_COOLDOWN_MS / 1000, expiresInSeconds: MFA_OTP_TTL_MS / 1000 });
+}
+
+app.post('/login/mfa/send', mfaSendHandler);
+app.post('/login/mfa/resend', mfaSendHandler);
+
+app.post('/login/mfa/verify', async (req, res) => {
+  const found = findMfaChallenge((req.body || {}).challengeId);
+  if (found.error) return mfaFail(res, found.error.status, found.error.code, found.error.message);
+  const { id, challenge } = found;
+
+  const code = typeof (req.body || {}).code === 'string' ? req.body.code.trim() : '';
+  if (!new RegExp(`^\\d{${MFA_OTP_LENGTH}}$`).test(code)) return mfaFail(res, 400, 'INVALID_CODE', `Enter the ${MFA_OTP_LENGTH}-digit code.`);
+  if (!challenge.otpHash) return mfaFail(res, 400, 'CODE_NOT_SENT', 'Request a verification code first.');
+  if (Date.now() > challenge.otpExpiresAt) {
+    challenge.otpHash = null; // expired codes can never be used again
+    return mfaFail(res, 400, 'CODE_EXPIRED', 'That code has expired. Request a new one.');
+  }
+
+  challenge.verifyAttempts += 1;
+  const given = mfaOtpHash(id, challenge.userId, code);
+  if (!crypto.timingSafeEqual(given, challenge.otpHash)) {
+    if (challenge.verifyAttempts >= MFA_MAX_VERIFY_ATTEMPTS) {
+      mfaChallenges.delete(id); // too many wrong codes: the whole login must start again with the password
+      return mfaFail(res, 429, 'TOO_MANY_ATTEMPTS', 'Too many incorrect codes. Please log in again.');
+    }
+    return mfaFail(res, 400, 'INVALID_CODE', 'That code is not correct.', { attemptsRemaining: MFA_MAX_VERIFY_ATTEMPTS - challenge.verifyAttempts });
+  }
+
+  // Correct code. The challenge is removed BEFORE anything is awaited, so the same code cannot be used twice,
+  // not even by two requests arriving at the same moment.
+  mfaChallenges.delete(id);
+  const { data: user, error } = await db.from('users').select('id,name,email,role').eq('id', challenge.userId).single();
+  if (error || !user) return mfaFail(res, 401, 'CHALLENGE_EXPIRED', 'Your account could not be found. Please log in again.');
+  const loggedInUser = { id: user.id, name: user.name, email: user.email, role: user.role || 'staff' }; // role comes from the database, never from the browser
+  res.json({ success: true, message: 'Login successful', user: loggedInUser, token: createSession(loggedInUser) });
+});
+
+app.post('/login/mfa/cancel', (req, res) => {
+  const id = (req.body || {}).challengeId;
+  if (typeof id === 'string' && MFA_CHALLENGE_ID_RE.test(id)) mfaChallenges.delete(id);
+  res.json({ success: true });
 });
 
 // =============================================================================

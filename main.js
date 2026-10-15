@@ -261,7 +261,7 @@ const API = {
   deleteStaff: async (id) => (await fetch(`${API_URL}/staff/${id}`, { method: 'DELETE', headers: authHeaders() })).json(),
   getMyAccount: async () => (await fetch(`${API_URL}/account/me`, { headers: authHeaders() })).json(),
   updateMyAccount: async (data) => (await fetch(`${API_URL}/account/me`, { method: 'PUT', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(data) })).json(),
-  // SMS verification at login. These backend routes belong to the separate Semaphore MFA task and do not exist yet (see "LOGIN WITH SMS VERIFICATION" below).
+  // SMS verification at login (backend routes: /login/mfa/send, /resend, /verify, /cancel - see "LOGIN WITH SMS VERIFICATION" below).
   mfaSend: (challengeId) => mfaRequest('/login/mfa/send', { challengeId }),
   mfaResend: (challengeId) => mfaRequest('/login/mfa/resend', { challengeId }),
   mfaVerify: (challengeId, code) => mfaRequest('/login/mfa/verify', { challengeId, code }),
@@ -429,14 +429,13 @@ function completeLogin(result) {
 //   5. POST /login/mfa/cancel  { challengeId }   (optional, best effort)
 // Error answers use { success:false, code, message } with these codes: MFA_COOLDOWN (+retryAfterSeconds), SMS_FAILED,
 // INVALID_CODE (+attemptsRemaining), CODE_EXPIRED, CHALLENGE_EXPIRED, CHALLENGE_NOT_FOUND, TOO_MANY_ATTEMPTS.
-// Routes 2-5 and the mfaRequired answer of route 1 are NOT implemented yet (separate Semaphore task).
+// Routes 1-5 are implemented in server.js ("SMS OTP MFA (Semaphore)"). The server issues a token ONLY from route 4.
 // The challengeId only lives in a JavaScript variable (never in sessionStorage / localStorage) and the OTP is never stored anywhere.
 // =============================================================================
 const MFA_OTP_LENGTH = 6;
 const MFA_DEFAULT_COOLDOWN_SECONDS = 60;
-// TEMPORARY: while the backend still answers a correct password with a token directly, the login page keeps working as before.
-// When the Semaphore MFA backend is live, set this to false: a token without SMS verification is then refused by the page.
-const MFA_ALLOW_DIRECT_LOGIN = true;
+// SMS verification is mandatory for every role: a token that arrives without it is refused by the page.
+const MFA_ALLOW_DIRECT_LOGIN = false;
 
 let mfaState = null; // { challengeId, working, codeSent, cooldownEndsAt, codeExpiresAt }
 let mfaTimer = null;
