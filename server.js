@@ -600,10 +600,10 @@ app.put('/products/:id', requireRole('admin'), async (req, res) => {
   res.json({ success: true, message: 'Furniture updated successfully' });
 });
 
-app.delete('/products/:id', async (req, res) => {
-  const { error } = await db.from('furniture').delete().eq('id', req.params.id);
-  if (error) return res.status(500).json({ success: false, message: 'Failed to delete furniture' });
-  res.json({ success: true, message: 'Furniture deleted successfully' });
+// Furniture can no longer be deleted here. Deleting the item in Inventory Management removes its furniture record
+// (database cascade, see furniture_delete_cascade.sql), which also removes it from furniture-list.html.
+app.delete('/products/:id', (req, res) => {
+  res.status(410).json({ success: false, message: 'Furniture cannot be deleted here. Delete the item in Inventory Management and it will be removed from Furniture Management and the customer furniture list.' });
 });
 
 // =============================================================================

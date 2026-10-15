@@ -238,7 +238,6 @@ const API = {
   resetStaffMfa: async (id) => (await fetch(`${API_URL}/staff/${id}/reset-mfa`, { method: 'POST', headers: authHeaders() })).json(),
   getFurniture: async () => (await fetch(`${API_URL}/products`)).json(),
   updateFurniture: async (id, data) => (await fetch(`${API_URL}/products/${id}`, { method: 'PUT', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(data) })).json(),
-  deleteFurniture: async (id) => (await fetch(`${API_URL}/products/${id}`, { method: 'DELETE' })).json(),
   getInventory: async () => (await fetch(`${API_URL}/inventory`)).json(),
   createInventory: async (data) => (await fetch(`${API_URL}/inventory`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
   updateInventory: async (id, data) => (await fetch(`${API_URL}/inventory/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
@@ -649,7 +648,6 @@ function renderAdminFurnitureTable(items) {
         <td>${(() => { const d = getDiscountInfo(item); return d.isDiscounted ? `<span style="text-decoration:line-through;color:#9ca3af;font-size:0.85rem;">${formatCurrency(d.regular)}</span><br><strong style="color:#DC143C;">${formatCurrency(d.final)}</strong> <span style="font-size:0.75rem;color:#DC143C;">(${d.percent}% OFF)</span>` : formatCurrency(item.price); })()}</td>
         <td>
           <button class="action-btn edit" onclick="editFurniture(${item.id})" title="Edit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
-          <button class="action-btn delete" onclick="deleteFurniture(${item.id})" title="Delete"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
         </td>
       </tr>`;
   });
@@ -937,15 +935,6 @@ async function editFurniture(id) {
   } catch (error) { showToast('❌ Failed to load furniture details', 'error'); }
 }
 
-async function deleteFurniture(id) {
-  if (!confirm('Are you sure you want to delete this furniture item?')) return;
-  try {
-    const result = await API.deleteFurniture(id);
-    if (result.success) { showToast(result.message, 'success'); loadFurnitureList(); }
-    else showToast(result.message, 'error');
-  } catch (error) { showToast('❌ Failed to delete furniture', 'error'); }
-}
-
 // =============================================================================
 // ADMIN MODULE - BUSINESS INFORMATION
 // =============================================================================
@@ -1154,10 +1143,14 @@ async function editInventory(id) {
 }
 
 async function deleteInventory(id) {
-  if (!confirm('Are you sure you want to delete this inventory item?')) return;
+  if (!confirm('Are you sure you want to delete this inventory item?\n\nIt will also be removed from Furniture Management and the customer furniture list.')) return;
   try {
     const result = await API.deleteInventory(id);
-    if (result.success) { showToast('✅ ' + result.message, 'success'); loadInventoryList(); }
+    if (result.success) {
+      showToast('✅ ' + result.message, 'success');
+      loadInventoryList();
+      if (document.getElementById('furnitureList')) loadFurnitureList(); // the linked furniture record was removed with it
+    }
     else showToast('❌ ' + result.message, 'error');
   } catch (error) { showToast('❌ Failed to delete inventory', 'error'); }
 }
