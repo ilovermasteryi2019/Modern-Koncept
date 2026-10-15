@@ -202,59 +202,6 @@
                 Login
               </button>
             </form>
-
-            <!-- Two-factor step: enter the code from the authenticator app (or a backup code) -->
-            <form id="mfaCodeForm" class="hidden" autocomplete="off">
-              <h2 class="fw-bold mb-2" style="font-size: 1.25rem; color: #111827;">Two-factor authentication</h2>
-              <p style="color: #4b5563; font-size: 0.875rem; margin-bottom: 1rem;">Open your authenticator app and enter the 6-digit code for this account. If you lost your phone, enter one of your backup codes instead.</p>
-              <div class="mb-3">
-                <label for="mfaCode" class="form-label">Authentication code</label>
-                <input type="text" id="mfaCode" class="form-control" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" maxlength="12" placeholder="123456" required>
-              </div>
-              <button type="submit" id="mfaCodeSubmit" class="btn btn-accent w-100 justify-content-center">Verify and log in</button>
-              <button type="button" id="mfaCodeBack" class="btn btn-secondary w-100 justify-content-center mt-2">Back</button>
-            </form>
-
-            <!-- First-time setup: scan the QR code, then confirm with the first code -->
-            <form id="mfaSetupForm" class="hidden" autocomplete="off">
-              <h2 class="fw-bold mb-2" style="font-size: 1.25rem; color: #111827;">Set up two-factor authentication</h2>
-              <p style="color: #4b5563; font-size: 0.875rem; margin-bottom: 0.75rem;">Your account needs a second step before you can continue. It only takes a minute.</p>
-              <ol style="font-size: 0.875rem; color: #374151; padding-left: 1.25rem; margin-bottom: 1rem;">
-                <li>Install an authenticator app, such as Google Authenticator, Microsoft Authenticator or Authy.</li>
-                <li>Scan the QR code below with the app, or type the setup key into it.</li>
-                <li>Enter the 6-digit code the app shows.</li>
-              </ol>
-              <div class="text-center mb-3">
-                <div id="mfaQr" class="d-inline-block p-2 bg-white border rounded"></div>
-                <p id="mfaQrError" class="hidden" style="font-size: 0.8rem; color: #b91c1c; margin-top: 0.5rem;">The QR code could not load. Use the setup key below instead.</p>
-              </div>
-              <div class="mb-3">
-                <label for="mfaSecretText" class="form-label">Setup key (if you cannot scan)</label>
-                <input type="text" id="mfaSecretText" class="form-control" readonly style="font-family: monospace;">
-              </div>
-              <div class="mb-3">
-                <label for="mfaSetupCode" class="form-label">6-digit code</label>
-                <input type="text" id="mfaSetupCode" class="form-control" autocomplete="one-time-code" inputmode="numeric" maxlength="7" placeholder="123456" required>
-              </div>
-              <button type="submit" id="mfaSetupSubmit" class="btn btn-accent w-100 justify-content-center">Verify and turn on</button>
-              <button type="button" id="mfaSetupBack" class="btn btn-secondary w-100 justify-content-center mt-2">Cancel</button>
-            </form>
-
-            <!-- Backup codes (shown once) -->
-            <div id="mfaBackupStep" class="hidden">
-              <h2 class="fw-bold mb-2" style="font-size: 1.25rem; color: #111827;">Save your backup codes</h2>
-              <p style="color: #4b5563; font-size: 0.875rem; margin-bottom: 1rem;">If you lose your phone, each of these codes lets you log in once. They will not be shown again, so keep them somewhere safe.</p>
-              <div id="mfaBackupList" class="p-3 mb-3" style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 0.5rem; font-family: monospace; font-size: 0.95rem; line-height: 1.8; text-align: center;"></div>
-              <div class="d-flex gap-2 mb-3">
-                <button type="button" id="mfaBackupCopy" class="btn btn-secondary flex-fill justify-content-center">Copy</button>
-                <button type="button" id="mfaBackupDownload" class="btn btn-secondary flex-fill justify-content-center">Download</button>
-              </div>
-              <div class="form-check mb-3">
-                <input class="form-check-input" type="checkbox" id="mfaBackupSaved">
-                <label class="form-check-label" for="mfaBackupSaved" style="font-size: 0.875rem;">I have saved my backup codes</label>
-              </div>
-              <button type="button" id="mfaBackupContinue" class="btn btn-accent w-100 justify-content-center" disabled>Continue to my dashboard</button>
-            </div>
           </div>
         </div>
       </div>
