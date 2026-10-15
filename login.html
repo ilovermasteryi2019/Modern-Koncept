@@ -117,6 +117,79 @@
   background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
   color: white;
 }
+/* ============================================= */
+/* SMS VERIFICATION (MFA) */
+/* ============================================= */
+[hidden] { display: none !important; }
+
+.mfa-option {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f9fafb;
+}
+
+.mfa-option-icon {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #e5e7eb;
+  color: #111827;
+}
+
+.mfa-option-text {
+  color: #111827;
+  font-size: 0.9375rem;
+  line-height: 1.4;
+}
+
+.mfa-help {
+  color: #4b5563;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  margin-bottom: 1rem;
+}
+
+.mfa-code {
+  text-align: center;
+  font-size: 1.25rem;
+  letter-spacing: 0.25em;
+}
+
+.mfa-code::placeholder {
+  letter-spacing: normal;
+  font-size: 0.9375rem;
+}
+
+.mfa-link {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #2563eb;
+  font-size: 0.875rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.mfa-link:hover:not(:disabled) {
+  color: #1d4ed8;
+}
+
+.mfa-link:disabled {
+  color: #9ca3af;
+  text-decoration: none;
+  cursor: not-allowed;
+}
 </style>
 </head>
 <body class="bs-customer">
@@ -167,12 +240,12 @@
           <div id="loginCard" class="card p-4 p-md-5">
             <div class="text-center mb-4" id="loginHeader">
               <img src="logo.jpg" alt="ECL Furniture Mart" class="logo logo-md d-block mx-auto mb-3">
-              <h1 class="fw-bold mb-2" style="font-size: 1.875rem; color: #111827;">Welcome Back</h1>
-              <p class="mb-0" style="color: #4b5563; font-size: 0.875rem;">Login to access your dashboard</p>
+              <h1 id="loginTitle" class="fw-bold mb-2" style="font-size: 1.875rem; color: #111827;">Welcome Back</h1>
+              <p id="loginSubtitle" class="mb-0" style="color: #4b5563; font-size: 0.875rem;">Login to access your dashboard</p>
             </div>
 
             <!-- Error Message -->
-            <div id="loginError" class="alert alert-error hidden" style="margin-bottom: 1.5rem;">
+            <div id="loginError" class="alert alert-error hidden" hidden style="margin-bottom: 1.5rem;">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <circle cx="12" cy="12" r="10"></circle>
                 <line x1="12" y1="8" x2="12" y2="12"></line>
@@ -202,6 +275,45 @@
                 Login
               </button>
             </form>
+
+            <!-- SMS verification: shown only after the server accepts the password and opens a verification challenge.
+                 Nothing here sends an SMS by itself - the user must press "Send SMS". -->
+            <div id="mfaPanel" hidden>
+              <div id="mfaError" class="alert alert-error" role="alert" aria-live="assertive" hidden style="margin-bottom: 1rem;">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <line x1="12" y1="8" x2="12" y2="12"></line>
+                  <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                </svg>
+                <span id="mfaErrorMsg"></span>
+              </div>
+
+              <!-- Step 1: choose to send the SMS -->
+              <div id="mfaStepSend" hidden>
+                <div class="mfa-option">
+                  <span class="mfa-option-icon" aria-hidden="true">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                  </span>
+                  <span class="mfa-option-text">Send SMS to <strong id="mfaMaskedPhone">+63 XXX XXX XX••</strong></span>
+                </div>
+                <button type="button" id="mfaSendBtn" class="btn btn-accent w-100 justify-content-center mt-3">Send SMS</button>
+              </div>
+
+              <!-- Step 2: enter the code -->
+              <div id="mfaStepCode" hidden>
+                <p class="mfa-help">We sent a code to <strong id="mfaMaskedPhoneSent"></strong>. <span id="mfaExpiryNote"></span></p>
+                <form id="mfaVerifyForm" novalidate>
+                  <label for="mfaCode" class="form-label">Verification code</label>
+                  <input type="text" id="mfaCode" class="form-control mfa-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="Enter the 6-digit code" aria-describedby="mfaErrorMsg">
+                  <button type="submit" id="mfaVerifyBtn" class="btn btn-accent w-100 justify-content-center mt-3" disabled>Verify Code</button>
+                </form>
+                <button type="button" id="mfaResendBtn" class="mfa-link mt-3" disabled>Resend SMS</button>
+              </div>
+
+              <div class="text-center mt-4">
+                <button type="button" id="mfaCancelBtn" class="mfa-link">&larr; Back to login</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>

@@ -259,6 +259,13 @@ const API = {
   createStaff: async (data) => (await fetch(`${API_URL}/staff`, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(data) })).json(),
   updateStaff: async (id, data) => (await fetch(`${API_URL}/staff/${id}`, { method: 'PUT', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(data) })).json(),
   deleteStaff: async (id) => (await fetch(`${API_URL}/staff/${id}`, { method: 'DELETE', headers: authHeaders() })).json(),
+  getMyAccount: async () => (await fetch(`${API_URL}/account/me`, { headers: authHeaders() })).json(),
+  updateMyAccount: async (data) => (await fetch(`${API_URL}/account/me`, { method: 'PUT', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(data) })).json(),
+  // SMS verification at login. These backend routes belong to the separate Semaphore MFA task and do not exist yet (see "LOGIN WITH SMS VERIFICATION" below).
+  mfaSend: (challengeId) => mfaRequest('/login/mfa/send', { challengeId }),
+  mfaResend: (challengeId) => mfaRequest('/login/mfa/resend', { challengeId }),
+  mfaVerify: (challengeId, code) => mfaRequest('/login/mfa/verify', { challengeId, code }),
+  mfaCancel: (challengeId) => mfaRequest('/login/mfa/cancel', { challengeId }),
   getBusinessInfo: async () => (await fetch(`${API_URL}/business-info`)).json(),
   saveBusinessInfo: async (data) => (await fetch(`${API_URL}/business-info`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
   getContactInfo: async () => (await fetch(`${API_URL}/contact-info`)).json(),
@@ -409,19 +416,284 @@ function completeLogin(result) {
   setTimeout(() => { window.location.href = dashboardPageFor(result.user.role); }, 1500);
 }
 
+// =============================================================================
+// LOGIN WITH SMS VERIFICATION (MFA)
+//
+// How the login page is meant to work once the Semaphore MFA backend exists:
+//   1. POST /login  { email, password }
+//        correct password -> { success:true, mfaRequired:true, challengeId, maskedPhone, expiresInSeconds }   (NO token yet)
+//        no usable number -> { success:false, code:'MFA_PHONE_MISSING' | 'MFA_PHONE_INVALID', message }
+//   2. POST /login/mfa/send    { challengeId } -> { success:true, cooldownSeconds, expiresInSeconds }   (user pressed "Send SMS")
+//   3. POST /login/mfa/resend  { challengeId } -> same answer as /send (the server enforces the cooldown)
+//   4. POST /login/mfa/verify  { challengeId, code } -> { success:true, user, token }   (the only place a session is issued)
+//   5. POST /login/mfa/cancel  { challengeId }   (optional, best effort)
+// Error answers use { success:false, code, message } with these codes: MFA_COOLDOWN (+retryAfterSeconds), SMS_FAILED,
+// INVALID_CODE (+attemptsRemaining), CODE_EXPIRED, CHALLENGE_EXPIRED, CHALLENGE_NOT_FOUND, TOO_MANY_ATTEMPTS.
+// Routes 2-5 and the mfaRequired answer of route 1 are NOT implemented yet (separate Semaphore task).
+// The challengeId only lives in a JavaScript variable (never in sessionStorage / localStorage) and the OTP is never stored anywhere.
+// =============================================================================
+const MFA_OTP_LENGTH = 6;
+const MFA_DEFAULT_COOLDOWN_SECONDS = 60;
+// TEMPORARY: while the backend still answers a correct password with a token directly, the login page keeps working as before.
+// When the Semaphore MFA backend is live, set this to false: a token without SMS verification is then refused by the page.
+const MFA_ALLOW_DIRECT_LOGIN = true;
+
+let mfaState = null; // { challengeId, working, codeSent, cooldownEndsAt, codeExpiresAt }
+let mfaTimer = null;
+let mfaChallengeTimer = null;
+let loginInFlight = false;
+
+const mfaEl = (id) => document.getElementById(id);
+
+async function mfaRequest(path, body) {
+  const response = await fetch(`${API_URL}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  let data = null;
+  try { data = await response.json(); } catch (error) { /* not JSON, e.g. the route does not exist yet */ }
+  if (!data || typeof data !== 'object') return { success: false, code: 'MFA_UNAVAILABLE' };
+  return data;
+}
+
+// Only the last two digits of the number are ever shown, even if the server sent more than it should
+function mfaDisplayPhone(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  return digits.length >= 2 ? `+63 XXX XXX XX${digits.slice(-2)}` : 'your registered mobile number';
+}
+
+function mfaSetStep(step) { // 'credentials' | 'send' | 'code'
+  const copy = {
+    credentials: ['Welcome Back', 'Login to access your dashboard'],
+    send: ['Verify your identity', 'For your security, confirm it is you before we open your dashboard.'],
+    code: ['Verify your identity', 'Enter the code we sent to your phone.']
+  }[step];
+  mfaEl('loginTitle').textContent = copy[0];
+  mfaEl('loginSubtitle').textContent = copy[1];
+  mfaEl('loginForm').hidden = step !== 'credentials';
+  mfaEl('mfaPanel').hidden = step === 'credentials';
+  mfaEl('mfaStepSend').hidden = step !== 'send';
+  mfaEl('mfaStepCode').hidden = step !== 'code';
+  mfaEl('loginError').classList.add('hidden');
+}
+
+function mfaError(message) {
+  mfaEl('mfaErrorMsg').textContent = message;
+  mfaEl('mfaError').hidden = false;
+}
+
+function mfaClearError() {
+  mfaEl('mfaError').hidden = true;
+}
+
+function mfaClearTimers() {
+  clearInterval(mfaTimer); mfaTimer = null;
+  clearTimeout(mfaChallengeTimer); mfaChallengeTimer = null;
+}
+
+function mfaRemainingCooldown() {
+  return mfaState ? Math.max(0, Math.ceil((mfaState.cooldownEndsAt - Date.now()) / 1000)) : 0;
+}
+
+// Keeps buttons and labels in sync with the current state (busy / cooldown / code length)
+function mfaRefreshButtons() {
+  if (!mfaState) return;
+  const working = mfaState.working;
+  const sendBtn = mfaEl('mfaSendBtn'), verifyBtn = mfaEl('mfaVerifyBtn'), resendBtn = mfaEl('mfaResendBtn');
+  const codeLength = mfaEl('mfaCode').value.replace(/\D/g, '').length;
+  sendBtn.disabled = !!working;
+  sendBtn.textContent = working === 'send' ? 'Sending…' : 'Send SMS';
+  verifyBtn.disabled = !!working || codeLength !== MFA_OTP_LENGTH;
+  verifyBtn.textContent = working === 'verify' ? 'Verifying…' : 'Verify Code';
+  const wait = mfaRemainingCooldown();
+  resendBtn.disabled = !!working || wait > 0;
+  resendBtn.textContent = working === 'resend' ? 'Sending…' : (wait > 0 ? `Resend SMS in ${Math.floor(wait / 60)}:${String(wait % 60).padStart(2, '0')}` : 'Resend SMS');
+  if (mfaState.codeExpiresAt && Date.now() >= mfaState.codeExpiresAt && !mfaState.expiredShown) {
+    mfaState.expiredShown = true;
+    mfaError('That code has expired. Request a new one.');
+  }
+}
+
+function mfaStartCooldown(seconds) {
+  const wait = Number(seconds) > 0 ? Math.ceil(Number(seconds)) : MFA_DEFAULT_COOLDOWN_SECONDS;
+  mfaState.cooldownEndsAt = Date.now() + wait * 1000;
+  clearInterval(mfaTimer);
+  mfaTimer = setInterval(mfaRefreshButtons, 500);
+  mfaRefreshButtons();
+}
+
+// Back to the first screen (optionally with a message); forgets the pending login completely
+function mfaReset(message, type) {
+  mfaClearTimers();
+  mfaState = null;
+  const codeInput = mfaEl('mfaCode');
+  if (codeInput) codeInput.value = '';
+  mfaClearError();
+  mfaSetStep('credentials');
+  mfaEl('loginPassword').focus();
+  if (message) showToast(message, type || 'warning', 6000);
+}
+
+function mfaStart(result) {
+  mfaClearTimers();
+  const challengeId = typeof result.challengeId === 'string' ? result.challengeId : '';
+  if (!challengeId) { showToast('Login could not continue. Please try again.', 'error'); return; }
+  mfaState = { challengeId, working: null, codeSent: false, cooldownEndsAt: 0, codeExpiresAt: 0, expiredShown: false };
+  mfaEl('loginPassword').value = ''; // the password is not needed in the page any more
+  const masked = mfaDisplayPhone(result.maskedPhone);
+  mfaEl('mfaMaskedPhone').textContent = masked;
+  mfaEl('mfaMaskedPhoneSent').textContent = masked;
+  mfaEl('mfaCode').value = '';
+  mfaClearError();
+  mfaSetStep('send');
+  mfaRefreshButtons();
+  const challengeSeconds = Number(result.expiresInSeconds);
+  if (challengeSeconds > 0) {
+    mfaChallengeTimer = setTimeout(() => mfaReset('Your verification session expired. Please log in again.'), challengeSeconds * 1000);
+  }
+  mfaEl('mfaSendBtn').focus();
+}
+
+function mfaShowCodeStep(codeExpiresInSeconds) {
+  const seconds = Number(codeExpiresInSeconds);
+  mfaState.codeExpiresAt = seconds > 0 ? Date.now() + seconds * 1000 : 0;
+  mfaState.expiredShown = false;
+  mfaEl('mfaExpiryNote').textContent = seconds > 0 ? `It expires in ${Math.max(1, Math.round(seconds / 60))} minute(s).` : '';
+  mfaEl('mfaCode').value = '';
+  mfaSetStep('code');
+  mfaRefreshButtons();
+  mfaEl('mfaCode').focus();
+}
+
+function mfaHandleError(result) {
+  const code = result && result.code;
+  if (code === 'CHALLENGE_EXPIRED' || code === 'CHALLENGE_NOT_FOUND') { mfaReset('Your verification session expired. Please log in again.'); return; }
+  if (code === 'TOO_MANY_ATTEMPTS') { mfaReset('Too many incorrect codes. Please log in again.', 'error'); return; }
+  if (code === 'MFA_COOLDOWN') {
+    const wait = Number(result.retryAfterSeconds);
+    mfaStartCooldown(wait > 0 ? wait : MFA_DEFAULT_COOLDOWN_SECONDS);
+    mfaError(`Please wait ${mfaRemainingCooldown()} seconds before requesting another code.`);
+    return;
+  }
+  if (code === 'SMS_FAILED') { mfaError('We could not send the SMS. Please try again in a moment.'); return; }
+  if (code === 'INVALID_CODE') {
+    const left = Number(result.attemptsRemaining);
+    mfaError(left > 0 ? `That code is not correct. You have ${left} attempt${left === 1 ? '' : 's'} left.` : 'That code is not correct. Please try again.');
+    mfaEl('mfaCode').value = '';
+    mfaEl('mfaCode').focus();
+    return;
+  }
+  if (code === 'CODE_EXPIRED') {
+    mfaState.cooldownEndsAt = 0;
+    mfaError('That code has expired. Request a new one.');
+    mfaEl('mfaCode').value = '';
+    return;
+  }
+  if (code === 'MFA_UNAVAILABLE') { mfaError('SMS verification is not available right now. Please try again later.'); return; }
+  mfaError(typeof result.message === 'string' && result.message.length <= 200 ? result.message : 'Something went wrong. Please try again.');
+}
+
+async function mfaSendCode(isResend) {
+  if (!mfaState || mfaState.working) return; // one request at a time
+  if (isResend && mfaRemainingCooldown() > 0) return;
+  mfaClearError();
+  mfaState.working = isResend ? 'resend' : 'send';
+  mfaRefreshButtons();
+  const state = mfaState;
+  try {
+    const result = isResend ? await API.mfaResend(state.challengeId) : await API.mfaSend(state.challengeId);
+    if (mfaState !== state) return; // cancelled while waiting
+    if (result.success) {
+      state.codeSent = true;
+      mfaStartCooldown(result.cooldownSeconds);
+      mfaShowCodeStep(result.expiresInSeconds);
+      if (isResend) showToast('A new code was sent.', 'success');
+    } else {
+      mfaHandleError(result);
+    }
+  } catch (error) {
+    if (mfaState === state) mfaError('We could not reach the server. Check your connection and try again.');
+  } finally {
+    if (mfaState === state) { state.working = null; mfaRefreshButtons(); }
+  }
+}
+
+async function mfaVerifyCode(event) {
+  event.preventDefault();
+  if (!mfaState || mfaState.working) return;
+  const code = mfaEl('mfaCode').value.replace(/\D/g, '');
+  if (code.length !== MFA_OTP_LENGTH) { mfaError(`Enter the ${MFA_OTP_LENGTH}-digit code.`); return; }
+  mfaClearError();
+  mfaState.working = 'verify';
+  mfaRefreshButtons();
+  const state = mfaState;
+  try {
+    const result = await API.mfaVerify(state.challengeId, code);
+    if (mfaState !== state) return;
+    if (result.success && result.user && result.token) {
+      // Verified by the server: this is the only place where a session is stored
+      mfaClearTimers();
+      mfaEl('mfaCode').value = '';
+      mfaEl('mfaVerifyBtn').disabled = true;
+      mfaEl('mfaSendBtn').disabled = true;
+      mfaEl('mfaResendBtn').disabled = true;
+      mfaEl('mfaCancelBtn').disabled = true;
+      mfaState = null;
+      completeLogin(result);
+      return;
+    }
+    if (result.success) { mfaError('Verification could not be completed. Please try again.'); }
+    else { mfaHandleError(result); }
+  } catch (error) {
+    if (mfaState === state) mfaError('We could not reach the server. Check your connection and try again.');
+  } finally {
+    if (mfaState === state) { state.working = null; mfaRefreshButtons(); }
+  }
+}
+
+function mfaCancel() {
+  const id = mfaState && mfaState.challengeId;
+  if (id) { API.mfaCancel(id).catch(() => {}); } // best effort
+  mfaReset();
+}
+
+function initMfaUi() {
+  if (!mfaEl('mfaPanel')) return; // this page has no verification screen
+  const codeInput = mfaEl('mfaCode');
+  codeInput.maxLength = MFA_OTP_LENGTH;
+  codeInput.placeholder = `Enter the ${MFA_OTP_LENGTH}-digit code`;
+  codeInput.addEventListener('input', () => {
+    codeInput.value = codeInput.value.replace(/\D/g, '').slice(0, MFA_OTP_LENGTH);
+    mfaRefreshButtons();
+  });
+  mfaEl('mfaSendBtn').addEventListener('click', () => mfaSendCode(false));
+  mfaEl('mfaResendBtn').addEventListener('click', () => mfaSendCode(true));
+  mfaEl('mfaVerifyForm').addEventListener('submit', mfaVerifyCode);
+  mfaEl('mfaCancelBtn').addEventListener('click', mfaCancel);
+}
+
 async function handleLogin(event) {
   event.preventDefault();
+  if (loginInFlight) return; // a login request is already running
   const email = document.getElementById('loginEmail').value;
   const password = document.getElementById('loginPassword').value;
+  const submitBtn = event.target && event.target.querySelector ? event.target.querySelector('button[type="submit"]') : null;
+  const originalLabel = submitBtn ? submitBtn.innerHTML : '';
+  loginInFlight = true;
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Logging in…'; }
+  let keepDisabled = false;
   try {
     const result = await API.login(email, password);
-    if (result.success && result.user) {
-      completeLogin(result);
+    if (result.success && result.mfaRequired) {
+      mfaStart(result); // password accepted, but NO session yet: SMS verification comes next
+    } else if (result.success && result.user) {
+      if (MFA_ALLOW_DIRECT_LOGIN) { keepDisabled = true; completeLogin(result); }
+      else showToast('Login could not continue: SMS verification was not started by the server.', 'error');
     } else {
       showToast(result.message || 'Login failed.', 'error');
     }
   } catch (error) {
     showToast('Failed to login. Please check your connection.', 'error');
+  } finally {
+    loginInFlight = false;
+    if (submitBtn && !keepDisabled) { submitBtn.disabled = false; submitBtn.innerHTML = originalLabel; }
   }
 }
 
@@ -1943,6 +2215,31 @@ async function editAdminSalesRecord(id) {
 // =============================================================================
 // STAFF ACCOUNT MANAGEMENT (ADMIN)
 // =============================================================================
+// Phone numbers: same rules as the server (Philippine mobile numbers). The server validates again.
+function normalizePhPhoneClient(input) {
+  const raw = String(input || '').trim();
+  if (!raw || raw.length > 20 || !/^\+?[0-9\s().-]+$/.test(raw)) return '';
+  const digits = raw.replace(/\D/g, '');
+  if (raw.startsWith('+') && !digits.startsWith('639')) return '';
+  if (/^09\d{9}$/.test(digits)) return '+63' + digits.slice(1);
+  if (/^639\d{9}$/.test(digits)) return '+' + digits;
+  return '';
+}
+
+function validatePhPhoneClient(input) {
+  if (!String(input || '').trim()) return 'Please enter the phone number';
+  return normalizePhPhoneClient(input) ? '' : 'Enter a valid Philippine mobile number (for example 09171234567 or +639171234567).';
+}
+
+function formatPhoneForDisplay(stored) {
+  const normalized = normalizePhPhoneClient(stored);
+  return normalized ? `+63 ${normalized.slice(3, 6)} ${normalized.slice(6, 9)} ${normalized.slice(9)}` : String(stored || '');
+}
+
+function escapeHtmlText(value) {
+  return String(value).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
 let staffAccountsCache = {}; // id -> account row from the last GET /staff
 let staffEditSubmitting = false;
 
@@ -1954,7 +2251,7 @@ async function loadStaffAccountsList() {
       if (!tbody) return;
       tbody.innerHTML = '';
       staffAccountsCache = {};
-      if (result.data.length === 0) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#9ca3af;">No accounts found</td></tr>'; return; }
+      if (result.data.length === 0) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#9ca3af;">No accounts found</td></tr>'; return; }
       result.data.forEach(item => {
         staffAccountsCache[item.id] = item;
         const editBtn = ['staff', 'manager'].includes(item.role || 'staff')
@@ -1968,6 +2265,7 @@ async function loadStaffAccountsList() {
             <td>${item.name}</td>
             <td>${item.email}</td>
             <td><span style="padding:0.25rem 0.75rem;background:${roleBg};color:${roleColor};border-radius:9999px;font-size:0.75rem;font-weight:600;">${roleLabel}</span></td>
+            <td>${item.phone ? escapeHtmlText(formatPhoneForDisplay(item.phone)) : '<span style="color:#9ca3af;">Not set</span>'}</td>
             <td>${formatDate(item.created_at)}</td>
             <td>${editBtn}<button class="action-btn delete" onclick="deleteStaffAccount(${item.id})" title="Delete"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button></td>
           </tr>`;
@@ -1993,6 +2291,11 @@ function openAddStaffModal() {
             <div class="form-group">
               <label class="form-label">Email</label>
               <input type="email" id="staffAccountEmail" class="form-input" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Phone Number</label>
+              <input type="tel" id="staffAccountPhone" class="form-input" inputmode="tel" autocomplete="off" maxlength="20" placeholder="e.g. 09171234567" required>
+              <small style="color:#6b7280;font-size:0.75rem;">Philippine mobile number. The SMS verification code is sent here at login.</small>
             </div>
             <div class="form-group">
               <label class="form-label">Password</label>
@@ -2022,9 +2325,12 @@ async function handleStaffAccountSubmit(event) {
   const data = {
     name: document.getElementById('staffAccountName').value,
     email: document.getElementById('staffAccountEmail').value,
+    phone: document.getElementById('staffAccountPhone').value.trim(),
     password: document.getElementById('staffAccountPassword').value,
     role: document.getElementById('staffAccountRole').value
   };
+  const phoneProblem = validatePhPhoneClient(data.phone);
+  if (phoneProblem) { showToast(phoneProblem, 'warning'); return; }
   try {
     const result = await API.createStaff(data);
     if (result.success) {
@@ -2075,6 +2381,11 @@ function openEditStaffModal(id) {
               <input type="email" id="editStaffAccountEmail" class="form-input" maxlength="254" required>
             </div>
             <div class="form-group">
+              <label class="form-label">Phone Number</label>
+              <input type="tel" id="editStaffAccountPhone" class="form-input" inputmode="tel" autocomplete="off" maxlength="20" placeholder="e.g. 09171234567" required>
+              <small style="color:#6b7280;font-size:0.75rem;">Philippine mobile number. The SMS verification code is sent here at login.</small>
+            </div>
+            <div class="form-group">
               <label class="form-label">Role</label>
               <select id="editStaffAccountRole" class="form-input" required>
                 <option value="staff">Staff</option>
@@ -2098,6 +2409,7 @@ function openEditStaffModal(id) {
   document.getElementById('editStaffAccountId').value = account.id;
   document.getElementById('editStaffAccountName').value = account.name || '';
   document.getElementById('editStaffAccountEmail').value = account.email || '';
+  document.getElementById('editStaffAccountPhone').value = account.phone || '';
   document.getElementById('editStaffAccountRole').value = account.role || 'staff';
   document.getElementById('editStaffAccountForm').addEventListener('submit', handleEditStaffSubmit);
 }
@@ -2114,7 +2426,10 @@ async function handleEditStaffSubmit(event) {
   const password = document.getElementById('editStaffAccountPassword').value;
   if (!name) { showToast('Please enter the full name', 'warning'); return; }
   if (!email) { showToast('Please enter the email', 'warning'); return; }
-  const data = { name, email, role };
+  const phone = document.getElementById('editStaffAccountPhone').value.trim();
+  const phoneProblem = validatePhPhoneClient(phone);
+  if (phoneProblem) { showToast(phoneProblem, 'warning'); return; }
+  const data = { name, email, role, phone };
   if (password) data.password = password; // blank = keep the current password
   staffEditSubmitting = true;
   if (btn) btn.disabled = true;
@@ -2131,6 +2446,135 @@ async function handleEditStaffSubmit(event) {
     showToast('❌ Failed to update account', 'error');
   } finally {
     staffEditSubmitting = false;
+    if (btn) btn.disabled = false;
+  }
+}
+
+// =============================================================================
+// ADMIN - EDIT MY ACCOUNT (name, email, phone number, password; the role cannot be changed)
+// =============================================================================
+let myAccountSubmitting = false;
+let myAccountOriginal = { email: '', phone: '' };
+
+function closeMyAccountModal() {
+  const modal = document.getElementById('myAccountModal');
+  if (modal) modal.remove();
+}
+
+async function openMyAccountModal() {
+  closeMyAccountModal();
+  let account;
+  try {
+    const result = await API.getMyAccount();
+    if (!result.success) { showToast('❌ ' + (result.message || 'Failed to load your account'), 'error'); return; }
+    account = result.data;
+  } catch (error) { showToast('❌ Failed to load your account', 'error'); return; }
+  myAccountOriginal = { email: account.email || '', phone: normalizePhPhoneClient(account.phone) };
+  const modalHTML = `
+    <div id="myAccountModal" class="modal active">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 class="modal-title">Edit My Account</h3>
+          <button class="modal-close" type="button" onclick="closeMyAccountModal()">×</button>
+        </div>
+        <div class="modal-body">
+          <form id="myAccountForm">
+            <div class="form-group">
+              <label class="form-label">Full Name</label>
+              <input type="text" id="myAccountName" class="form-input" maxlength="100" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Email</label>
+              <input type="email" id="myAccountEmail" class="form-input" maxlength="254" autocomplete="username" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Phone Number</label>
+              <input type="tel" id="myAccountPhone" class="form-input" inputmode="tel" autocomplete="off" maxlength="20" placeholder="e.g. 09171234567" required>
+              <small style="color:#6b7280;font-size:0.75rem;">Philippine mobile number. Your SMS verification code is sent here at login.</small>
+            </div>
+            <div class="form-group">
+              <label class="form-label">New Password</label>
+              <input type="password" id="myAccountNewPassword" class="form-input" maxlength="128" autocomplete="new-password" placeholder="Leave blank to keep your current password">
+              <small style="color:#6b7280;font-size:0.75rem;">At least 8 characters.</small>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Confirm New Password</label>
+              <input type="password" id="myAccountConfirmPassword" class="form-input" maxlength="128" autocomplete="new-password">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Current Password</label>
+              <input type="password" id="myAccountCurrentPassword" class="form-input" maxlength="128" autocomplete="current-password">
+              <small style="color:#6b7280;font-size:0.75rem;">Required to change your email, phone number or password.</small>
+            </div>
+            <div style="display:flex;gap:0.75rem;">
+              <button type="submit" class="btn btn-accent" style="flex:1;">Save Changes</button>
+              <button type="button" class="btn btn-secondary" onclick="closeMyAccountModal()" style="flex:1;">Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', modalHTML);
+  // Values are set through the DOM so they can never break the markup
+  document.getElementById('myAccountName').value = account.name || '';
+  document.getElementById('myAccountEmail').value = account.email || '';
+  document.getElementById('myAccountPhone').value = account.phone || '';
+  document.getElementById('myAccountForm').addEventListener('submit', handleMyAccountSubmit);
+}
+
+async function handleMyAccountSubmit(event) {
+  event.preventDefault();
+  if (myAccountSubmitting) return; // a save is already running
+  const form = document.getElementById('myAccountForm');
+  const btn = form ? form.querySelector('button[type="submit"]') : null;
+  const name = document.getElementById('myAccountName').value.trim();
+  const email = document.getElementById('myAccountEmail').value.trim();
+  const phone = document.getElementById('myAccountPhone').value.trim();
+  const newPassword = document.getElementById('myAccountNewPassword').value;
+  const confirmPassword = document.getElementById('myAccountConfirmPassword').value;
+  const currentPassword = document.getElementById('myAccountCurrentPassword').value;
+
+  if (!name) { showToast('Please enter your full name', 'warning'); return; }
+  if (!email) { showToast('Please enter your email', 'warning'); return; }
+  const phoneProblem = validatePhPhoneClient(phone);
+  if (phoneProblem) { showToast(phoneProblem, 'warning'); return; }
+  if (newPassword) {
+    if (newPassword.length < 8) { showToast('The new password must be at least 8 characters', 'warning'); return; }
+    if (newPassword !== confirmPassword) { showToast('The new passwords do not match', 'warning'); return; }
+  }
+  const sensitiveChange = email !== myAccountOriginal.email || normalizePhPhoneClient(phone) !== myAccountOriginal.phone || !!newPassword;
+  if (sensitiveChange && !currentPassword) {
+    showToast('Enter your current password to change your email, phone number or password', 'warning');
+    document.getElementById('myAccountCurrentPassword').focus();
+    return;
+  }
+
+  // Only these fields are sent: the account is identified by the login session, and the role is never part of the request
+  const data = { name, email, phone };
+  if (sensitiveChange) data.currentPassword = currentPassword;
+  if (newPassword) data.newPassword = newPassword;
+
+  myAccountSubmitting = true;
+  if (btn) btn.disabled = true;
+  try {
+    const result = await API.updateMyAccount(data);
+    if (result.success) {
+      const user = result.data;
+      sessionStorage.setItem('currentUser', JSON.stringify({ id: user.id, name: user.name, email: user.email, role: user.role }));
+      if (result.token) sessionStorage.setItem('authToken', result.token); // fresh session after a sensitive change
+      const adminNameEl = document.getElementById('adminName');
+      if (adminNameEl) adminNameEl.textContent = user.name;
+      showToast(result.message || 'Your account was updated successfully.', 'success');
+      closeMyAccountModal();
+    } else {
+      showToast('❌ ' + result.message, 'error');
+      const currentField = document.getElementById('myAccountCurrentPassword');
+      if (currentField) { currentField.value = ''; }
+    }
+  } catch (error) {
+    showToast('❌ Failed to update your account', 'error');
+  } finally {
+    myAccountSubmitting = false;
     if (btn) btn.disabled = false;
   }
 }
@@ -2532,6 +2976,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     const loginForm = document.getElementById('loginForm');
     if (loginForm) loginForm.addEventListener('submit', handleLogin);
+    initMfaUi();
     const signupForm = document.getElementById('signupForm');
     if (signupForm) signupForm.addEventListener('submit', handleSignup);
   }
@@ -2628,10 +3073,14 @@ if (window.location.pathname.includes('admin')) {
       const card = staffModule.querySelector('.card');
       if (card) {
         const btnHTML = `
-          <div style="margin-bottom:1.5rem;">
+          <div style="margin-bottom:1.5rem;display:flex;gap:0.75rem;flex-wrap:wrap;">
             <button class="btn btn-accent" id="addStaffAccountBtn" onclick="openAddStaffModal()">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
               Create New Account (Staff / Manager)
+            </button>
+            <button class="btn btn-secondary" id="editMyAccountBtn" onclick="openMyAccountModal()">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+              Edit My Account
             </button>
           </div>`;
         card.insertAdjacentHTML('beforebegin', btnHTML);

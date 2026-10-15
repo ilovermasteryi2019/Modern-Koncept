@@ -750,24 +750,71 @@ app.post('/contact-info', async (req, res) => {
 });
 
 // =============================================================================
+// ACCOUNT PHONE NUMBERS (registered mobile number of each Admin / Manager / Staff account)
+// Used by the planned Semaphore SMS MFA. Nothing in this section sends an SMS or creates an OTP.
+// =============================================================================
+// Name of the phone column in the users table. Run the schema check + migration (SQL instructions) BEFORE deploying.
+const USER_PHONE_COLUMN = 'phone_number';
+
+// Accepts Philippine mobile numbers typed as 09171234567, 639171234567 or +639171234567
+// (spaces, dashes, dots and brackets are allowed). Returns { ok: true, value: '+639171234567' } - the format that is
+// stored in the database - or { ok: false, message }.
+function normalizePhPhone(input) {
+  if (typeof input !== 'string' || !input.trim()) return { ok: false, message: 'Phone number is required.' };
+  const raw = input.trim();
+  const invalid = { ok: false, message: 'Enter a valid Philippine mobile number (for example 09171234567 or +639171234567).' };
+  if (raw.length > 20 || !/^\+?[0-9\s().-]+$/.test(raw)) return invalid;
+  const digits = raw.replace(/\D/g, '');
+  if (raw.startsWith('+') && !digits.startsWith('639')) return invalid;
+  if (/^09\d{9}$/.test(digits)) return { ok: true, value: '+63' + digits.slice(1) };
+  if (/^639\d{9}$/.test(digits)) return { ok: true, value: '+' + digits };
+  return invalid;
+}
+
+// Masked version that is safe to show on the login page: only the last two digits are visible.
+function maskPhone(storedPhone) {
+  const n = normalizePhPhone(String(storedPhone || ''));
+  return n.ok ? '+63 XXX XXX XX' + n.value.slice(-2) : null;
+}
+
+// For the Semaphore MFA task: finds the registered number of the account with this id (never a browser-supplied number).
+// An account without a valid number gets a clear code/message and must NOT be allowed to skip MFA.
+async function getMfaPhoneForUser(userId) {
+  const { data, error } = await db.from('users').select(`id,${USER_PHONE_COLUMN}`).eq('id', userId).single();
+  if (error || !data) return { ok: false, code: 'ACCOUNT_NOT_FOUND', message: 'Account not found.' };
+  const stored = data[USER_PHONE_COLUMN];
+  if (!stored) return { ok: false, code: 'MFA_PHONE_MISSING', message: 'No mobile number is registered for this account. Please contact the Administrator.' };
+  const n = normalizePhPhone(stored);
+  if (!n.ok) return { ok: false, code: 'MFA_PHONE_INVALID', message: 'The mobile number registered for this account is not valid. Please contact the Administrator.' };
+  return { ok: true, phone: n.value, maskedPhone: maskPhone(n.value) };
+}
+
+// Account row as the dashboard receives it (the password hash is never included)
+function publicAccount(row) {
+  return { id: row.id, name: row.name, email: row.email, role: row.role, phone: row[USER_PHONE_COLUMN] || null, created_at: row.created_at };
+}
+
+// =============================================================================
 // STAFF/MANAGER ACCOUNTS
 // =============================================================================
 app.get('/staff', requireRole('admin'), async (req, res) => {
-  const { data, error } = await db.from('users').select('id,name,email,role,created_at').neq('role', 'admin').order('created_at', { ascending: false });
-  if (error) return res.status(500).json({ success: false, message: 'Failed to fetch staff accounts' });
-  res.json({ success: true, data });
+  const { data, error } = await db.from('users').select(`id,name,email,role,${USER_PHONE_COLUMN},created_at`).neq('role', 'admin').order('created_at', { ascending: false });
+  if (error) { console.error('Staff list error:', error.message); return res.status(500).json({ success: false, message: 'Failed to fetch staff accounts' }); }
+  res.json({ success: true, data: data.map(publicAccount) });
 });
 
 app.post('/staff', requireRole('admin'), async (req, res) => {
-  const { name, email, password, role } = req.body;
+  const { name, email, password, role, phone } = req.body;
   if (!name || !email || !password) return res.status(400).json({ success: false, message: 'Name, email, and password are required' });
+  const phoneCheck = normalizePhPhone(phone);
+  if (!phoneCheck.ok) return res.status(400).json({ success: false, message: phoneCheck.message });
   if (typeof password !== 'string' || password.length > 128) return res.status(400).json({ success: false, message: 'Invalid password' });
   const accountRole = role === 'manager' ? 'manager' : 'staff';
   const { data: existing } = await db.from('users').select('id').eq('email', email).single();
   if (existing) return res.status(400).json({ success: false, message: 'Email already exists' });
   const passwordHash = await hashForStorage(password);
   if (!passwordHash) return res.status(500).json({ success: false, message: 'Failed to create account' });
-  const { data, error } = await db.from('users').insert({ name, email, password: passwordHash, role: accountRole }).select().single();
+  const { data, error } = await db.from('users').insert({ name, email, password: passwordHash, role: accountRole, [USER_PHONE_COLUMN]: phoneCheck.value }).select().single();
   if (error) return res.status(500).json({ success: false, message: 'Failed to create account' });
   res.status(201).json({ success: true, message: `${accountRole.charAt(0).toUpperCase() + accountRole.slice(1)} account created successfully`, id: data.id });
 });
@@ -784,7 +831,7 @@ app.put('/staff/:id', requireRole('admin'), async (req, res) => {
   if (targetId === null) return res.status(400).json({ success: false, message: 'Invalid account.' });
 
   // ---- validate submitted fields ----
-  const { name, email, role, password } = req.body || {};
+  const { name, email, role, password, phone } = req.body || {};
   const cleanName = typeof name === 'string' ? name.trim() : '';
   const cleanEmail = typeof email === 'string' ? email.trim() : '';
   const newRole = typeof role === 'string' ? role.trim().toLowerCase() : '';
@@ -796,6 +843,9 @@ app.put('/staff/:id', requireRole('admin'), async (req, res) => {
   if (changePassword && (typeof password !== 'string' || password.length > 128)) {
     return res.status(400).json({ success: false, message: 'Invalid password.' });
   }
+
+  const phoneCheck = normalizePhPhone(phone);
+  if (!phoneCheck.ok) return res.status(400).json({ success: false, message: phoneCheck.message });
 
   // ---- the target must currently be a Staff or Manager account (checked in the database, by unique id) ----
   const { data: target, error: targetError } = await db.from('users').select('id,name,email,role').eq('id', targetId).single();
@@ -810,14 +860,14 @@ app.put('/staff/:id', requireRole('admin'), async (req, res) => {
   if (clash && clash.length > 0) return res.status(409).json({ success: false, message: 'Email already exists' });
 
   // ---- update (the role filter makes the write fail if the account stopped being Staff meanwhile) ----
-  const updates = { name: cleanName, email: cleanEmail, role: newRole };
+  const updates = { name: cleanName, email: cleanEmail, role: newRole, [USER_PHONE_COLUMN]: phoneCheck.value };
   if (changePassword) {
     updates.password = await hashForStorage(password); // stored as a hash, same as signup/create
     if (!updates.password) return res.status(500).json({ success: false, message: 'Failed to update account' });
   }
   let query = db.from('users').update(updates).eq('id', targetId);
   query = target.role ? query.eq('role', target.role) : query.is('role', null);
-  const { data: updated, error } = await query.select('id,name,email,role').single();
+  const { data: updated, error } = await query.select(`id,name,email,role,${USER_PHONE_COLUMN}`).single();
   if (error) {
     if (error.code === '23505') return res.status(409).json({ success: false, message: 'Email already exists' });
     if (error.code === 'PGRST116') return res.status(409).json({ success: false, message: 'This account changed while you were editing. Please refresh the list.' });
@@ -828,7 +878,7 @@ app.put('/staff/:id', requireRole('admin'), async (req, res) => {
   res.json({
     success: true,
     message: (updated.role === 'manager' ? 'Manager' : 'Staff') + ' account updated successfully',
-    data: { id: updated.id, name: updated.name, email: updated.email, role: updated.role }
+    data: { id: updated.id, name: updated.name, email: updated.email, role: updated.role, phone: updated[USER_PHONE_COLUMN] || null }
   });
 });
 
@@ -837,6 +887,123 @@ app.delete('/staff/:id', requireRole('admin'), async (req, res) => {
   if (error) return res.status(500).json({ success: false, message: 'Failed to delete account' });
   revokeUserSessions(req.params.id);
   res.json({ success: true, message: 'Account deleted successfully' });
+});
+
+// =============================================================================
+// ADMIN - OWN ACCOUNT (name, email, phone number, password)
+// The account being edited ALWAYS comes from the logged-in session (req.authUser), never from the request.
+// The role can never be changed here. Changing the email, phone number or password needs the current password.
+// =============================================================================
+const reauthFailures = new Map(); // admin id -> { count, since }
+const REAUTH_MAX_FAILURES = 5;
+const REAUTH_WINDOW_MS = 15 * 60 * 1000;
+
+function reauthLocked(userId) {
+  const entry = reauthFailures.get(String(userId));
+  if (!entry) return false;
+  if (Date.now() - entry.since > REAUTH_WINDOW_MS) { reauthFailures.delete(String(userId)); return false; }
+  return entry.count >= REAUTH_MAX_FAILURES;
+}
+function recordReauthFailure(userId) {
+  const key = String(userId);
+  const entry = reauthFailures.get(key);
+  if (!entry || Date.now() - entry.since > REAUTH_WINDOW_MS) reauthFailures.set(key, { count: 1, since: Date.now() });
+  else entry.count++;
+}
+
+app.get('/account/me', requireRole('admin'), async (req, res) => {
+  const { data, error } = await db.from('users').select(`id,name,email,role,${USER_PHONE_COLUMN}`).eq('id', req.authUser.id).single();
+  if (error || !data) return res.status(404).json({ success: false, message: 'Account not found.' });
+  res.json({ success: true, data: { id: data.id, name: data.name, email: data.email, role: data.role, phone: data[USER_PHONE_COLUMN] || null } });
+});
+
+app.put('/account/me', requireRole('admin'), async (req, res) => {
+  const body = req.body || {};
+  const myId = req.authUser.id; // identity comes from the session only
+
+  // A request that names another account, or tries to change the role, is refused outright
+  if ((body.id !== undefined && String(body.id) !== String(myId)) || (body.userId !== undefined && String(body.userId) !== String(myId))) {
+    return res.status(403).json({ success: false, message: 'You can only edit your own account here.' });
+  }
+  if (body.role !== undefined && String(body.role).trim().toLowerCase() !== 'admin') {
+    return res.status(403).json({ success: false, message: 'You cannot change your own role.' });
+  }
+
+  // ---- validate fields ----
+  const cleanName = typeof body.name === 'string' ? body.name.trim() : '';
+  const cleanEmail = typeof body.email === 'string' ? body.email.trim() : '';
+  if (!cleanName || cleanName.length > 100) return res.status(400).json({ success: false, message: 'Full name is required (maximum 100 characters).' });
+  if (!cleanEmail || cleanEmail.length > 254 || !STAFF_EMAIL_RE.test(cleanEmail)) return res.status(400).json({ success: false, message: 'A valid email is required.' });
+  const phoneCheck = normalizePhPhone(body.phone);
+  if (!phoneCheck.ok) return res.status(400).json({ success: false, message: phoneCheck.message });
+  const newPassword = body.newPassword;
+  const changePassword = newPassword !== undefined && newPassword !== null && newPassword !== '';
+  if (changePassword && (typeof newPassword !== 'string' || newPassword.length < 8 || newPassword.length > 128)) {
+    return res.status(400).json({ success: false, message: 'The new password must be 8 to 128 characters long.' });
+  }
+  if (body.currentPassword !== undefined && body.currentPassword !== null && (typeof body.currentPassword !== 'string' || body.currentPassword.length > 128)) {
+    return res.status(400).json({ success: false, message: 'Invalid current password.' });
+  }
+
+  // ---- current record ----
+  const { data: current, error: loadError } = await db.from('users').select(`id,name,email,role,password,${USER_PHONE_COLUMN}`).eq('id', myId).single();
+  if (loadError || !current) return res.status(404).json({ success: false, message: 'Account not found.' });
+  if ((current.role || 'staff') !== 'admin') return res.status(403).json({ success: false, message: 'Only the Admin can use this.' });
+
+  const storedPhone = current[USER_PHONE_COLUMN] ? normalizePhPhone(String(current[USER_PHONE_COLUMN])) : null;
+  const emailChanged = cleanEmail !== current.email;
+  const phoneChanged = !storedPhone || !storedPhone.ok || storedPhone.value !== phoneCheck.value;
+  const sensitiveChange = emailChanged || phoneChanged || changePassword;
+
+  // ---- re-authentication for sensitive changes (the phone number is where MFA codes are sent) ----
+  if (sensitiveChange) {
+    if (typeof body.currentPassword !== 'string' || body.currentPassword === '') {
+      return res.status(400).json({ success: false, message: 'Enter your current password to change your email, phone number or password.' });
+    }
+    if (reauthLocked(myId)) return res.status(429).json({ success: false, message: 'Too many incorrect attempts. Please try again in 15 minutes.' });
+    const check = await verifyPassword(body.currentPassword, current.password);
+    if (!check.ok) {
+      recordReauthFailure(myId);
+      // 403 (not 401) on purpose: the session itself is still valid
+      return res.status(403).json({ success: false, message: 'Your current password is incorrect.' });
+    }
+    reauthFailures.delete(String(myId));
+    if (changePassword && newPassword === body.currentPassword) {
+      return res.status(400).json({ success: false, message: 'The new password must be different from the current one.' });
+    }
+  }
+
+  // ---- email must not belong to another account ----
+  if (emailChanged) {
+    const { data: clash, error: clashError } = await db.from('users').select('id').ilike('email', cleanEmail.replace(/[\\%_]/g, '\\$&')).neq('id', myId).limit(1);
+    if (clashError) return res.status(500).json({ success: false, message: 'Failed to validate the email.' });
+    if (clash && clash.length > 0) return res.status(409).json({ success: false, message: 'Email already exists' });
+  }
+
+  // ---- save (role is never part of the update; the filter makes sure only the Admin row is touched) ----
+  const updates = { name: cleanName, email: cleanEmail, [USER_PHONE_COLUMN]: phoneCheck.value };
+  if (changePassword) {
+    updates.password = await hashForStorage(newPassword);
+    if (!updates.password) return res.status(500).json({ success: false, message: 'Failed to update your account.' });
+  }
+  const { data: updated, error } = await db.from('users').update(updates).eq('id', myId).eq('role', 'admin').select(`id,name,email,role,${USER_PHONE_COLUMN}`).single();
+  if (error) {
+    if (error.code === '23505') return res.status(409).json({ success: false, message: 'Email already exists' });
+    console.error('Own account update error:', error.message);
+    return res.status(500).json({ success: false, message: 'Failed to update your account.' });
+  }
+
+  const result = {
+    success: true,
+    message: 'Your account was updated successfully.',
+    data: { id: updated.id, name: updated.name, email: updated.email, role: updated.role, phone: updated[USER_PHONE_COLUMN] || null }
+  };
+  if (sensitiveChange) {
+    // Session safeguard: every session of this account (including other browsers) is ended and this browser gets a fresh one
+    revokeUserSessions(updated.id);
+    result.token = createSession({ id: updated.id, role: updated.role });
+  }
+  res.json(result);
 });
 
 // =============================================================================
