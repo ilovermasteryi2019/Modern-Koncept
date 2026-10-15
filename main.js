@@ -1342,7 +1342,7 @@ function renderDeliveryTableForRole(deliveries, tbodyId, searchTerm) {
   }
 
   if (filtered.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:2rem;color:#9ca3af;">No deliveries found</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:2rem;color:#9ca3af;">No deliveries found</td></tr>`;
     return;
   }
 
@@ -1366,6 +1366,11 @@ function renderDeliveryTableForRole(deliveries, tbodyId, searchTerm) {
         </select>
         <button class="action-btn edit" onclick="updateDeliveryStatus(${delivery.id})" style="margin-left:0.5rem;" title="Update Status">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        </button>
+      </td>
+      <td>
+        <button class="action-btn edit" onclick="editDelivery(${delivery.id})" title="Edit delivery">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
         </button>
       </td>`;
     tbody.appendChild(row);
@@ -1412,8 +1417,6 @@ function openAddDeliveryModal() {
 
 async function handleDeliverySubmit(event) {
   event.preventDefault();
-  // Managers may only ADD deliveries; editing existing delivery fields is Admin-only (also enforced by the backend)
-  if (window.location.pathname.includes('manager') && editingDeliveryId) { showToast('Managers can only update delivery status.', 'error'); return; }
   const data = {
     customer_name: document.getElementById('deliveryCustomer').value,
     contact_number: document.getElementById('deliveryContactNumber').value,
@@ -2125,7 +2128,7 @@ async function loadStaffAccountsList() {
       if (result.data.length === 0) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#9ca3af;">No accounts found</td></tr>'; return; }
       result.data.forEach(item => {
         staffAccountsCache[item.id] = item;
-        const editBtn = (item.role || 'staff') === 'staff'
+        const editBtn = ['staff', 'manager'].includes(item.role || 'staff')
           ? `<button class="action-btn edit" onclick="openEditStaffModal(${item.id})" title="Edit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Edit</button> `
           : '';
         const roleColor = item.role === 'manager' ? '#8b5cf6' : '#065f46';
@@ -2238,15 +2241,15 @@ function closeEditStaffModal() {
 
 function openEditStaffModal(id) {
   const account = staffAccountsCache[id];
-  // Only actual Staff accounts are editable here (the backend enforces this again)
+  // Staff and Manager accounts are editable here (the backend enforces this again; Admin accounts are not)
   if (!account) { showToast('Account not found. Please refresh the list.', 'error'); return; }
-  if ((account.role || 'staff') !== 'staff') { showToast('Only Staff accounts can be edited here.', 'error'); return; }
+  if (!['staff', 'manager'].includes(account.role || 'staff')) { showToast('Only Staff and Manager accounts can be edited here.', 'error'); return; }
   closeEditStaffModal();
   const modalHTML = `
     <div id="editStaffAccountModal" class="modal active">
       <div class="modal-content">
         <div class="modal-header">
-          <h3 class="modal-title">Edit Staff Account</h3>
+          <h3 class="modal-title">${(account.role || 'staff') === 'manager' ? 'Edit Manager Account' : 'Edit Staff Account'}</h3>
           <button class="modal-close" type="button" onclick="closeEditStaffModal()">×</button>
         </div>
         <div class="modal-body">
@@ -2284,7 +2287,7 @@ function openEditStaffModal(id) {
   document.getElementById('editStaffAccountId').value = account.id;
   document.getElementById('editStaffAccountName').value = account.name || '';
   document.getElementById('editStaffAccountEmail').value = account.email || '';
-  document.getElementById('editStaffAccountRole').value = 'staff';
+  document.getElementById('editStaffAccountRole').value = account.role || 'staff';
   document.getElementById('editStaffAccountForm').addEventListener('submit', handleEditStaffSubmit);
 }
 
@@ -2307,7 +2310,7 @@ async function handleEditStaffSubmit(event) {
   try {
     const result = await API.updateStaff(id, data);
     if (result.success) {
-      showToast(result.message || 'Staff account updated successfully', 'success');
+      showToast(result.message || 'Account updated successfully', 'success');
       closeEditStaffModal();
       await loadStaffAccountsList();
     } else {

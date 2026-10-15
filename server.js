@@ -716,8 +716,14 @@ app.post('/deliveries', requireRole('admin', 'manager', 'staff'), async (req, re
   res.status(201).json({ success: true, message: 'Delivery created successfully', id: data.id, ref_code });
 });
 
-app.put('/deliveries/:id', requireRole('admin'), async (req, res) => {
-  const { customer_name, contact_number, address, product, status, delivery_type, delivery_date } = req.body;
+app.put('/deliveries/:id', requireRole('admin', 'manager'), async (req, res) => {
+  const { customer_name, contact_number, address, product, status, delivery_type, delivery_date } = req.body || {};
+  if (!customer_name || !String(customer_name).trim() || !address || !String(address).trim()) {
+    return res.status(400).json({ success: false, message: 'Customer name and address are required' });
+  }
+  if (status !== undefined && !['Pending', 'Processing', 'In Transit', 'Delivered'].includes(status)) {
+    return res.status(400).json({ success: false, message: 'Invalid status' });
+  }
   const { error } = await db.from('deliveries').update({ customer_name, contact_number, address, product, status, delivery_type, delivery_date }).eq('id', req.params.id);
   if (error) return res.status(500).json({ success: false, message: 'Failed to update delivery' });
   res.json({ success: true, message: 'Delivery updated successfully' });
@@ -1096,12 +1102,12 @@ app.put('/staff/:id', requireRole('admin'), async (req, res) => {
     return res.status(400).json({ success: false, message: 'Invalid password.' });
   }
 
-  // ---- the target must currently be a Staff account (checked in the database, by unique id) ----
+  // ---- the target must currently be a Staff or Manager account (checked in the database, by unique id) ----
   const { data: target, error: targetError } = await db.from('users').select('id,name,email,role').eq('id', targetId).single();
   if (targetError && targetError.code !== 'PGRST116') return res.status(500).json({ success: false, message: 'Failed to load the account.' });
   if (!target) return res.status(404).json({ success: false, message: 'Account not found. Please refresh the list.' });
   if (String(target.id) === String(req.authUser.id)) return res.status(403).json({ success: false, message: 'You cannot edit your own account here.' });
-  if ((target.role || 'staff') !== 'staff') return res.status(403).json({ success: false, message: 'Only Staff accounts can be edited here.' });
+  if (!STAFF_EDITABLE_ROLES.includes(target.role || 'staff')) return res.status(403).json({ success: false, message: 'Only Staff and Manager accounts can be edited here.' });
 
   // ---- email must not belong to another account ----
   const { data: clash, error: clashError } = await db.from('users').select('id').ilike('email', cleanEmail.replace(/[\\%_]/g, '\\$&')).neq('id', targetId).limit(1);
@@ -1124,10 +1130,9 @@ app.put('/staff/:id', requireRole('admin'), async (req, res) => {
     return res.status(500).json({ success: false, message: 'Failed to update account' });
   }
   if (changePassword || updated.role !== target.role) revokeUserSessions(updated.id); // they must log in again with the new details
-  const promoted = updated.role !== 'staff';
   res.json({
     success: true,
-    message: promoted ? 'Account updated. It is now a Manager account and can no longer be edited here.' : 'Staff account updated successfully',
+    message: (updated.role === 'manager' ? 'Manager' : 'Staff') + ' account updated successfully',
     data: { id: updated.id, name: updated.name, email: updated.email, role: updated.role }
   });
 });
