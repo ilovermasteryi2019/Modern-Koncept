@@ -440,13 +440,6 @@
           </div>
         </div>
 
-        <button class="btn btn-accent" id="addFurnitureBtn">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="12" y1="5" x2="12" y2="19"></line>
-            <line x1="5" y1="12" x2="19" y2="12"></line>
-          </svg>
-          Add New Furniture
-        </button>
       </div>
       
       <div class="card">
@@ -863,11 +856,11 @@
     </div>
   </footer>
 
-  <!-- Add/Edit Furniture Modal -->
+  <!-- Edit Furniture Details Modal (furniture is created from Inventory Management) -->
   <div id="furnitureModal" class="modal">
     <div class="modal-content">
       <div class="modal-header">
-        <h3 class="modal-title" id="furnitureModalTitle">Add New Furniture</h3>
+        <h3 class="modal-title" id="furnitureModalTitle">Edit Furniture Details</h3>
         <button class="modal-close" data-close-modal="furnitureModal">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -879,26 +872,10 @@
         <form id="furnitureForm">
           <input type="hidden" id="furnitureId">
           <div class="form-group">
-            <label class="form-label">Furniture Name</label>
-            <input type="text" id="furnitureName" class="form-input" placeholder="e.g., Modern Sectional Sofa" required>
-          </div>
-          
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">Category</label>
-              <select id="furnitureCategory" class="form-input" required>
-                <option value="">Select category</option>
-                <option value="Sofa">Sofa</option>
-                <option value="Table">Table</option>
-                <option value="Bed">Bed</option>
-                <option value="Cabinet">Cabinet</option>
-                <option value="Chair">Chair</option>
-              </select>
-            </div>
-            
-            <div class="form-group">
-              <label class="form-label">Price (₱)</label>
-              <input type="number" id="furniturePrice" class="form-input" placeholder="0.00" min="0" step="0.01" required>
+            <label class="form-label">Furniture</label>
+            <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:0.5rem;padding:0.75rem 1rem;">
+              <div id="furnitureSourceInfo" style="font-weight:600;color:#111827;"></div>
+              <small style="display:block;margin-top:0.25rem;color:#6b7280;font-size:0.8rem;">Name, category, price and image are managed in Inventory Management.</small>
             </div>
           </div>
 
@@ -935,16 +912,8 @@
             <textarea id="furnitureDescription" class="form-textarea" rows="3" placeholder="Describe the furniture..."></textarea>
           </div>
           
-          <div class="form-group">
-            <label class="form-label">Image Attachment</label>
-            <input type="file" id="furnitureImage" class="form-input" accept="image/*">
-            <div id="furnitureImagePreview" style="margin-top: 1rem; display: none;">
-              <img id="furnitureImagePreviewImg" src="" alt="Preview" style="max-width: 200px; max-height: 200px; border-radius: 0.375rem; border: 2px solid #e5e7eb;">
-            </div>
-          </div>
-          
           <div style="display: flex; gap: 0.75rem;">
-            <button type="submit" class="btn btn-accent" style="flex: 1;">Save Furniture</button>
+            <button type="submit" class="btn btn-accent" style="flex: 1;">Save Changes</button>
             <button type="button" class="btn btn-secondary" data-close-modal="furnitureModal" style="flex: 1;">Cancel</button>
           </div>
         </form>

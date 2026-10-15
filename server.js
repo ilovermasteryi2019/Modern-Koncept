@@ -550,21 +550,52 @@ app.get('/products/:id', async (req, res) => {
   res.json({ success: true, data });
 });
 
-app.post('/add-product', async (req, res) => {
-  const { name, category, price, material, dimensions, description, image, discounted_price } = req.body;
-  if (!name || !category || !price) return res.status(400).json({ success: false, message: 'Name, category, and price are required' });
-  const discount = parseDiscountedPrice(discounted_price, price);
-  if (!discount.ok) return res.status(400).json({ success: false, message: discount.message });
-  const { data, error } = await db.from('furniture').insert({ name, category, price, discounted_price: discount.value, material: material || '', dimensions: dimensions || '', description: description || '', image: image || '' }).select().single();
-  if (error) return res.status(500).json({ success: false, message: 'Failed to add furniture' });
-  res.status(201).json({ success: true, message: 'Furniture added successfully', id: data.id });
+// Furniture records are created from Inventory Management: a database trigger creates/updates the linked
+// furniture row (see furniture_inventory_link_migration.sql). Creating furniture directly is therefore disabled.
+app.post('/add-product', (req, res) => {
+  res.status(410).json({ success: false, message: 'Furniture can no longer be added here. Add the item in Inventory Management and it will appear in Furniture Management.' });
 });
 
-app.put('/products/:id', async (req, res) => {
-  const { name, category, price, material, dimensions, description, image, discounted_price } = req.body;
-  const discount = parseDiscountedPrice(discounted_price, price);
-  if (!discount.ok) return res.status(400).json({ success: false, message: discount.message });
-  const { error } = await db.from('furniture').update({ name, category, price, discounted_price: discount.value, material, dimensions, description, image }).eq('id', req.params.id);
+// Furniture Management only maintains these details. Name, category, price and image come from Inventory Management.
+const FURNITURE_SOURCE_FIELDS = ['name', 'category', 'price', 'image', 'inventory_id'];
+const FURNITURE_TEXT_LIMITS = { material: 100, dimensions: 100, description: 5000 };
+
+app.put('/products/:id', requireRole('admin'), async (req, res) => {
+  const furnitureId = Number(req.params.id);
+  if (!Number.isInteger(furnitureId) || furnitureId <= 0) return res.status(400).json({ success: false, message: 'Invalid furniture id' });
+  const body = req.body || {};
+  const has = (key) => Object.prototype.hasOwnProperty.call(body, key);
+
+  // Enforced here, not just by hiding inputs: source-controlled fields are rejected.
+  if (FURNITURE_SOURCE_FIELDS.some(has)) {
+    return res.status(400).json({ success: false, message: 'Furniture name, category, price and image are managed in Inventory Management and cannot be edited here.' });
+  }
+
+  // Only fields that were actually sent are updated, so nothing is overwritten with empty values.
+  const updates = {};
+  for (const field of Object.keys(FURNITURE_TEXT_LIMITS)) {
+    if (!has(field)) continue;
+    if (typeof body[field] !== 'string') return res.status(400).json({ success: false, message: `Invalid ${field}` });
+    const value = body[field].trim();
+    if (value.length > FURNITURE_TEXT_LIMITS[field]) return res.status(400).json({ success: false, message: `${field.charAt(0).toUpperCase() + field.slice(1)} is too long` });
+    updates[field] = value;
+  }
+  if (!has('discounted_price') && Object.keys(updates).length === 0) {
+    return res.status(400).json({ success: false, message: 'No editable furniture details were provided' });
+  }
+
+  const { data: existing, error: findError } = await db.from('furniture').select('id, price').eq('id', furnitureId).maybeSingle();
+  if (findError) return res.status(500).json({ success: false, message: 'Failed to update furniture' });
+  if (!existing) return res.status(404).json({ success: false, message: 'Furniture not found' });
+
+  if (has('discounted_price')) {
+    // Validated against the price stored in the database (never a price sent by the browser)
+    const discount = parseDiscountedPrice(body.discounted_price, existing.price);
+    if (!discount.ok) return res.status(400).json({ success: false, message: discount.message });
+    updates.discounted_price = discount.value;
+  }
+
+  const { error } = await db.from('furniture').update(updates).eq('id', furnitureId);
   if (error) return res.status(500).json({ success: false, message: 'Failed to update furniture' });
   res.json({ success: true, message: 'Furniture updated successfully' });
 });

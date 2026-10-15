@@ -237,8 +237,7 @@ const API = {
   mfaEnable: async (mfaToken, code) => (await fetch(`${API_URL}/mfa/enable`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mfaToken, code }) })).json(),
   resetStaffMfa: async (id) => (await fetch(`${API_URL}/staff/${id}/reset-mfa`, { method: 'POST', headers: authHeaders() })).json(),
   getFurniture: async () => (await fetch(`${API_URL}/products`)).json(),
-  createFurniture: async (data) => (await fetch(`${API_URL}/add-product`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
-  updateFurniture: async (id, data) => (await fetch(`${API_URL}/products/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
+  updateFurniture: async (id, data) => (await fetch(`${API_URL}/products/${id}`, { method: 'PUT', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(data) })).json(),
   deleteFurniture: async (id) => (await fetch(`${API_URL}/products/${id}`, { method: 'DELETE' })).json(),
   getInventory: async () => (await fetch(`${API_URL}/inventory`)).json(),
   createInventory: async (data) => (await fetch(`${API_URL}/inventory`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
@@ -342,8 +341,6 @@ function hideModal(modalId) {
   const modal = document.getElementById(modalId);
   if (modal) modal.classList.remove('active');
 }
-
-let currentFurnitureImage = null;
 
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
@@ -870,32 +867,15 @@ function displayFurnitureDetail(product) {
   document.title = `${product.name} - ECL FURNITURE MART`;
 }
 
-function openAddFurnitureModal() {
-  editingFurnitureId = null;
-  document.getElementById('furnitureModalTitle').textContent = 'Add New Furniture';
-  document.getElementById('furnitureForm').reset();
-  currentFurnitureImage = null;
-  ['furnitureLength', 'furnitureWidth', 'furnitureHeight', 'furnitureDiscountedPrice'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-  const preview = document.getElementById('furnitureImagePreview');
-  if (preview) preview.style.display = 'none';
-  showModal('furnitureModal');
-}
-
-function handleFurnitureImageUpload(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-  if (!file.type.startsWith('image/')) { showToast('Please select an image file', 'warning'); event.target.value = ''; return; }
-  if (file.size > 5 * 1024 * 1024) { showToast('File too large. Max 5MB.', 'warning'); event.target.value = ''; return; }
-  fileToBase64(file).then(base64String => {
-    currentFurnitureImage = base64String;
-    const preview = document.getElementById('furnitureImagePreview');
-    const previewImg = document.getElementById('furnitureImagePreviewImg');
-    if (preview && previewImg) { previewImg.src = base64String; preview.style.display = 'block'; }
-  });
-}
+// Furniture Management only edits furniture-specific details. Name, category, original price and image are
+// controlled by Inventory Management, so they are shown read-only here and are never sent to the server.
+let editingFurniturePrice = null;
 
 async function handleFurnitureSubmit(event) {
   event.preventDefault();
+  if (!editingFurnitureId) { showToast('Please choose a furniture item to edit', 'warning'); return; }
+  const submitBtn = event.target.querySelector('button[type="submit"]');
+  if (submitBtn && submitBtn.disabled) return;
   const length = document.getElementById('furnitureLength').value;
   const width = document.getElementById('furnitureWidth').value;
   const height = document.getElementById('furnitureHeight').value;
@@ -903,30 +883,27 @@ async function handleFurnitureSubmit(event) {
     showToast('Please enter valid dimensions (all values must be greater than 0)', 'warning');
     return;
   }
-  const regularPrice = parseFloat(document.getElementById('furniturePrice').value);
   const discountRaw = (document.getElementById('furnitureDiscountedPrice') || { value: '' }).value.trim();
   let discountedPrice = null;
   if (discountRaw !== '') {
     discountedPrice = Number(discountRaw);
     if (!Number.isFinite(discountedPrice)) { showToast('Discounted price must be a valid number', 'warning'); return; }
     if (discountedPrice <= 0) { showToast('Discounted price must be greater than 0', 'warning'); return; }
-    if (discountedPrice >= regularPrice) { showToast('Discounted price must be lower than the regular price', 'warning'); return; }
+    if (Number.isFinite(editingFurniturePrice) && discountedPrice >= editingFurniturePrice) { showToast('Discounted price must be lower than the regular price', 'warning'); return; }
   }
   const data = {
-    name: document.getElementById('furnitureName').value,
-    category: document.getElementById('furnitureCategory').value,
-    price: regularPrice,
     discounted_price: discountedPrice,
     material: document.getElementById('furnitureMaterial').value,
     dimensions: `${length}cm x ${width}cm x ${height}cm`,
-    description: document.getElementById('furnitureDescription').value,
-    image: currentFurnitureImage || ''
+    description: document.getElementById('furnitureDescription').value
   };
+  if (submitBtn) submitBtn.disabled = true;
   try {
-    const result = editingFurnitureId ? await API.updateFurniture(editingFurnitureId, data) : await API.createFurniture(data);
+    const result = await API.updateFurniture(editingFurnitureId, data);
     if (result.success) { showToast(result.message, 'success'); hideModal('furnitureModal'); loadFurnitureList(); }
     else showToast('❌ ' + result.message, 'error');
   } catch (error) { showToast('❌ Failed to save furniture', 'error'); }
+  finally { if (submitBtn) submitBtn.disabled = false; }
 }
 
 async function editFurniture(id) {
@@ -936,13 +913,16 @@ async function editFurniture(id) {
       const item = result.data.find(f => f.id === id);
       if (!item) { showToast('Furniture not found', 'error'); return; }
       editingFurnitureId = id;
-      document.getElementById('furnitureModalTitle').textContent = 'Edit Furniture';
-      document.getElementById('furnitureName').value = item.name;
-      document.getElementById('furnitureCategory').value = item.category;
-      document.getElementById('furniturePrice').value = item.price;
+      editingFurniturePrice = parseFloat(item.price);
+      document.getElementById('furnitureForm').reset();
+      document.getElementById('furnitureModalTitle').textContent = 'Edit Furniture Details';
+      const sourceInfo = document.getElementById('furnitureSourceInfo');
+      if (sourceInfo) sourceInfo.textContent = `${item.name} · ${item.category} · ${formatCurrency(item.price)}`;
       const discountInput = document.getElementById('furnitureDiscountedPrice');
       if (discountInput) discountInput.value = (item.discounted_price !== null && item.discounted_price !== undefined) ? item.discounted_price : '';
       document.getElementById('furnitureMaterial').value = item.material || '';
+      // clear first so values from a previously opened item can never carry over
+      ['furnitureLength', 'furnitureWidth', 'furnitureHeight'].forEach(fieldId => { document.getElementById(fieldId).value = ''; });
       if (item.dimensions) {
         const parts = item.dimensions.split(' x ');
         if (parts.length === 3) {
@@ -952,12 +932,6 @@ async function editFurniture(id) {
         }
       }
       document.getElementById('furnitureDescription').value = item.description || '';
-      currentFurnitureImage = item.image;
-      if (item.image) {
-        const preview = document.getElementById('furnitureImagePreview');
-        const previewImg = document.getElementById('furnitureImagePreviewImg');
-        if (preview && previewImg) { previewImg.src = item.image; preview.style.display = 'block'; }
-      }
       showModal('furnitureModal');
     }
   } catch (error) { showToast('❌ Failed to load furniture details', 'error'); }
@@ -1150,6 +1124,7 @@ async function handleInventorySubmit(event) {
       showToast(result.message, 'success');
       hideModal('stockModal');
       loadInventoryList();
+      if (document.getElementById('furnitureList')) loadFurnitureList(); // the trigger created/updated the linked furniture record
       if (window.location.pathname.includes('manager')) loadManagerInventoryList();
     } else showToast('❌ ' + result.message, 'error');
   } catch (error) { showToast('❌ Failed to save inventory', 'error'); }
@@ -2569,7 +2544,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ── Click handlers ──
     const bind = (id, handler) => { const el = document.getElementById(id); if (el) el.addEventListener('click', handler); };
-    bind('addFurnitureBtn', openAddFurnitureModal);
     bind('addStockBtn', openAddInventoryModal);
     bind('addDeliveryBtn', openAddDeliveryModal);
     bind('addSalesBtn', openAddSalesModal);
@@ -2601,9 +2575,6 @@ document.addEventListener('DOMContentLoaded', () => {
         onStockChanged: () => { loadSalesProductOptions('editAdminSalesProduct'); loadInventoryList(); }
       });
     });
-
-    const furnitureImage = document.getElementById('furnitureImage');
-    if (furnitureImage) furnitureImage.addEventListener('change', handleFurnitureImageUpload);
 
     const stockImage = document.getElementById('stockImage');
     if (stockImage) stockImage.addEventListener('change', handleStockImageUpload);
