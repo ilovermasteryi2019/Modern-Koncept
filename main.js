@@ -34,6 +34,51 @@ const API_URL = 'https://modern-koncept.onrender.com';
 // =============================================================================
 // TOAST NOTIFICATION SYSTEM
 // =============================================================================
+// =============================================================================
+// K-DESK LOADING, PROCESSING & ACTION FEEDBACK (shared by every page)
+//   showToast / showLoadingToast ..... notifications (success, error, warning, info, loading)
+//   kdSetButtonLoading ............... spinner + disabled button while a request runs
+//   kdRun / kdGuard .................. in-progress guard: the same action can never run twice at once,
+//                                      plus button feedback and a "taking longer than expected" notice
+//   kdWrapLoader ..................... "Loading..." / empty / error state for tables and lists
+//   showPageLoader ................... full-page indicator (blocking operations only)
+//   kdCreateOnce / kdRequestId ....... idempotency key sent with create requests (backend: withIdempotency)
+// The CSS is injected from here, so no HTML or stylesheet needs to change.
+// =============================================================================
+(function kdInjectStyles() {
+  if (document.getElementById('kd-feedback-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'kd-feedback-styles';
+  style.textContent = `
+    @keyframes kd-spin { to { transform: rotate(360deg); } }
+    .kd-spinner { display:inline-block; width:1em; height:1em; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation:kd-spin .7s linear infinite; vertical-align:-0.15em; margin-right:.5em; flex-shrink:0; box-sizing:border-box; }
+    .kd-spinner.kd-spinner-lg { width:2.5rem; height:2.5rem; border-width:3px; margin:0; color:#DC143C; }
+    .kd-loading { cursor:progress !important; opacity:.85; }
+    .toast.loading { background:linear-gradient(135deg,#3b82f6 0%,#2563eb 100%); color:#fff; }
+    .toast.loading .kd-spinner { margin-right:0; }
+    .kd-state td, .kd-state-box { text-align:center; padding:2rem 1rem; color:#6b7280; }
+    .kd-state-error td, .kd-state-error.kd-state-box { color:#dc2626; }
+    .kd-retry { margin-left:.5rem; padding:0; border:0; background:none; color:#2563eb; text-decoration:underline; cursor:pointer; font:inherit; }
+    .kd-refreshing { opacity:.55; transition:opacity .15s; }
+    .kd-busy-stat { opacity:.45; transition:opacity .15s; }
+    .kd-page-loader { position:fixed; top:0; right:0; bottom:0; left:0; z-index:9990; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1rem; background:rgba(255,255,255,.9); color:#374151; font-weight:500; text-align:center; padding:1rem; }
+    @media (prefers-reduced-motion: reduce) { .kd-spinner { animation-duration:1.8s; } }
+  `;
+  (document.head || document.documentElement).appendChild(style);
+})();
+
+// -----------------------------------------------------------------------------
+// Notifications
+// -----------------------------------------------------------------------------
+function kdRemoveToast(toast) {
+  if (!toast || !toast.parentElement || toast.classList.contains('removing')) return;
+  clearTimeout(toast._kdTimer);
+  toast.classList.add('removing');
+  setTimeout(() => { if (toast.parentElement) toast.remove(); }, 300);
+}
+
+// duration 0 = stays until it is dismissed (used by loading notifications).
+// Returns the toast element. An identical message already on screen is refreshed instead of stacked.
 function showToast(message, type = 'info', duration = 4000) {
   let container = document.getElementById('toastContainer');
   if (!container) {
@@ -42,20 +87,307 @@ function showToast(message, type = 'info', duration = 4000) {
     container.className = 'toast-container';
     document.body.appendChild(container);
   }
-  const icons = { success: '✓', error: '✕', warning: '⚠', info: 'ℹ' };
+  const key = type + '|' + message;
+  if (type !== 'loading') {
+    const same = Array.from(container.querySelectorAll('.toast')).find(t => t.dataset.kdKey === key && !t.classList.contains('removing'));
+    if (same) {
+      clearTimeout(same._kdTimer);
+      if (duration > 0) same._kdTimer = setTimeout(() => kdRemoveToast(same), duration);
+      return same;
+    }
+  }
+  const icons = { success: '✓', error: '✕', warning: '⚠', info: 'ℹ', loading: '<span class="kd-spinner" aria-hidden="true"></span>' };
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
+  toast.dataset.kdKey = key;
+  if (type === 'loading') toast.setAttribute('role', 'status');
   toast.innerHTML = `
     <div class="toast-icon">${icons[type] || icons.info}</div>
     <div class="toast-message">${message}</div>
     <button class="toast-close" onclick="this.parentElement.remove()">×</button>
   `;
   container.appendChild(toast);
-  setTimeout(() => {
-    toast.classList.add('removing');
-    setTimeout(() => { if (toast.parentElement) toast.remove(); }, 300);
-  }, duration);
+  if (duration > 0) toast._kdTimer = setTimeout(() => kdRemoveToast(toast), duration);
+  return toast;
 }
+
+// A notification that stays up while work is in progress. { update(text), dismiss() }
+function showLoadingToast(message) {
+  const toast = showToast(message, 'loading', 0);
+  return {
+    update(text) { const el = toast.querySelector('.toast-message'); if (el && toast.parentElement) el.textContent = text; },
+    dismiss() { kdRemoveToast(toast); }
+  };
+}
+
+// Shows a loading notification only if the work is still running after `delay` ms (quick actions show no flicker),
+// then switches to "taking longer than expected" while the SAME request keeps running (it is never re-sent).
+function kdStartProgress(message, delay = 700) {
+  let handle = null;
+  let slowTimer = null;
+  const showTimer = setTimeout(() => {
+    handle = showLoadingToast(message);
+    slowTimer = setTimeout(() => { if (handle) handle.update('This is taking longer than expected...'); }, 8000);
+  }, delay);
+  return { stop() { clearTimeout(showTimer); clearTimeout(slowTimer); if (handle) handle.dismiss(); } };
+}
+
+// -----------------------------------------------------------------------------
+// Button state
+// -----------------------------------------------------------------------------
+// Returns a restore() function, or null when the button is missing or already busy.
+function kdSetButtonLoading(btn, text) {
+  if (!btn || btn.dataset.kdLoading === '1') return null;
+  const original = { html: btn.innerHTML, disabled: btn.disabled };
+  btn.dataset.kdLoading = '1';
+  btn.disabled = true;
+  btn.classList.add('kd-loading');
+  btn.setAttribute('aria-busy', 'true');
+  if (text) {
+    btn.textContent = '';
+    const spin = document.createElement('span');
+    spin.className = 'kd-spinner';
+    spin.setAttribute('aria-hidden', 'true');
+    btn.appendChild(spin);
+    btn.appendChild(document.createTextNode(text));
+  }
+  return function restore() {
+    delete btn.dataset.kdLoading;
+    btn.classList.remove('kd-loading');
+    btn.removeAttribute('aria-busy');
+    if (text) btn.innerHTML = original.html;
+    btn.disabled = original.disabled;
+  };
+}
+
+// The button that triggered a submit/click event
+function kdEventButton(event) {
+  const t = event && (event.submitter || event.currentTarget || event.target);
+  if (!t) return null;
+  if (t.tagName === 'BUTTON') return t;
+  const form = t.tagName === 'FORM' ? t : (t.closest ? t.closest('form') : null);
+  return form ? form.querySelector('button[type="submit"], button:not([type])') : null;
+}
+
+// -----------------------------------------------------------------------------
+// In-progress guard
+// -----------------------------------------------------------------------------
+const kdInFlight = new Set();
+
+// Runs task() unless the same key is already running (a repeat click / Enter press is simply ignored).
+// Always restores the interface afterwards, whether the task succeeded, failed or threw.
+async function kdRun(key, task, opts = {}) {
+  if (kdInFlight.has(key)) return undefined;
+  kdInFlight.add(key);
+  const restoreButton = opts.button ? kdSetButtonLoading(opts.button, opts.loadingText) : null;
+  const locked = (opts.disable || []).filter(Boolean);
+  const wasDisabled = locked.map(el => el.disabled);
+  locked.forEach(el => { el.disabled = true; });
+  const progress = opts.progress ? kdStartProgress(opts.progress) : null;
+  try {
+    return await task();
+  } finally {
+    if (progress) progress.stop();
+    locked.forEach((el, i) => { el.disabled = wasDisabled[i]; });
+    if (restoreButton) restoreButton();
+    kdInFlight.delete(key);
+  }
+}
+
+// Wraps the global function `name` (called by its original name everywhere, including from event handlers)
+// with kdRun. cfg: key, button ('event' | selector | fn), loadingText, progress, disable (fn).
+function kdGuard(name, cfg = {}) {
+  const original = window[name];
+  if (typeof original !== 'function' || original.kdGuarded) return;
+  const wrapped = function (...args) {
+    const first = args[0];
+    if (first && first.type === 'submit' && typeof first.preventDefault === 'function') first.preventDefault(); // never let a skipped duplicate reload the page
+    const key = typeof cfg.key === 'function' ? cfg.key(...args) : (cfg.key || name);
+    let button = null;
+    let disable = [];
+    try {
+      if (cfg.button === 'event') button = kdEventButton(first);
+      else if (typeof cfg.button === 'function') button = cfg.button(...args);
+      else if (typeof cfg.button === 'string') button = document.querySelector(cfg.button);
+      if (typeof cfg.disable === 'function') disable = [].concat(cfg.disable(...args) || []);
+    } catch (e) { /* feedback must never break the action itself */ }
+    const loadingText = typeof cfg.loadingText === 'function' ? cfg.loadingText(...args) : cfg.loadingText;
+    const progress = typeof cfg.progress === 'function' ? cfg.progress(...args) : cfg.progress;
+    return kdRun(key, () => original.apply(this, args), { button, loadingText, progress, disable });
+  };
+  wrapped.kdGuarded = true;
+  window[name] = wrapped;
+}
+
+// -----------------------------------------------------------------------------
+// Table / list loading states
+// -----------------------------------------------------------------------------
+function kdColumnCount(target, cfg) {
+  const table = target.closest ? target.closest('table') : null;
+  const headers = table ? table.querySelectorAll('thead th').length : 0;
+  return headers || cfg.cols || 1;
+}
+
+function kdStatePlaceholder(target, cfg, kind, html) {
+  const isTbody = target.tagName === 'TBODY';
+  const el = document.createElement(isTbody ? 'tr' : 'div');
+  el.className = `kd-state kd-state-${kind}` + (isTbody ? '' : ' kd-state-box');
+  if (isTbody) {
+    const td = document.createElement('td');
+    td.colSpan = kdColumnCount(target, cfg);
+    td.innerHTML = html;
+    el.appendChild(td);
+  } else {
+    el.innerHTML = html;
+  }
+  return el;
+}
+
+// Wraps a list loader (e.g. loadInventoryList). While it runs: an empty table shows "Loading ..." and a table that
+// already has rows is dimmed (old rows stay visible). If the loader renders nothing (it failed), an error row with
+// a Retry link is shown; if it leaves the table empty, an empty-state row is shown.
+function kdWrapLoader(name, cfg) {
+  const original = window[name];
+  if (typeof original !== 'function' || original.kdGuarded) return;
+  const wrapped = async function (...args) {
+    const target = document.getElementById(cfg.target);
+    if (!target) return original.apply(this, args);
+    const hasRows = Array.from(target.children).some(c => !c.classList.contains('kd-state'));
+    let placeholder = null;
+    if (hasRows) {
+      target.classList.add('kd-refreshing');
+      target.setAttribute('aria-busy', 'true');
+    } else {
+      placeholder = kdStatePlaceholder(target, cfg, 'loading', `<span class="kd-spinner" aria-hidden="true"></span>${cfg.loading}`);
+      target.replaceChildren(placeholder);
+    }
+    try {
+      return await original.apply(this, args);
+    } finally {
+      target.classList.remove('kd-refreshing');
+      target.removeAttribute('aria-busy');
+      if (placeholder && placeholder.parentNode === target) {
+        // the loader did not replace the loading row: the request failed
+        const retry = document.createElement('button');
+        retry.type = 'button';
+        retry.className = 'kd-retry';
+        retry.textContent = 'Try again';
+        retry.addEventListener('click', () => window[name]());
+        const failed = kdStatePlaceholder(target, cfg, 'error', `${cfg.error || 'Unable to load the records.'}`);
+        const holder = failed.tagName === 'TR' ? failed.firstChild : failed;
+        holder.appendChild(retry);
+        target.replaceChildren(failed);
+      } else if (target.children.length === 0) {
+        target.replaceChildren(kdStatePlaceholder(target, cfg, 'empty', cfg.empty || 'No records found'));
+      }
+    }
+  };
+  wrapped.kdGuarded = true;
+  window[name] = wrapped;
+}
+
+// Dims dashboard statistic numbers / charts while their data is loading
+function kdWrapBusy(name, selector) {
+  const original = window[name];
+  if (typeof original !== 'function' || original.kdGuarded) return;
+  const wrapped = async function (...args) {
+    const els = Array.from(document.querySelectorAll(selector));
+    els.forEach(el => el.classList.add('kd-busy-stat'));
+    try { return await original.apply(this, args); }
+    finally { els.forEach(el => el.classList.remove('kd-busy-stat')); }
+  };
+  wrapped.kdGuarded = true;
+  window[name] = wrapped;
+}
+
+// -----------------------------------------------------------------------------
+// Full-page loader (only for operations that leave the page unusable)
+// Returns done(). The overlay appears after `delay` ms (no flash for fast responses)
+// and removes itself after `maxMs` so a slow server can never trap the user behind it.
+// -----------------------------------------------------------------------------
+let kdPageLoaderEl = null;
+let kdPageLoaderUsers = 0;
+
+function showPageLoader(message, opts = {}) {
+  const delay = opts.delay === undefined ? 300 : opts.delay;
+  const maxMs = opts.maxMs || 15000;
+  let finished = false;
+  let shown = false;
+  let slowTimer = null;
+  const showTimer = setTimeout(() => {
+    if (finished) return;
+    shown = true;
+    kdPageLoaderUsers++;
+    if (!kdPageLoaderEl) {
+      kdPageLoaderEl = document.createElement('div');
+      kdPageLoaderEl.className = 'kd-page-loader';
+      kdPageLoaderEl.setAttribute('role', 'status');
+      kdPageLoaderEl.setAttribute('aria-live', 'polite');
+      kdPageLoaderEl.innerHTML = '<span class="kd-spinner kd-spinner-lg" aria-hidden="true"></span><div class="kd-page-loader-msg"></div>';
+      (document.body || document.documentElement).appendChild(kdPageLoaderEl);
+    }
+    const msg = kdPageLoaderEl.querySelector('.kd-page-loader-msg');
+    msg.textContent = message || 'Loading...';
+    slowTimer = setTimeout(() => { msg.textContent = 'Still working... this is taking longer than expected.'; }, 6000);
+  }, delay);
+  const capTimer = setTimeout(() => done(), maxMs);
+  function done() {
+    if (finished) return;
+    finished = true;
+    clearTimeout(showTimer);
+    clearTimeout(slowTimer);
+    clearTimeout(capTimer);
+    if (!shown) return;
+    kdPageLoaderUsers = Math.max(0, kdPageLoaderUsers - 1);
+    if (kdPageLoaderUsers === 0 && kdPageLoaderEl) { kdPageLoaderEl.remove(); kdPageLoaderEl = null; }
+  }
+  return done;
+}
+
+// Wraps a loader that fills a whole page (e.g. the furniture detail page) with the full-page indicator
+function kdWrapPage(name, message) {
+  const original = window[name];
+  if (typeof original !== 'function' || original.kdGuarded) return;
+  const wrapped = async function (...args) {
+    const done = showPageLoader(message);
+    try { return await original.apply(this, args); }
+    finally { done(); }
+  };
+  wrapped.kdGuarded = true;
+  window[name] = wrapped;
+}
+
+// -----------------------------------------------------------------------------
+// Idempotency keys for create requests
+// The same key is reused only while the outcome of the previous attempt is unknown (network error / timeout),
+// so a retry can never create a second record. Any answer from the server (saved or rejected) ends the attempt.
+// -----------------------------------------------------------------------------
+const kdRequestIds = {};
+
+function kdNewId() {
+  if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
+
+function kdRequestId(scope, payload) {
+  const fingerprint = JSON.stringify(payload || {});
+  const saved = kdRequestIds[scope];
+  if (saved && saved.fingerprint === fingerprint) return saved.id;
+  const id = kdNewId();
+  kdRequestIds[scope] = { id, fingerprint };
+  return id;
+}
+
+async function kdCreateOnce(scope, data, createFn) {
+  const payload = { ...data, request_id: kdRequestId(scope, data) };
+  const result = await createFn(payload);
+  if (result && typeof result === 'object') delete kdRequestIds[scope]; // the server answered: the next attempt is a new request
+  return result;
+}
+
 
 // Global chart instances
 let revenueBarChartInstance = null;
@@ -116,7 +448,8 @@ function handleSessionExpired(reason) {
 
 // Any API answer of 401 to a request that carried our login token means the session is over
 const nativeFetch = window.fetch.bind(window);
-window.fetch = async function (input, init) {
+
+async function kdFetchWithSessionCheck(input, init) {
   const response = await nativeFetch(input, init);
   try {
     const url = typeof input === 'string' ? input : ((input && input.url) || '');
@@ -124,6 +457,36 @@ window.fetch = async function (input, init) {
     if (response.status === 401 && sentToken && url.startsWith(API_URL)) handleSessionExpired('expired');
   } catch (e) { /* never break a request because of this check */ }
   return response;
+}
+
+// Safety net against duplicate records: while a write request (POST/PUT/PATCH/DELETE) is still running, an
+// IDENTICAL one (same method, address, login and body) is not sent again - the second caller simply receives the
+// answer of the first. Once the first request has finished, a new identical request is sent normally.
+const kdPendingWrites = new Map();
+
+function kdWriteKey(input, init) {
+  try {
+    const url = typeof input === 'string' ? input : ((input && input.url) || '');
+    if (!url.startsWith(API_URL)) return null;
+    const method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
+    if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return null;
+    if (init && (init.keepalive || init.signal)) return null; // logout beacons and abortable requests keep their own behaviour
+    const body = init && init.body;
+    if (body !== undefined && typeof body !== 'string') return null;
+    const auth = (init && init.headers && init.headers.Authorization) || '';
+    return `${method} ${url} ${auth} ${body || ''}`;
+  } catch (e) { return null; }
+}
+
+window.fetch = function (input, init) {
+  const key = kdWriteKey(input, init);
+  if (!key) return kdFetchWithSessionCheck(input, init);
+  let pending = kdPendingWrites.get(key);
+  if (!pending) {
+    pending = kdFetchWithSessionCheck(input, init).finally(() => kdPendingWrites.delete(key));
+    kdPendingWrites.set(key, pending);
+  }
+  return pending.then(response => response.clone());
 };
 
 // Dashboard access check that runs immediately: no login, or the wrong role for this page
@@ -203,6 +566,7 @@ function startSessionManager() {
 async function initDashboardSession() {
   if (!DASHBOARD_ROLE || sessionEnding) return;
   startSessionManager();
+  const hideLoader = showPageLoader('Loading dashboard...');
   try {
     const response = await fetch(`${API_URL}/session`, { headers: authHeaders() });
     if (response.status === 401) return; // handled by the fetch check above
@@ -217,6 +581,7 @@ async function initDashboardSession() {
       }
     }
   } catch (e) { /* server unreachable (e.g. waking up): keep the page, the next request will re-check */ }
+  finally { hideLoader(); }
 }
 
 // =============================================================================
@@ -360,6 +725,8 @@ async function handlePublicTrackDelivery(event) {
   if (!refCodeInput || !resultDiv) return;
   const refCode = refCodeInput.value.trim();
   if (!refCode) { alert('❌ Please enter a reference code'); return; }
+  resultDiv.classList.remove('hidden');
+  resultDiv.innerHTML = '<div style="padding:1.5rem;text-align:center;color:#6b7280;"><span class="kd-spinner" aria-hidden="true"></span>Looking up your delivery...</div>';
   try {
     const result = await API.trackDelivery(refCode);
     if (result.success && result.data) {
@@ -676,6 +1043,7 @@ async function handleLogin(event) {
   const submitBtn = event.target && event.target.querySelector ? event.target.querySelector('button[type="submit"]') : null;
   const originalLabel = submitBtn ? submitBtn.innerHTML : '';
   loginInFlight = true;
+  const loginProgress = kdStartProgress('Signing you in...');
   if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Logging in…'; }
   let keepDisabled = false;
   try {
@@ -691,6 +1059,7 @@ async function handleLogin(event) {
   } catch (error) {
     showToast('Failed to login. Please check your connection.', 'error');
   } finally {
+    loginProgress.stop();
     loginInFlight = false;
     if (submitBtn && !keepDisabled) { submitBtn.disabled = false; submitBtn.innerHTML = originalLabel; }
   }
@@ -972,8 +1341,6 @@ let editingFurniturePrice = null;
 async function handleFurnitureSubmit(event) {
   event.preventDefault();
   if (!editingFurnitureId) { showToast('Please choose a furniture item to edit', 'warning'); return; }
-  const submitBtn = event.target.querySelector('button[type="submit"]');
-  if (submitBtn && submitBtn.disabled) return;
   const length = document.getElementById('furnitureLength').value;
   const width = document.getElementById('furnitureWidth').value;
   const height = document.getElementById('furnitureHeight').value;
@@ -995,13 +1362,11 @@ async function handleFurnitureSubmit(event) {
     dimensions: `${length}cm x ${width}cm x ${height}cm`,
     description: document.getElementById('furnitureDescription').value
   };
-  if (submitBtn) submitBtn.disabled = true;
   try {
     const result = await API.updateFurniture(editingFurnitureId, data);
     if (result.success) { showToast(result.message, 'success'); hideModal('furnitureModal'); loadFurnitureList(); }
     else showToast('❌ ' + result.message, 'error');
   } catch (error) { showToast('❌ Failed to save furniture', 'error'); }
-  finally { if (submitBtn) submitBtn.disabled = false; }
 }
 
 async function editFurniture(id) {
@@ -1309,8 +1674,6 @@ function openSmsModal(deliveryId) {
 
 async function confirmSendSms() {
   if (!currentSmsDeliveryId) return;
-  const btn = document.getElementById('confirmSendSmsBtn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Sending SMS...'; }
   try {
     const result = await API.sendDeliverySms(currentSmsDeliveryId);
     if (result.success) {
@@ -1318,11 +1681,9 @@ async function confirmSendSms() {
       hideModal('smsModal');
     } else {
       showToast('❌ ' + (result.message || 'Failed to send SMS. Please try again.'), 'error');
-      if (btn) { btn.disabled = false; btn.textContent = 'Send SMS'; }
     }
   } catch (error) {
     showToast('❌ Failed to send SMS. Please try again.', 'error');
-    if (btn) { btn.disabled = false; btn.textContent = 'Send SMS'; }
   }
 }
 
@@ -1376,9 +1737,8 @@ async function handleStaffDeliverySubmit(event) {
   };
   if (!data.customer_name || !data.address) { showToast('Customer name and address are required', 'warning'); return; }
   const submitBtn = event.target.querySelector('button[type="submit"]');
-  if (submitBtn) submitBtn.disabled = true;
   try {
-    const result = await API.createDelivery(data);
+    const result = await kdCreateOnce('delivery-create', data, API.createDelivery);
     if (result.success) {
       showToast('✅ ' + result.message + (result.ref_code ? ` Reference Code: ${result.ref_code}` : ''), 'success');
       hideModal('staffDeliveryModal');
@@ -1388,7 +1748,6 @@ async function handleStaffDeliverySubmit(event) {
       showToast('❌ ' + result.message, 'error');
     }
   } catch (error) { showToast('❌ Failed to save delivery', 'error'); }
-  finally { if (submitBtn) submitBtn.disabled = false; }
 }
 
 async function loadDeliveryList() {
@@ -1527,7 +1886,7 @@ async function handleDeliverySubmit(event) {
     delivery_date: document.getElementById('deliveryDate').value || null
   };
   try {
-    const result = editingDeliveryId ? await API.updateDelivery(editingDeliveryId, data) : await API.createDelivery(data);
+    const result = editingDeliveryId ? await API.updateDelivery(editingDeliveryId, data) : await kdCreateOnce('delivery-create', data, API.createDelivery);
     if (result.success) {
       showToast('✅ ' + result.message + (result.ref_code ? ` Reference Code: ${result.ref_code}` : ''), 'success');
       hideModal('deliveryModal');
@@ -1535,7 +1894,7 @@ async function handleDeliverySubmit(event) {
       else loadDeliveryList();
       loadDeliveryStats();
     } else {
-      alert('❌ ' + result.message);
+      showToast('❌ ' + result.message, 'error');
     }
   } catch (error) { showToast('❌ Failed to save delivery', 'error'); }
 }
@@ -2331,7 +2690,7 @@ async function handleStaffAccountSubmit(event) {
   const phoneProblem = validatePhPhoneClient(data.phone);
   if (phoneProblem) { showToast(phoneProblem, 'warning'); return; }
   try {
-    const result = await API.createStaff(data);
+    const result = await kdCreateOnce('staff-create', data, API.createStaff);
     if (result.success) {
       showToast(result.message, 'success');
       hideModal('staffAccountModal');
@@ -2911,7 +3270,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Manager edit inventory form
     const managerEditInventoryForm = document.getElementById('managerEditInventoryForm');
     if (managerEditInventoryForm) {
-      managerEditInventoryForm.addEventListener('submit', async (e) => {
+      managerEditInventoryForm.addEventListener('submit', (e) => e.preventDefault() || kdRun('managerEditInventory', async () => {
         e.preventDefault();
         const id = document.getElementById('managerEditInventoryId').value;
         const name = document.getElementById('managerEditInventoryName').value;
@@ -2928,7 +3287,7 @@ document.addEventListener('DOMContentLoaded', () => {
           if (result.success) { showToast('Inventory updated successfully', 'success'); hideModal('managerEditInventoryModal'); loadManagerInventoryList(); }
           else showToast(result.message || 'Failed to update inventory', 'error');
         } catch (error) { showToast('Failed to update inventory', 'error'); }
-      });
+      }, { button: kdEventButton(e), loadingText: 'Saving...', progress: 'Saving changes...' }));
     }
 
     const managerQtyInput = document.getElementById('managerEditInventoryQuantity');
@@ -3742,9 +4101,6 @@ function initCustomerSupportPage() {
 async function handleInquirySubmit(event) {
   event.preventDefault();
 
-  const btn = document.getElementById('inquirySubmitBtn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
-
   const data = {
     customer_name: document.getElementById('inquiryName').value,
     email: document.getElementById('inquiryEmail').value,
@@ -3754,27 +4110,16 @@ async function handleInquirySubmit(event) {
   };
 
   try {
-    const response = await fetch(`${API_URL}/inquiries`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-    const result = await response.json();
-    if (result.success) {
+    const result = await kdCreateOnce('inquiry-create', data, API.submitInquiry);
+    if (result && result.success) {
       showSuccessState('inquiry');
       showToast('Your inquiry has been sent!', 'success');
     } else {
-      throw new Error(result.message);
+      // Not confirmed by the server: keep the form (and what the customer typed) so they can try again
+      showToast('❌ ' + ((result && result.message) || 'Your inquiry could not be sent. Please try again.'), 'error');
     }
   } catch (error) {
-    // Show success for frontend demo even if backend not yet connected
-    showSuccessState('inquiry');
-    showToast('Your inquiry has been sent!', 'success');
-  }
-
-  if (btn) {
-    btn.disabled = false;
-    btn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg> Send Inquiry`;
+    showToast('❌ We could not send your inquiry. Please check your connection and try again.', 'error');
   }
 }
 
@@ -3787,9 +4132,6 @@ async function handleFeedbackSubmit(event) {
     return;
   }
 
-  const btn = document.getElementById('feedbackSubmitBtn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Submitting...'; }
-
   const data = {
     customer_name: document.getElementById('feedbackName').value,
     email: document.getElementById('feedbackEmail').value,
@@ -3799,26 +4141,15 @@ async function handleFeedbackSubmit(event) {
   };
 
   try {
-    const response = await fetch(`${API_URL}/feedback`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-    const result = await response.json();
-    if (result.success) {
+    const result = await kdCreateOnce('feedback-create', data, API.submitFeedback);
+    if (result && result.success) {
       showSuccessState('feedback');
       showToast('Thank you for your feedback!', 'success');
     } else {
-      throw new Error(result.message);
+      showToast('❌ ' + ((result && result.message) || 'Your feedback could not be sent. Please try again.'), 'error');
     }
   } catch (error) {
-    showSuccessState('feedback');
-    showToast('Thank you for your feedback!', 'success');
-  }
-
-  if (btn) {
-    btn.disabled = false;
-    btn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg> Submit Feedback`;
+    showToast('❌ We could not send your feedback. Please check your connection and try again.', 'error');
   }
 }
 
@@ -3911,7 +4242,7 @@ async function handleChatbotSubmit(event) {
   try {
     const result = editingChatbotId
       ? await API.updateChatbotQA(editingChatbotId, data)
-      : await API.createChatbotQA(data);
+      : await kdCreateOnce('chatbot-create', data, API.createChatbotQA);
     if (result.success) {
       showToast(result.message, 'success');
       hideModal('chatbotModal');
@@ -4041,3 +4372,89 @@ async function deleteAdminFeedback(id) {
     else showToast('❌ ' + result.message, 'error');
   } catch (error) { showToast('❌ Failed to delete feedback', 'error'); } 
 }
+
+
+// =============================================================================
+// LOADING / DUPLICATE-SUBMISSION FEEDBACK: installs the shared behaviour (see "K-DESK LOADING" near the top).
+// Each entry wraps an EXISTING function by name, so every caller and event listener gets the same protection.
+// Only real data actions are listed: navigation, tabs and "open empty modal" buttons are intentionally not touched.
+// =============================================================================
+(function kdInstallFeedback() {
+  const submit = (loadingText, progress) => ({ button: 'event', loadingText, progress });
+  const del = (label) => ({ key: (id) => 'delete:' + label + ':' + id, progress: 'Deleting...' });
+  const open = (label, progress) => ({ key: (id) => 'open:' + label + ':' + id, progress: progress || 'Loading details...' });
+
+  // ---- Forms (button -> "Saving...", in-progress guard, slow notice) ----
+  kdGuard('handleSignup', submit('Creating Account...', 'Creating account...'));
+  kdGuard('handleStaffAccountSubmit', { ...submit('Creating Account...', 'Creating account...'), key: 'staffAccountCreate' });
+  kdGuard('handleEditStaffSubmit', submit('Saving...', 'Saving changes...'));
+  kdGuard('handleMyAccountSubmit', submit('Saving...', 'Saving changes...'));
+  kdGuard('handleFurnitureSubmit', submit('Saving...', 'Saving changes...'));
+  kdGuard('handleAboutFormSubmit', submit('Saving...', 'Saving changes...'));
+  kdGuard('handleContactFormSubmit', submit('Saving...', 'Saving changes...'));
+  kdGuard('handleInventorySubmit', { button: 'event', progress: 'Saving inventory item...', loadingText: () => (editingInventoryId ? 'Saving...' : 'Adding Item...') });
+  kdGuard('handleManagerAddInventorySubmit', submit('Adding Item...', 'Saving inventory item...'));
+  kdGuard('handleStaffDeliverySubmit', submit('Adding Delivery...', 'Saving delivery...'));
+  kdGuard('handleDeliverySubmit', { button: 'event', progress: 'Saving delivery...', loadingText: () => (editingDeliveryId ? 'Saving...' : 'Adding Delivery...') });
+  kdGuard('handleChatbotSubmit', { button: 'event', progress: 'Saving Q&A...', loadingText: () => (editingChatbotId ? 'Saving...' : 'Adding Q&A...') });
+  kdGuard('handleInquirySubmit', { button: '#inquirySubmitBtn', loadingText: 'Sending...', progress: 'Submitting your information...' });
+  kdGuard('handleFeedbackSubmit', { button: '#feedbackSubmitBtn', loadingText: 'Submitting...', progress: 'Submitting your information...' });
+  kdGuard('handlePublicTrackDelivery', { button: 'event', loadingText: 'Tracking...' });
+  kdGuard('confirmSendSms', { key: () => 'sendSms:' + currentSmsDeliveryId, button: '#confirmSendSmsBtn', loadingText: 'Sending SMS...', progress: 'Sending SMS...' });
+
+  // Sales forms are driven by a config object (Admin / Staff / Manager share these two functions)
+  const saleButton = (cfg) => { const f = document.getElementById(cfg.formId); return f ? f.querySelector('button[type="submit"]') : null; };
+  kdGuard('submitNewSale', { key: (cfg) => 'sale:' + cfg.formId, button: saleButton, loadingText: 'Saving...', progress: 'Saving sales record...' });
+  kdGuard('submitSalesEdit', { key: (cfg) => 'saleEdit:' + cfg.formId, button: saleButton, loadingText: 'Saving...', progress: 'Saving changes...' });
+
+  // ---- Deletes (the existing confirm() dialog still comes first) ----
+  kdGuard('deleteInventory', del('inventory'));
+  kdGuard('deleteDelivery', del('delivery'));
+  kdGuard('deleteSales', del('sales'));
+  kdGuard('deleteStaffAccount', del('staff'));
+  kdGuard('deleteChatbotItem', del('chatbot'));
+  kdGuard('deleteAdminInquiry', del('inquiry'));
+  kdGuard('deleteAdminFeedback', del('feedback'));
+
+  // ---- Status updates ----
+  kdGuard('updateDeliveryStatus', {
+    key: (id) => 'deliveryStatus:' + id,
+    progress: 'Updating status...',
+    disable: (id) => document.querySelector('.status-select[data-delivery-id="' + id + '"]')
+  });
+  kdGuard('updateInquiryStatus', { key: (id) => 'inquiryStatus:' + id, progress: 'Updating status...' });
+
+  // ---- "Open for editing" actions that fetch data first ----
+  kdGuard('editFurniture', open('furniture'));
+  kdGuard('editInventory', open('inventory'));
+  kdGuard('editDelivery', open('delivery'));
+  kdGuard('editChatbotQA', open('chatbot'));
+  kdGuard('openSalesEditForm', open('sales'));
+  kdGuard('openManagerEditInventoryModal', open('managerInventory'));
+  kdGuard('openMyAccountModal', { key: 'openMyAccount', progress: 'Loading your account...' });
+
+  // ---- Tables and lists: Loading... / empty / error with "Try again" ----
+  kdWrapLoader('loadFurnitureList', { target: 'furnitureList', loading: 'Loading furniture...', empty: 'No furniture found', error: 'Unable to load furniture.' });
+  kdWrapLoader('loadInventoryList', { target: 'adminInventoryList', loading: 'Loading inventory records...', empty: 'No inventory items found', error: 'Unable to load inventory records.' });
+  kdWrapLoader('loadDeliveryList', { target: 'adminDeliveryList', loading: 'Loading deliveries...', empty: 'No deliveries found', error: 'Unable to load deliveries.' });
+  kdWrapLoader('loadStaffDeliveryList', { target: 'staffDeliveryList', loading: 'Loading deliveries...', empty: 'No deliveries found', error: 'Unable to load deliveries.' });
+  kdWrapLoader('loadManagerDeliveryList', { target: 'managerDeliveryList', loading: 'Loading deliveries...', empty: 'No deliveries found', error: 'Unable to load deliveries.' });
+  kdWrapLoader('loadSalesList', { target: 'adminSalesList', loading: 'Loading sales records...', empty: 'No sales records found', error: 'Unable to load sales records.' });
+  kdWrapLoader('loadStaffSalesList', { target: 'staffSalesList', loading: 'Loading sales records...', empty: 'No sales records found', error: 'Unable to load sales records.' });
+  kdWrapLoader('loadManagerSalesList', { target: 'managerSalesList', loading: 'Loading sales records...', empty: 'No sales records found', error: 'Unable to load sales records.' });
+  kdWrapLoader('loadStaffAccountsList', { target: 'staffAccountsList', loading: 'Loading staff accounts...', empty: 'No accounts found', error: 'Unable to load staff accounts.' });
+  kdWrapLoader('loadStaffInventoryList', { target: 'staffInventoryList', loading: 'Loading inventory records...', empty: 'No inventory items found', error: 'Unable to load inventory records.' });
+  kdWrapLoader('loadManagerInventoryList', { target: 'managerInventoryList', loading: 'Loading inventory records...', empty: 'No inventory items found', error: 'Unable to load inventory records.' });
+  kdWrapLoader('loadChatbotList', { target: 'chatbotList', loading: 'Loading chatbot Q&A...', empty: 'No Q&A entries found', error: 'Unable to load chatbot Q&A.' });
+  kdWrapLoader('loadAdminInquiries', { target: 'adminInquiriesList', loading: 'Loading inquiries...', empty: 'No inquiries found', error: 'Unable to load inquiries.' });
+  kdWrapLoader('loadAdminFeedback', { target: 'adminFeedbackList', loading: 'Loading feedback...', empty: 'No feedback submitted yet.', error: 'Unable to load feedback.' });
+
+  // ---- Dashboard statistics and charts: dimmed while their data is being fetched ----
+  kdWrapBusy('loadSalesAnalytics', '#totalSales, #totalRecords, #averageSale, #revenueBarChart, #salesLineChart');
+  kdWrapBusy('loadStaffSalesAnalytics', '#staffTotalSales, #staffTotalRecords, #staffAverageSale');
+  kdWrapBusy('loadManagerSalesAnalytics', '#managerTotalSales, #managerTotalRecords, #managerAverageSale');
+  kdWrapBusy('loadDeliveryStats', '[id$="PendingCount"], [id$="ProcessingCount"], [id$="InTransitCount"], [id$="DeliveredCount"]');
+
+  // ---- Pages that are empty until their data arrives ----
+  kdWrapPage('loadFurnitureDetail', 'Loading furniture details...');
+})();

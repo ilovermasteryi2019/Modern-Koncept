@@ -161,6 +161,66 @@ function generateRefCode() {
 }
 
 // =============================================================================
+// DUPLICATE-SUBMISSION PROTECTION (idempotency keys)
+// The website sends a random request_id with every "create" request. If the same request_id arrives again
+// (double click, retry after a slow answer) while the first is running, or after it already succeeded, the
+// original result is returned and NOTHING is created a second time. A request that FAILED is not remembered,
+// so the user can simply try again. Requests without a request_id behave exactly as before.
+// The list lives in memory (like the login sessions) and entries expire after 10 minutes.
+// =============================================================================
+const IDEMPOTENCY_TTL_MS = 10 * 60 * 1000;
+const IDEMPOTENCY_MAX = 5000;
+const IDEMPOTENCY_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const idempotencyStore = new Map(); // scope -> { promise, createdAt }
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [scope, entry] of idempotencyStore) {
+    if (now - entry.createdAt > IDEMPOTENCY_TTL_MS) idempotencyStore.delete(scope);
+  }
+}, 60 * 1000).unref();
+
+function withIdempotency(routeName, handler) {
+  return async (req, res) => {
+    const requestId = req.body && typeof req.body.request_id === 'string' ? req.body.request_id : null;
+    if (!requestId || !IDEMPOTENCY_UUID_RE.test(requestId)) return handler(req, res);
+
+    const scope = `${routeName}:${req.authUser ? req.authUser.id : 'public'}:${requestId.toLowerCase()}`;
+    const existing = idempotencyStore.get(scope);
+    if (existing) {
+      const first = await existing.promise; // waits if the first request is still running
+      if (first.status >= 200 && first.status < 300) {
+        return res.status(first.status).json({ ...first.body, duplicate: true });
+      }
+      return handler(req, res); // the first attempt failed, so this is a genuine retry
+    }
+
+    // Run the real handler, capturing its answer (the handlers only use res.status().json() / res.json())
+    const captured = { status: 200, body: undefined };
+    const recorder = {
+      status(code) { captured.status = code; return recorder; },
+      json(body) { captured.body = body; return recorder; }
+    };
+    const promise = (async () => {
+      try {
+        await handler(req, recorder);
+      } catch (err) {
+        console.error(`Unexpected error in ${routeName}:`, err && err.message);
+        captured.status = 500;
+        captured.body = { success: false, message: 'Something went wrong. Please try again.' };
+      }
+      return captured;
+    })();
+    idempotencyStore.set(scope, { promise, createdAt: Date.now() });
+    while (idempotencyStore.size > IDEMPOTENCY_MAX) idempotencyStore.delete(idempotencyStore.keys().next().value);
+
+    const result = await promise;
+    if (!(result.status >= 200 && result.status < 300)) idempotencyStore.delete(scope); // failed: allow a clean retry
+    return res.status(result.status).json(result.body);
+  };
+}
+
+// =============================================================================
 // AUTH
 // =============================================================================
 // Hashes a password for storage. Returns null (and the caller answers 500) if hashing fails.
@@ -178,6 +238,7 @@ app.post('/signup', requireRole('admin'), async (req, res) => {
   const passwordHash = await hashForStorage(password);
   if (!passwordHash) return res.status(500).json({ success: false, message: 'Failed to create account' });
   const { data, error } = await db.from('users').insert({ name, email, password: passwordHash, role: 'staff' }).select().single();
+  if (error && error.code === '23505') return res.status(400).json({ success: false, message: 'Email already exists' });
   if (error) return res.status(500).json({ success: false, message: 'Failed to create account' });
   res.status(201).json({ success: true, message: 'Account created successfully', userId: data.id });
 });
@@ -633,7 +694,7 @@ app.get('/deliveries/stats', async (req, res) => {
   res.json({ success: true, data: stats });
 });
 
-app.post('/deliveries', requireRole('admin', 'manager', 'staff'), async (req, res) => {
+app.post('/deliveries', requireRole('admin', 'manager', 'staff'), withIdempotency('deliveries', async (req, res) => {
   const { customer_name, contact_number, address, product, status, delivery_type, delivery_date } = req.body;
   if (!customer_name || !address) return res.status(400).json({ success: false, message: 'Customer name and address are required' });
   if (status && !['Pending', 'Processing', 'In Transit', 'Delivered'].includes(status)) return res.status(400).json({ success: false, message: 'Invalid status' });
@@ -641,7 +702,7 @@ app.post('/deliveries', requireRole('admin', 'manager', 'staff'), async (req, re
   const { data, error } = await db.from('deliveries').insert({ ref_code, customer_name, contact_number: contact_number || null, address, product: product || 'N/A', status: status || 'Pending', delivery_type: delivery_type || 'Outbound', delivery_date: delivery_date || null }).select().single();
   if (error) return res.status(500).json({ success: false, message: 'Failed to create delivery' });
   res.status(201).json({ success: true, message: 'Delivery created successfully', id: data.id, ref_code });
-});
+}));
 
 app.put('/deliveries/:id', requireRole('admin', 'manager'), async (req, res) => {
   const { customer_name, contact_number, address, product, status, delivery_type, delivery_date } = req.body || {};
@@ -674,7 +735,21 @@ app.delete('/deliveries/:id', requireRole('admin'), async (req, res) => {
 // =============================================================================
 // SEND SMS (Admin & Manager Delivery Dashboards) — via Semaphore
 // =============================================================================
+// Duplicate-SMS protection: only one send per delivery at a time, and a short pause after a successful send,
+// so a double click or a retry after a slow answer cannot text the customer twice.
+const smsGuard = new Map(); // delivery id -> 'sending' | time of the last successful send
+const SMS_COOLDOWN_MS = 10 * 1000;
+
 app.post('/deliveries/:id/send-sms', requireRole('admin', 'manager'), async (req, res) => {
+  const smsKey = String(req.params.id);
+  const smsState = smsGuard.get(smsKey);
+  if (smsState === 'sending') {
+    return res.status(409).json({ success: false, message: 'An SMS for this delivery is already being sent. Please wait.' });
+  }
+  if (typeof smsState === 'number' && Date.now() - smsState < SMS_COOLDOWN_MS) {
+    return res.status(429).json({ success: false, message: 'An SMS for this delivery was just sent. Please wait a few seconds before sending another.' });
+  }
+  smsGuard.set(smsKey, 'sending');
   try {
     const { data: delivery, error: fetchError } = await db.from('deliveries').select('*').eq('id', req.params.id).single();
     if (fetchError || !delivery) return res.status(404).json({ success: false, message: 'Delivery not found' });
@@ -719,11 +794,14 @@ app.post('/deliveries/:id/send-sms', requireRole('admin', 'manager'), async (req
     }
 
     console.log(`✅ [Semaphore] SMS sent for delivery ${delivery.ref_code}`);
+    smsGuard.set(smsKey, Date.now());
     res.json({ success: true, message: 'SMS sent successfully.' });
 
   } catch (err) {
     console.error('❌ [Semaphore] Error sending SMS:', err.message);
     res.status(500).json({ success: false, message: 'Failed to send SMS. Please try again.' });
+  } finally {
+    if (smsGuard.get(smsKey) === 'sending') smsGuard.delete(smsKey); // a failed send can be retried straight away
   }
 });
 
@@ -912,13 +990,13 @@ app.get('/reviews', async (req, res) => {
   res.json({ success: true, data });
 });
 
-app.post('/reviews', async (req, res) => {
+app.post('/reviews', withIdempotency('reviews', async (req, res) => {
   const { product_name, reviewer_name, rating, review_text, review_date, image } = req.body;
   if (!product_name || !reviewer_name || !rating || !review_text) return res.status(400).json({ success: false, message: 'All fields are required' });
   const { data, error } = await db.from('reviews').insert({ product_name, reviewer_name, rating, review_text, review_date: review_date || new Date(), image: image || '' }).select().single();
   if (error) return res.status(500).json({ success: false, message: 'Failed to add review' });
   res.status(201).json({ success: true, message: 'Review added successfully', id: data.id });
-});
+}));
 
 app.put('/reviews/:id', async (req, res) => {
   const { product_name, review_text, review_date, image } = req.body;
@@ -1035,7 +1113,7 @@ app.get('/staff', requireRole('admin'), async (req, res) => {
   res.json({ success: true, data: data.map(publicAccount) });
 });
 
-app.post('/staff', requireRole('admin'), async (req, res) => {
+app.post('/staff', requireRole('admin'), withIdempotency('staff', async (req, res) => {
   const { name, email, password, role, phone } = req.body;
   if (!name || !email || !password) return res.status(400).json({ success: false, message: 'Name, email, and password are required' });
   const phoneCheck = normalizePhPhone(phone);
@@ -1047,9 +1125,10 @@ app.post('/staff', requireRole('admin'), async (req, res) => {
   const passwordHash = await hashForStorage(password);
   if (!passwordHash) return res.status(500).json({ success: false, message: 'Failed to create account' });
   const { data, error } = await db.from('users').insert({ name, email, password: passwordHash, role: accountRole, [USER_PHONE_COLUMN]: phoneCheck.value }).select().single();
+  if (error && error.code === '23505') return res.status(400).json({ success: false, message: 'Email already exists' });
   if (error) return res.status(500).json({ success: false, message: 'Failed to create account' });
   res.status(201).json({ success: true, message: `${accountRole.charAt(0).toUpperCase() + accountRole.slice(1)} account created successfully`, id: data.id });
-});
+}));
 
 // Edit a STAFF account (Admin only). Only accounts whose CURRENT role in the database is 'staff'
 // can be edited here; Manager and Admin accounts are always rejected. The role can be changed to
@@ -1247,13 +1326,13 @@ app.get('/chatbot', async (req, res) => {
   res.json({ success: true, data });
 });
 
-app.post('/chatbot', async (req, res) => {
+app.post('/chatbot', withIdempotency('chatbot', async (req, res) => {
   const { question, answer, category } = req.body;
   if (!question || !answer) return res.status(400).json({ success: false, message: 'Question and answer are required' });
   const { data, error } = await db.from('chatbot_qa').insert({ question, answer, category: category || 'General' }).select().single();
   if (error) return res.status(500).json({ success: false, message: 'Failed to add Q&A' });
   res.status(201).json({ success: true, message: 'Q&A added successfully', id: data.id });
-});
+}));
 
 app.put('/chatbot/:id', async (req, res) => {
   const { question, answer, category } = req.body;
@@ -1277,13 +1356,13 @@ app.get('/inquiries', async (req, res) => {
   res.json({ success: true, data });
 });
 
-app.post('/inquiries', async (req, res) => {
+app.post('/inquiries', withIdempotency('inquiries', async (req, res) => {
   const { customer_name, email, phone, subject, message } = req.body;
   if (!customer_name || !email || !message) return res.status(400).json({ success: false, message: 'Name, email, and message are required' });
   const { data, error } = await db.from('customer_inquiries').insert({ customer_name, email, phone: phone || null, subject: subject || 'General', message }).select().single();
   if (error) return res.status(500).json({ success: false, message: 'Failed to submit inquiry' });
   res.status(201).json({ success: true, message: 'Inquiry submitted successfully', id: data.id });
-});
+}));
 
 app.put('/inquiries/:id/status', async (req, res) => {
   const { status } = req.body;
@@ -1308,13 +1387,13 @@ app.get('/feedback', async (req, res) => {
   res.json({ success: true, data });
 });
 
-app.post('/feedback', async (req, res) => {
+app.post('/feedback', withIdempotency('feedback', async (req, res) => {
   const { customer_name, email, product_name, rating, feedback_text } = req.body;
   if (!customer_name || !feedback_text) return res.status(400).json({ success: false, message: 'Name and feedback are required' });
   const { data, error } = await db.from('customer_feedback').insert({ customer_name, email: email || null, product_name: product_name || null, rating: rating || 3, feedback_text }).select().single();
   if (error) return res.status(500).json({ success: false, message: 'Failed to submit feedback' });
   res.status(201).json({ success: true, message: 'Feedback submitted successfully', id: data.id });
-});
+}));
 
 app.delete('/feedback/:id', async (req, res) => {
   const { error } = await db.from('customer_feedback').delete().eq('id', req.params.id);
