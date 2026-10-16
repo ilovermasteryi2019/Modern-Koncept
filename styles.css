@@ -115,16 +115,44 @@ body {
 }
 
 .staff-login {
-  font-size: 0.875rem;
-  color: #4b5563;
-  text-decoration: underline;
-  background: none;
-  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 1.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #ffffff;
+  background-color: #DC143C;
+  border: 2px solid #DC143C;
+  border-radius: 0.5rem;
+  text-decoration: none;
   cursor: pointer;
+  transition: all 0.2s;
 }
 
 .staff-login:hover {
-  color: #111827;
+  background-color: #b81132;
+  border-color: #b81132;
+  color: #ffffff;
+  box-shadow: 0 4px 10px rgba(220, 20, 60, 0.3);
+  transform: translateY(-1px);
+}
+
+.staff-login:active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+.staff-login:focus-visible {
+  outline: 3px solid rgba(220, 20, 60, 0.35);
+  outline-offset: 2px;
+}
+
+/* Full-width button inside the collapsed mobile menu */
+@media (max-width: 767.98px) {
+  .staff-login {
+    width: 100%;
+  }
 }
 
 /* Footer Styles */
