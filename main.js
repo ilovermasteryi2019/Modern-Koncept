@@ -3454,6 +3454,9 @@ let selectedFurniture = null;
 let roomImageBase64 = null;
 let selectedStyle = 'Modern';
 let lastGeneratedResult = null;
+let lastResultSig = null;   // fingerprint of the inputs that produced lastGeneratedResult
+let vizCurrentStep = 1;     // 1 = Pick Furniture, 2 = Upload Room Photo, 3 = Generate & Download
+let vizCatalog = [];        // furniture shown in Step 1 (from the same API as the furniture list)
 
 
 function initVisualizationPage() {
@@ -3497,23 +3500,26 @@ function initVisualizationPage() {
 
   // Try again / retry / start over
   const tryAgainBtn = document.getElementById('tryAgainBtn');
-  if (tryAgainBtn) tryAgainBtn.addEventListener('click', resetVisualization);
+  if (tryAgainBtn) tryAgainBtn.addEventListener('click', generateVisualization);
 
   const retryBtn = document.getElementById('retryBtn');
-if (retryBtn) retryBtn.addEventListener('click', resetVisualization);
+if (retryBtn) retryBtn.addEventListener('click', generateVisualization);
 
   const startOverBtn = document.getElementById('startOverBtn');
-  if (startOverBtn) startOverBtn.addEventListener('click', resetVisualization);
+  if (startOverBtn) startOverBtn.addEventListener('click', startOverVisualization);
 
   // Download button
   const downloadBtn = document.getElementById('downloadBtn');
   if (downloadBtn) downloadBtn.addEventListener('click', downloadResult);
+
+  initVizWizard();
 }
 
 function loadSelectedFurniture() {
-  const stored = sessionStorage.getItem('selectedFurniture');
-  if (stored) {
-    selectedFurniture = JSON.parse(stored);
+  let stored = null;
+  try { stored = JSON.parse(sessionStorage.getItem('selectedFurniture') || 'null'); } catch (e) { stored = null; }
+  if (stored && typeof stored === 'object') {
+    selectedFurniture = stored;
     showFurnitureOnVizPage();
     const backBtn = document.getElementById('backBtnContainer');
     if (backBtn) backBtn.style.display = 'block';
@@ -3601,6 +3607,7 @@ function processRoomFile(file) {
 
       activateStepBadge('stepBadge2', 'stepLabel2');
       activateStepBadge('step2BadgeRight', null);
+      setVizFieldError('roomPhotoError', '');
       updateGenerateButton();
     }).catch(() => {
       showToast('We could not open that image. Please try a different photo.', 'error');
@@ -3610,13 +3617,9 @@ function processRoomFile(file) {
   reader.readAsDataURL(file);
 }
 
-function activateStepBadge(badgeId, labelId) {
-  const badge = document.getElementById(badgeId);
-  if (badge) { badge.classList.remove('inactive'); }
-  if (labelId) {
-    const label = document.getElementById(labelId);
-    if (label) label.style.color = '#111827';
-  }
+// Kept so every existing caller still works: the step circles are drawn by renderVizStepper()
+function activateStepBadge() {
+  if (typeof renderVizStepper === 'function') renderVizStepper();
 }
 
 function updateGenerateButton() {
@@ -3660,6 +3663,9 @@ async function generateVisualization() {
   document.getElementById('errorSection').style.display = 'none';
   generateBtn.disabled = true;
   if (generateBtnText) generateBtnText.textContent = 'Generating Visualization...';
+  setVizNavLocked(true);
+  syncVizStep3();
+  renderVizStepper();
 
   let progress = 0;
   const loadingMessages = [
@@ -3710,6 +3716,7 @@ async function generateVisualization() {
     if (!result.success || !result.image) throw new Error(result.message || 'Something went wrong. Please try again.');
 
     lastGeneratedResult = result.image;
+    lastResultSig = vizInputSignature();
 
     const bar = document.getElementById('progressBar');
     const text = document.getElementById('progressText');
@@ -3722,6 +3729,7 @@ async function generateVisualization() {
     document.getElementById('resultFurnitureName').textContent = selectedFurniture.name;
     document.getElementById('resultSection').style.display = 'block';
     showToast('Visualization complete!', 'success');
+    syncVizStep3();
 
   } catch (error) {
     console.error('🤖 [AI] Error:', error);
@@ -3737,12 +3745,15 @@ async function generateVisualization() {
     const errMsgEl = document.getElementById('errorMessage');
     if (errMsgEl) errMsgEl.textContent = friendlyMessage;
     document.getElementById('errorSection').style.display = 'block';
+    syncVizStep3();
   } finally {
     clearTimeout(timeoutId);
     clearInterval(progressInterval);
     isGenerating = false;
     generateBtn.disabled = false;
     if (generateBtnText) generateBtnText.textContent = originalBtnText;
+    setVizNavLocked(false);
+    renderVizStepper();
   }
 }
 
@@ -3751,6 +3762,8 @@ function resetVisualization() {
   document.getElementById('resultSection').style.display = 'none';
   document.getElementById('errorSection').style.display = 'none';
   roomImageBase64 = null;
+  lastGeneratedResult = null;
+  lastResultSig = null;
 
   const preview = document.getElementById('roomPreviewImg');
   if (preview) preview.style.display = 'none';
@@ -3762,6 +3775,18 @@ function resetVisualization() {
   if (input) input.value = '';
 
   updateGenerateButton();
+  syncVizStep3();
+  renderVizStepper();
+}
+
+// "Start Over": clear the photo, instructions and result, and go back to Step 1 (the furniture stays selected)
+function startOverVisualization() {
+  resetVisualization();
+  const note = document.getElementById('placementInstructions');
+  if (note) note.value = '';
+  setVizFieldError('roomPhotoError', '');
+  setVizFieldError('placementError', '');
+  showVizStep(1);
 }
 
 function downloadResult() {
@@ -3770,6 +3795,271 @@ function downloadResult() {
   link.href = lastGeneratedResult;
   link.download = `ecl-visualization-${selectedFurniture ? selectedFurniture.name.replace(/\s+/g, '-') : 'result'}.png`;
   link.click();
+}
+
+
+// -----------------------------------------------------------------------------
+// THREE-STEP FLOW: Pick Furniture -> Upload Room Photo -> Generate & Download
+// Only the active step's panel is visible. Selections, the room photo (kept in memory as roomImageBase64) and the
+// placement text are never reset by moving between steps, so nothing is re-uploaded when you go back and forth.
+// -----------------------------------------------------------------------------
+const VIZ_STEP_COUNT = 3;
+const VIZ_STEP_NAMES = ['Pick Furniture', 'Upload Room Photo', 'Generate & Download'];
+const VIZ_CHECK_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+
+function vizPlacementText() {
+  const el = document.getElementById('placementInstructions');
+  return el ? el.value.trim() : '';
+}
+
+// Identifies the inputs a result was generated from, so a result is never shown for different inputs
+function vizInputSignature() {
+  if (!selectedFurniture || !roomImageBase64) return null;
+  return JSON.stringify([selectedFurniture.id, selectedStyle, vizPlacementText(), roomImageBase64.length, roomImageBase64.slice(-64)]);
+}
+
+// Is the requirement of this step satisfied? (Step 3 = a result exists for the current inputs)
+function vizStepComplete(n) {
+  if (n === 1) return !!selectedFurniture;
+  if (n === 2) return !!roomImageBase64 && vizPlacementText().length > 0;
+  if (n === 3) {
+    const sig = vizInputSignature();
+    return !!lastGeneratedResult && !!sig && sig === lastResultSig;
+  }
+  return false;
+}
+
+// Active step = accent colour, completed = green check, others = grey
+function renderVizStepper() {
+  for (let i = 1; i <= VIZ_STEP_COUNT; i++) {
+    const btn = document.getElementById('vizStepBtn' + i);
+    const circle = document.getElementById('stepBadge' + i);
+    if (!btn || !circle) continue;
+    const active = i === vizCurrentStep;
+    const done = vizStepComplete(i);
+    btn.classList.toggle('active', active);
+    btn.classList.toggle('completed', done);
+    if (active) btn.setAttribute('aria-current', 'step'); else btn.removeAttribute('aria-current');
+    btn.setAttribute('aria-label', `Step ${i}: ${VIZ_STEP_NAMES[i - 1]}${done ? ' (completed)' : ''}`);
+    circle.innerHTML = (done && !active) ? VIZ_CHECK_SVG : String(i);
+    const line = document.getElementById('vizLine' + i);
+    if (line) line.classList.toggle('done', done);
+  }
+}
+
+function setVizFieldError(id, message) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = message || '';
+  el.classList.toggle('show', !!message);
+  if (message) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// Tells the user exactly what is missing for a step
+function showVizValidation(step) {
+  if (step === 1) {
+    setVizFieldError('vizStep1Error', 'Please select a furniture to continue.');
+    showToast('Please select a furniture first.', 'warning');
+  } else if (step === 2) {
+    const noPhoto = !roomImageBase64;
+    const noNote = !vizPlacementText();
+    setVizFieldError('roomPhotoError', noPhoto ? 'Please upload a photo of your room.' : '');
+    setVizFieldError('placementError', noNote ? 'Please describe where to place the furniture.' : '');
+    showToast(noPhoto ? 'Please upload a photo of your room first.' : 'Please describe where to place the furniture.', 'warning');
+    if (!noPhoto && noNote) { const t = document.getElementById('placementInstructions'); if (t) t.focus(); }
+  }
+}
+
+function setVizNavLocked(locked) {
+  const back = document.getElementById('vizBack3');
+  if (back) back.disabled = !!locked;
+  const stepper = document.getElementById('vizStepper');
+  if (stepper) stepper.classList.toggle('locked', !!locked);
+}
+
+// Shows the "Generate" card only when nothing else (processing / result / error) is on screen in Step 3
+function syncVizStep3() {
+  const shown = (id) => { const el = document.getElementById(id); return !!el && el.style.display !== 'none'; };
+  const busy = shown('loadingSection') || shown('resultSection') || shown('errorSection');
+  const card = document.getElementById('vizGenerateCard');
+  if (card) card.style.display = busy ? 'none' : '';
+}
+
+function renderVizSummary() {
+  const el = document.getElementById('vizSummary');
+  if (!el) return;
+  if (!selectedFurniture) { el.innerHTML = ''; return; }
+  const chip = (label, value) => `<span class="viz-chip"><strong>${label}</strong> ${escapeHtmlText(value)}</span>`;
+  const note = vizPlacementText();
+  el.innerHTML =
+    chip('Furniture:', selectedFurniture.name || '') +
+    chip('Style:', selectedStyle) +
+    (roomImageBase64 ? chip('Room photo:', 'Attached') : '') +
+    (note ? chip('Placement:', note.length > 70 ? note.slice(0, 70) + '…' : note) : '');
+}
+
+function prepareVizStep3() {
+  renderVizSummary();
+  if (!isGenerating) {
+    const loading = document.getElementById('loadingSection');
+    const error = document.getElementById('errorSection');
+    const result = document.getElementById('resultSection');
+    if (loading) loading.style.display = 'none';
+    if (error) error.style.display = 'none';
+    // A previous result is shown again only while it still matches the current inputs
+    if (result) result.style.display = vizStepComplete(3) ? 'block' : 'none';
+  }
+  updateGenerateButton();
+  syncVizStep3();
+}
+
+function showVizStep(n, opts = {}) {
+  vizCurrentStep = n;
+  for (let i = 1; i <= VIZ_STEP_COUNT; i++) {
+    const panel = document.getElementById('vizPanel' + i);
+    if (panel) panel.hidden = i !== n;
+  }
+  if (n === 2) {
+    const sub = document.getElementById('vizPanel2Sub');
+    if (sub && selectedFurniture) sub.textContent = `Placing: ${selectedFurniture.name}. Add a clear photo of your room and tell the AI where it should go.`;
+  }
+  if (n === 3) prepareVizStep3();
+  renderVizStepper();
+  if (!opts.noFocus) {
+    const stepper = document.getElementById('vizStepper');
+    if (stepper) {
+      const top = stepper.getBoundingClientRect().top;
+      if (top < 0 || top > window.innerHeight * 0.6) stepper.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    const heading = document.getElementById('vizHeading' + n);
+    if (heading) heading.focus({ preventScroll: true });
+  }
+}
+
+// Moving forward needs every earlier step to be complete; going back is always allowed
+function goToVizStep(target) {
+  target = Number(target);
+  if (!(target >= 1 && target <= VIZ_STEP_COUNT)) return false;
+  if (target === vizCurrentStep) return true;
+  if (isGenerating) { showToast('Please wait until the visualization finishes.', 'info'); return false; }
+  for (let i = 1; i < target; i++) {
+    if (!vizStepComplete(i)) {
+      if (i !== vizCurrentStep) showVizStep(i);
+      showVizValidation(i);
+      return false;
+    }
+  }
+  showVizStep(target);
+  return true;
+}
+
+// ---- Step 1: furniture catalog (same data source as the furniture list: API.getFurniture -> GET /products) ----
+async function loadVizCatalog() {
+  const grid = document.getElementById('vizProductGrid');
+  const status = document.getElementById('vizCatalogStatus');
+  if (!grid) return;
+  if (status) status.innerHTML = '<span class="kd-spinner" aria-hidden="true"></span>Loading furniture...';
+  try {
+    const result = await API.getFurniture();
+    if (!result || !result.success) throw new Error('catalog failed');
+    vizCatalog = Array.isArray(result.data) ? result.data : [];
+
+    const select = document.getElementById('vizCategory');
+    if (select) {
+      const categories = [...new Set(vizCatalog.map(p => p.category).filter(Boolean))].sort();
+      select.innerHTML = '<option value="">All categories</option>' +
+        categories.map(c => `<option value="${escapeHtmlText(c)}">${escapeHtmlText(c)}</option>`).join('');
+    }
+    renderVizCatalog();
+  } catch (e) {
+    grid.innerHTML = '';
+    if (status) {
+      status.innerHTML = 'We could not load the furniture list. The server may still be waking up. <button type="button" class="viz-link-btn" id="vizCatalogRetry">Try again</button>';
+      const retry = document.getElementById('vizCatalogRetry');
+      if (retry) retry.addEventListener('click', loadVizCatalog);
+    }
+  }
+}
+
+function renderVizCatalog() {
+  const grid = document.getElementById('vizProductGrid');
+  const status = document.getElementById('vizCatalogStatus');
+  if (!grid) return;
+  const q = (document.getElementById('vizSearch')?.value || '').trim().toLowerCase();
+  const category = document.getElementById('vizCategory')?.value || '';
+  const list = vizCatalog.filter(p =>
+    (!category || p.category === category) &&
+    (!q || `${p.name || ''} ${p.category || ''} ${p.material || ''}`.toLowerCase().includes(q)));
+
+  grid.innerHTML = '';
+  if (status) {
+    status.textContent = list.length
+      ? `Showing ${list.length} of ${vizCatalog.length} product${vizCatalog.length !== 1 ? 's' : ''}`
+      : (vizCatalog.length ? 'No furniture matches your search.' : 'No furniture is available right now.');
+  }
+  list.forEach(p => grid.appendChild(buildVizProductCard(p)));
+}
+
+function buildVizProductCard(p) {
+  const card = document.createElement('div');
+  card.className = 'viz-product';
+  card.setAttribute('role', 'button');
+  card.tabIndex = 0;
+  card.dataset.id = p.id;
+  const isSelected = !!selectedFurniture && String(selectedFurniture.id) === String(p.id);
+  card.classList.toggle('selected', isSelected);
+  card.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+  card.innerHTML = `
+    <span class="viz-product-check" aria-hidden="true">${VIZ_CHECK_SVG}</span>
+    <img src="${escapeHtmlText(p.image || 'placeholder-furniture.jpg')}" alt="${escapeHtmlText(p.name || 'Furniture')}" loading="lazy" onerror="this.onerror=null;this.src='placeholder-furniture.jpg'">
+    <div class="viz-product-body">
+      <p class="viz-product-cat">${escapeHtmlText(p.category || '')}</p>
+      <h3 class="viz-product-name">${escapeHtmlText(p.name || '')}</h3>
+      <div class="viz-product-price">${renderPriceHTML(p)}</div>
+    </div>`;
+  card.addEventListener('click', () => selectVizFurniture(p));
+  card.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectVizFurniture(p); }
+  });
+  return card;
+}
+
+// Same storage the "Visualize in My Room" button uses, so a page refresh keeps the selection
+function selectVizFurniture(product) {
+  selectedFurniture = product;
+  try { sessionStorage.setItem('selectedFurniture', JSON.stringify(product)); } catch (e) { /* storage unavailable: the selection still works for this visit */ }
+  showFurnitureOnVizPage();
+  document.querySelectorAll('#vizProductGrid .viz-product').forEach(card => {
+    const on = String(card.dataset.id) === String(product.id);
+    card.classList.toggle('selected', on);
+    card.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  setVizFieldError('vizStep1Error', '');
+  updateGenerateButton();
+  renderVizStepper();
+}
+
+function initVizWizard() {
+  document.querySelectorAll('.viz-step').forEach(btn => btn.addEventListener('click', () => goToVizStep(btn.dataset.step)));
+
+  const on = (id, handler) => { const el = document.getElementById(id); if (el) el.addEventListener('click', handler); };
+  on('vizNext1', () => goToVizStep(2));
+  on('vizBack2', () => goToVizStep(1));
+  on('vizNext2', () => goToVizStep(3));
+  on('vizBack3', () => goToVizStep(2));
+  on('changeRoomPhotoBtn', () => { const input = document.getElementById('roomImageInput'); if (input) input.click(); });
+
+  const note = document.getElementById('placementInstructions');
+  if (note) note.addEventListener('input', () => { setVizFieldError('placementError', ''); renderVizStepper(); });
+  document.querySelectorAll('.style-option').forEach(btn => btn.addEventListener('click', renderVizStepper));
+
+  const search = document.getElementById('vizSearch');
+  if (search) search.addEventListener('input', renderVizCatalog);
+  const category = document.getElementById('vizCategory');
+  if (category) category.addEventListener('change', renderVizCatalog);
+
+  showVizStep(1, { noFocus: true });
+  loadVizCatalog();
 }
 
 // =============================================================================
