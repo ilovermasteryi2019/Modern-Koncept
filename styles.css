@@ -1439,3 +1439,309 @@ body.bs-dashboard .btn-logout {
   }
   body.bs-dashboard .dashboard-tab { flex: 0 0 auto; white-space: nowrap; }
 }
+
+/* =============================================================================
+   K-DESK DASHBOARD SIDEBAR  (Admin / Manager / Staff)
+   -----------------------------------------------------------------------------
+   Layout only. Loaded after styles.css and scoped to <body class="bs-dashboard">,
+   so customer pages and the login page are not affected.
+   Colours: Admin + Staff use the K-Desk crimson, Manager keeps its purple
+   (body.dash-role-manager). Everything is driven by the --dash-accent variables.
+   Selectors are written with higher specificity than the old inline
+   .dashboard-header / .dashboard-nav / .dashboard-tab rules in each HTML file,
+   so those rules no longer affect the layout.
+   ============================================================================= */
+
+body.bs-dashboard {
+  --dash-accent: #DC143C;
+  --dash-accent-dark: #A80728;
+  --dash-accent-rgb: 220, 20, 60;
+  --sidebar-width: 280px;
+}
+
+body.bs-dashboard.dash-role-manager {
+  --dash-accent: #7c3aed;
+  --dash-accent-dark: #5b21b6;
+  --dash-accent-rgb: 124, 58, 237;
+}
+
+/* ---------- Layout: sidebar on the left, content on the right ---------- */
+body.bs-dashboard .dash-layout {
+  display: flex;
+  align-items: flex-start;
+  min-height: 100vh;
+}
+
+body.bs-dashboard .dash-content {
+  flex: 1 1 0;
+  min-width: 0; /* lets wide tables scroll inside .table-container instead of stretching the page */
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+body.bs-dashboard .dash-content > .dash-main {
+  flex: 1 0 auto;
+  width: 100%;
+  padding: 2rem 1.5rem 4rem;
+}
+
+body.bs-dashboard .dash-content .footer-container {
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+/* Chart grids used minmax(400px, 1fr), which overflows phones; keep the same look but allow shrinking */
+body.bs-dashboard .dash-main [style*="minmax(400px"] {
+  grid-template-columns: repeat(auto-fit, minmax(min(400px, 100%), 1fr)) !important;
+}
+
+/* ---------- Sidebar shell ---------- */
+body.bs-dashboard .dash-sidebar {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  flex: 0 0 var(--sidebar-width);
+  width: var(--sidebar-width);
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border-right: 1px solid #e5e7eb;
+  box-shadow: 1px 0 3px rgba(0, 0, 0, 0.04);
+  z-index: 60;
+  overflow: hidden;
+}
+
+/* Existing header (logo + role pill) */
+body.bs-dashboard .dash-sidebar .header {
+  position: static;
+  flex: 0 0 auto;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+body.bs-dashboard .dash-sidebar .header-container {
+  max-width: none;
+  margin: 0;
+  padding: 1.25rem 1.25rem 0.5rem;
+  justify-content: flex-start;
+  gap: 0.75rem;
+}
+
+body.bs-dashboard .dash-sidebar .header-container .logo {
+  height: 48px;
+  width: 48px;
+}
+
+/* Existing dashboard header (title + welcome) and the navigation tabs */
+body.bs-dashboard .dash-sidebar .dashboard-header {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin: 0;
+  padding: 0.5rem 1rem 1rem;
+  background: transparent;
+  border: 0;
+  scrollbar-width: thin;
+}
+
+body.bs-dashboard .dash-sidebar .sidebar-welcome {
+  padding: 0.75rem 0.85rem;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+}
+
+body.bs-dashboard .dash-sidebar .sidebar-welcome h1 {
+  margin: 0 0 0.15rem;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #111827;
+}
+
+body.bs-dashboard .dash-sidebar .sidebar-welcome p {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: #6b7280;
+  word-break: break-word;
+}
+
+body.bs-dashboard .dash-sidebar .dashboard-nav {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 0.25rem;
+  padding: 0;
+  overflow: visible;
+}
+
+body.bs-dashboard .dash-sidebar .dashboard-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 0 0 auto;
+  width: 100%;
+  padding: 0.7rem 0.85rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0.75rem;
+  color: #4b5563;
+  font-size: 0.9rem;
+  font-weight: 500;
+  line-height: 1.2;
+  text-align: left;
+  white-space: normal;
+  transition: background 0.2s, color 0.2s, box-shadow 0.2s;
+}
+
+body.bs-dashboard .dash-sidebar .dashboard-tab:hover {
+  background: #f3f4f6;
+  border-color: transparent;
+  color: var(--dash-accent);
+}
+
+body.bs-dashboard .dash-sidebar .dashboard-tab.active {
+  background: var(--dash-accent);
+  border-color: var(--dash-accent);
+  color: #ffffff;
+  box-shadow: 0 6px 14px -6px rgba(var(--dash-accent-rgb), 0.7);
+}
+
+body.bs-dashboard .dash-sidebar .dashboard-tab:focus-visible,
+body.bs-dashboard .sidebar-toggle:focus-visible {
+  outline: 2px solid var(--dash-accent);
+  outline-offset: 2px;
+}
+
+body.bs-dashboard .dash-sidebar .tab-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+}
+
+/* Logout, pinned to the bottom of the sidebar */
+body.bs-dashboard .dash-sidebar .sidebar-footer {
+  flex: 0 0 auto;
+  padding: 1rem 1.25rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+body.bs-dashboard .dash-sidebar .btn-logout {
+  --bs-btn-hover-color: var(--dash-accent);
+  --bs-btn-hover-border-color: var(--dash-accent);
+  --bs-btn-active-color: var(--dash-accent);
+  --bs-btn-active-border-color: var(--dash-accent);
+  width: 100%;
+  justify-content: center;
+}
+
+/* Mobile-only pieces are hidden on larger screens */
+body.bs-dashboard .dash-topbar { display: none; }
+body.bs-dashboard .sidebar-backdrop { display: none; }
+
+/* ---------- Tablet ---------- */
+@media (min-width: 768px) and (max-width: 991.98px) {
+  body.bs-dashboard { --sidebar-width: 232px; }
+  body.bs-dashboard .dash-sidebar .header-container { padding: 1rem 1rem 0.5rem; }
+  body.bs-dashboard .dash-sidebar .dashboard-header { padding: 0.5rem 0.75rem 1rem; }
+  body.bs-dashboard .dash-sidebar .dashboard-tab { padding: 0.65rem 0.75rem; font-size: 0.875rem; }
+  body.bs-dashboard .dash-sidebar .sidebar-footer { padding: 0.75rem; }
+  body.bs-dashboard .dash-content > .dash-main { padding: 1.5rem 1rem 3rem; }
+}
+
+/* ---------- Mobile: collapsible off-canvas sidebar ---------- */
+@media (max-width: 767.98px) {
+  body.bs-dashboard .dash-sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    height: auto;
+    width: min(300px, 86vw);
+    flex: none;
+    transform: translateX(-100%);
+    visibility: hidden; /* closed menu cannot be tabbed into */
+    box-shadow: none;
+    transition: transform 0.25s ease, visibility 0s linear 0.25s;
+  }
+
+  body.bs-dashboard .dash-sidebar.is-open {
+    transform: translateX(0);
+    visibility: visible;
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.25);
+    transition: transform 0.25s ease, visibility 0s;
+  }
+
+  body.bs-dashboard .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    background: rgba(17, 24, 39, 0.45);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+    z-index: 55;
+  }
+
+  body.bs-dashboard .sidebar-backdrop.show {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  body.bs-dashboard .dash-topbar {
+    display: flex;
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 1rem;
+    background: #ffffff;
+    border-bottom: 1px solid #e5e7eb;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  }
+
+  body.bs-dashboard .sidebar-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    background: #ffffff;
+    border: 1px solid #d1d5db;
+    border-radius: 0.625rem;
+    color: #374151;
+    cursor: pointer;
+  }
+
+  body.bs-dashboard .sidebar-toggle:hover {
+    color: var(--dash-accent);
+    border-color: var(--dash-accent);
+  }
+
+  body.bs-dashboard .dash-topbar-title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #111827;
+  }
+
+  body.bs-dashboard .dash-content > .dash-main { padding: 1.25rem 1rem 3rem; }
+  body.bs-dashboard.sidebar-open { overflow: hidden; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.bs-dashboard .dash-sidebar,
+  body.bs-dashboard .sidebar-backdrop { transition: none !important; }
+}
