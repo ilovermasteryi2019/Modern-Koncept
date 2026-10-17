@@ -4570,28 +4570,16 @@ async function loadAdminInquiries() {
       if (badge) badge.style.display = newCount > 0 ? 'inline' : 'none';
 
       if (result.data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#9ca3af;padding:2rem;">No inquiries yet.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#9ca3af;padding:2rem;">No inquiries yet.</td></tr>';
         return;
       }
       result.data.forEach(item => {
-        const statusColors = { new: '#DC143C', read: '#3b82f6', replied: '#10b981' };
-        const statusBg = { new: '#fef2f2', read: '#dbeafe', replied: '#d1fae5' };
-        const color = statusColors[item.status] || '#6b7280';
-        const bg = statusBg[item.status] || '#f3f4f6';
         tbody.innerHTML += `
           <tr>
             <td><strong>${item.customer_name}</strong></td>
             <td>${item.email}</td>
             <td>${item.subject || 'General'}</td>
             <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${item.message}">${item.message.substring(0, 60)}${item.message.length > 60 ? '...' : ''}</td>
-            <td>
-              <select onchange="updateInquiryStatus(${item.id}, this.value)"
-                style="padding:0.25rem 0.5rem;border:1px solid ${color};border-radius:0.375rem;font-size:0.75rem;color:${color};background:${bg};cursor:pointer;font-weight:600;">
-                <option value="new" ${item.status === 'new' ? 'selected' : ''}>New</option>
-                <option value="read" ${item.status === 'read' ? 'selected' : ''}>Read</option>
-                <option value="replied" ${item.status === 'replied' ? 'selected' : ''}>Responded</option>
-              </select>
-            </td>
             <td style="white-space:nowrap;">${formatDate(item.created_at)}</td>
             <td>
               <button class="action-btn delete" onclick="deleteAdminInquiry(${item.id})" title="Delete">
@@ -4602,14 +4590,6 @@ async function loadAdminInquiries() {
       });
     }
   } catch (error) { showToast('❌ Failed to load inquiries', 'error'); }
-}
-
-async function updateInquiryStatus(id, status) {
-  try {
-    const result = await API.updateInquiryStatus(id, status);
-    if (result.success) { showToast('Status updated', 'success'); loadAdminInquiries(); }
-    else showToast('❌ ' + result.message, 'error');
-  } catch (error) { showToast('❌ Failed to update status', 'error'); }
 }
 
 async function deleteAdminInquiry(id) {
@@ -4712,7 +4692,6 @@ async function deleteAdminFeedback(id) {
     progress: 'Updating status...',
     disable: (id) => document.querySelector('.status-select[data-delivery-id="' + id + '"]')
   });
-  kdGuard('updateInquiryStatus', { key: (id) => 'inquiryStatus:' + id, progress: 'Updating status...' });
 
   // ---- "Open for editing" actions that fetch data first ----
   kdGuard('editFurniture', open('furniture'));
