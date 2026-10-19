@@ -1,5 +1,5 @@
 // =============================================================================
-// K-DESK DASHBOARD SIDEBAR (Admin / Manager / Staff)
+// K-DESK DASHBOARD (Admin / Manager / Staff) - mobile sidebar toggle
 // Only controls showing and hiding the sidebar on mobile. The dashboard tabs
 // themselves are still handled by initDashboardTabs() in main.js, and logout by
 // handleLogout() bound to #logoutBtn - nothing here replaces or intercepts them.
@@ -9,6 +9,11 @@
   const toggle = document.getElementById('sidebarToggle');
   const backdrop = document.getElementById('sidebarBackdrop');
   if (!sidebar || !toggle || !backdrop) return;
+
+  // If this script is ever loaded twice (e.g. under two file names), a second set of listeners would open and
+  // instantly close the menu again - the button would look dead. Only the first copy attaches listeners.
+  if (window.__kdSidebarReady) return;
+  window.__kdSidebarReady = true;
 
   const mobileQuery = window.matchMedia('(max-width: 767.98px)');
 

@@ -1457,6 +1457,7 @@ body.bs-dashboard {
   --dash-accent-dark: #A80728;
   --dash-accent-rgb: 220, 20, 60;
   --sidebar-width: 280px;
+  --dash-topbar-h: 61px; /* mobile top bar (menu button) height; the open menu starts below it */
 }
 
 body.bs-dashboard.dash-role-manager {
@@ -1660,10 +1661,11 @@ body.bs-dashboard .sidebar-backdrop { display: none; }
 @media (max-width: 767.98px) {
   body.bs-dashboard .dash-sidebar {
     position: fixed;
-    top: 0;
+    top: var(--dash-topbar-h); /* below the top bar, so the menu button is never covered */
     bottom: 0;
     left: 0;
     height: auto;
+    align-self: stretch; /* the base rule's flex-start kept this content-height, so Logout could fall off short screens */
     width: min(300px, 86vw);
     flex: none;
     transform: translateX(-100%);
@@ -1682,7 +1684,7 @@ body.bs-dashboard .sidebar-backdrop { display: none; }
   body.bs-dashboard .sidebar-backdrop {
     display: block;
     position: fixed;
-    top: 0;
+    top: var(--dash-topbar-h); /* leaves the top bar and its menu button tappable while the menu is open */
     right: 0;
     bottom: 0;
     left: 0;
@@ -1702,7 +1704,9 @@ body.bs-dashboard .sidebar-backdrop { display: none; }
     display: flex;
     position: sticky;
     top: 0;
-    z-index: 40;
+    z-index: 65; /* above the sidebar (60) and backdrop (55); they start below it, so nothing overlaps the button */
+    height: var(--dash-topbar-h);
+    box-sizing: border-box;
     align-items: center;
     gap: 0.75rem;
     padding: 0.5rem 1rem;
@@ -1724,7 +1728,11 @@ body.bs-dashboard .sidebar-backdrop { display: none; }
     border-radius: 0.625rem;
     color: #374151;
     cursor: pointer;
+    touch-action: manipulation; /* no double-tap-zoom delay on phones */
+    -webkit-tap-highlight-color: transparent;
   }
+
+  body.bs-dashboard .sidebar-toggle svg { pointer-events: none; } /* the tap always targets the button itself */
 
   body.bs-dashboard .sidebar-toggle:hover {
     color: var(--dash-accent);

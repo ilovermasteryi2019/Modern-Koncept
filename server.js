@@ -1320,30 +1320,62 @@ app.put('/account/me', requireRole('admin'), async (req, res) => {
 // =============================================================================
 // CHATBOT Q&A
 // =============================================================================
+// Reading is public: the customer chatbot builds its category widgets, questions and answers from this list.
+// Creating, editing and deleting needs an Admin login.
 app.get('/chatbot', async (req, res) => {
   const { data, error } = await db.from('chatbot_qa').select('*').order('category').order('created_at', { ascending: false });
   if (error) return res.status(500).json({ success: false, message: 'Failed to fetch chatbot Q&As' });
   res.json({ success: true, data });
 });
 
-app.post('/chatbot', withIdempotency('chatbot', async (req, res) => {
-  const { question, answer, category } = req.body;
-  if (!question || !answer) return res.status(400).json({ success: false, message: 'Question and answer are required' });
-  const { data, error } = await db.from('chatbot_qa').insert({ question, answer, category: category || 'General' }).select().single();
-  if (error) return res.status(500).json({ success: false, message: 'Failed to add Q&A' });
+// Categories offered by the "Add New Q&A" form of the Admin Dashboard (the #chatbotCategory options in admin.html).
+// Keep this list in sync with that dropdown. An empty category still falls back to 'General', as before.
+const CHATBOT_CATEGORIES = ['General', 'Delivery', 'Products', 'Payment', 'Returns', 'Warranty', 'Store Info', 'AI Visualizer'];
+
+function parseChatbotInput(body) {
+  const b = body || {};
+  if (b.category !== undefined && b.category !== null && typeof b.category !== 'string') return { ok: false, message: 'Invalid category' };
+  if (b.question !== undefined && typeof b.question !== 'string') return { ok: false, message: 'Invalid question' };
+  if (b.answer !== undefined && typeof b.answer !== 'string') return { ok: false, message: 'Invalid answer' };
+  const question = (b.question || '').trim();
+  const answer = (b.answer || '').trim();
+  const category = (b.category || '').trim() || 'General';
+  if (!question || !answer) return { ok: false, message: 'Question and answer are required' };
+  if (question.length > 500) return { ok: false, message: 'The question is too long (maximum 500 characters)' };
+  if (answer.length > 5000) return { ok: false, message: 'The answer is too long (maximum 5000 characters)' };
+  if (!CHATBOT_CATEGORIES.includes(category)) return { ok: false, message: 'Invalid category' };
+  return { ok: true, value: { category, question, answer } };
+}
+
+function chatbotRowId(raw) {
+  return /^\d+$/.test(String(raw)) ? Number(raw) : null;
+}
+
+app.post('/chatbot', requireRole('admin'), withIdempotency('chatbot', async (req, res) => {
+  const input = parseChatbotInput(req.body);
+  if (!input.ok) return res.status(400).json({ success: false, message: input.message });
+  const { data, error } = await db.from('chatbot_qa').insert(input.value).select().single();
+  if (error) { console.error('Chatbot insert error:', error.message); return res.status(500).json({ success: false, message: 'Failed to add Q&A' }); }
   res.status(201).json({ success: true, message: 'Q&A added successfully', id: data.id });
 }));
 
-app.put('/chatbot/:id', async (req, res) => {
-  const { question, answer, category } = req.body;
-  const { error } = await db.from('chatbot_qa').update({ question, answer, category: category || 'General', updated_at: new Date() }).eq('id', req.params.id);
-  if (error) return res.status(500).json({ success: false, message: 'Failed to update Q&A' });
+app.put('/chatbot/:id', requireRole('admin'), async (req, res) => {
+  const id = chatbotRowId(req.params.id);
+  if (id === null) return res.status(400).json({ success: false, message: 'Invalid Q&A' });
+  const input = parseChatbotInput(req.body);
+  if (!input.ok) return res.status(400).json({ success: false, message: input.message });
+  const { data, error } = await db.from('chatbot_qa').update({ ...input.value, updated_at: new Date() }).eq('id', id).select('id');
+  if (error) { console.error('Chatbot update error:', error.message); return res.status(500).json({ success: false, message: 'Failed to update Q&A' }); }
+  if (!data || data.length === 0) return res.status(404).json({ success: false, message: 'Q&A not found. Please refresh the list.' });
   res.json({ success: true, message: 'Q&A updated successfully' });
 });
 
-app.delete('/chatbot/:id', async (req, res) => {
-  const { error } = await db.from('chatbot_qa').delete().eq('id', req.params.id);
-  if (error) return res.status(500).json({ success: false, message: 'Failed to delete Q&A' });
+app.delete('/chatbot/:id', requireRole('admin'), async (req, res) => {
+  const id = chatbotRowId(req.params.id);
+  if (id === null) return res.status(400).json({ success: false, message: 'Invalid Q&A' });
+  const { data, error } = await db.from('chatbot_qa').delete().eq('id', id).select('id');
+  if (error) { console.error('Chatbot delete error:', error.message); return res.status(500).json({ success: false, message: 'Failed to delete Q&A' }); }
+  if (!data || data.length === 0) return res.status(404).json({ success: false, message: 'Q&A not found. Please refresh the list.' });
   res.json({ success: true, message: 'Q&A deleted successfully' });
 });
 

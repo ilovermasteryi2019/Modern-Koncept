@@ -637,9 +637,9 @@ const API = {
   saveContactInfo: async (data) => (await fetch(`${API_URL}/contact-info`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
   // Chatbot Q&A
   getChatbotQA: async () => (await fetch(`${API_URL}/chatbot`)).json(),
-  createChatbotQA: async (data) => (await fetch(`${API_URL}/chatbot`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
-  updateChatbotQA: async (id, data) => (await fetch(`${API_URL}/chatbot/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
-  deleteChatbotQA: async (id) => (await fetch(`${API_URL}/chatbot/${id}`, { method: 'DELETE' })).json(),
+  createChatbotQA: async (data) => (await fetch(`${API_URL}/chatbot`, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(data) })).json(),
+  updateChatbotQA: async (id, data) => (await fetch(`${API_URL}/chatbot/${id}`, { method: 'PUT', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(data) })).json(),
+  deleteChatbotQA: async (id) => (await fetch(`${API_URL}/chatbot/${id}`, { method: 'DELETE', headers: authHeaders() })).json(),
   // Inquiries
   getInquiries: async () => (await fetch(`${API_URL}/inquiries`)).json(),
   submitInquiry: async (data) => (await fetch(`${API_URL}/inquiries`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
@@ -4084,26 +4084,21 @@ async function loadChatbotQA() {
 
     if (!response.ok) {
       console.error(`❌ [Chatbot] Server returned status ${response.status}`);
-      dbChatbotQA = [];
-      return;
+      return false; // a failed refresh keeps the Q&A that was already loaded
     }
 
     const result = await response.json();
 
     if (result.success && Array.isArray(result.data)) {
-      dbChatbotQA = result.data;
+      dbChatbotQA = result.data.filter(qa => qa && typeof qa.question === 'string' && typeof qa.answer === 'string');
       console.log(`✅ [Chatbot] Loaded ${dbChatbotQA.length} Q&A entries from database.`);
-      dbChatbotQA.forEach((qa, i) => {
-        console.log(`   [${i + 1}] Q: "${qa.question}" → A: "${qa.answer.substring(0, 40)}..."`);
-      });
-    } else {
-      console.warn('⚠️ [Chatbot] API returned no Q&A data:', result);
-      dbChatbotQA = [];
+      return true;
     }
+    console.warn('⚠️ [Chatbot] API returned no Q&A data:', result);
   } catch (error) {
     console.error('❌ [Chatbot] Failed to load Q&A from database:', error.message);
-    dbChatbotQA = [];
   }
+  return false;
 }
 
 /**
@@ -4149,7 +4144,7 @@ function getBotResponse(message) {
 
   if (bestMatch && bestScore > 0) {
     console.log(`✅ [Chatbot] Matched Q: "${bestMatch.question}" (score: ${bestScore})`);
-    return bestMatch.answer;
+    return chatbotTextToHtml(bestMatch.answer); // stored text is escaped, line breaks are kept
   }
 
   console.log(`ℹ️ [Chatbot] No match found for: "${message}"`);
@@ -4172,11 +4167,12 @@ function addChatMessage(message, sender = 'bot') {
       </div>
       <div class="chat-bubble">${message}</div>`;
   } else {
-    msgDiv.innerHTML = `<div class="chat-bubble">${message}</div>`;
+    msgDiv.innerHTML = `<div class="chat-bubble">${escapeHtmlText(message)}</div>`;
   }
 
   messagesEl.appendChild(msgDiv);
   messagesEl.scrollTop = messagesEl.scrollHeight;
+  return msgDiv.querySelector('.chat-bubble');
 }
 
 function showTypingIndicator() {
@@ -4256,6 +4252,202 @@ function sendChatMessage(message) {
   }, 800 + Math.random() * 500);
 }
 
+// =============================================================================
+// CHATBOT CATEGORY WIDGETS
+// The categories shown as clickable widgets are read from the Q&A saved by the Admin (GET /chatbot, the same data the
+// chatbot already uses). Nothing is hardcoded: a new category appears as soon as the Admin saves a Q&A under it, and
+// it disappears when its last Q&A is deleted. Each category appears once. All text from the database is shown as text.
+// =============================================================================
+let chatbotActiveCategory = null;
+let chatbotBrowseBusy = false;
+let chatbotRefreshPromise = null;
+
+// Q&A text is plain text: escape it and keep line breaks (used where a message is built from an HTML string)
+function chatbotTextToHtml(text) {
+  return escapeHtmlText(text).replace(/\r?\n/g, '<br>');
+}
+
+const CHATBOT_CATEGORY_CSS = `
+  .chatbot-categories { box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; max-height: 5rem; overflow-y: auto; background: #f9fafb; border-top: 1px solid #f3f4f6; flex-shrink: 0; }
+  .chatbot-categories[hidden] { display: none; }
+  .chatbot-categories-label { font-size: 0.7rem; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.04em; }
+  .category-widget { padding: 0.3rem 0.75rem; border: 1px solid #DC143C; color: #DC143C; background: white; border-radius: 9999px; font-size: 0.75rem; font-weight: 500; cursor: pointer; transition: all 0.2s; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .category-widget:hover, .category-widget.active { background: #DC143C; color: white; }
+  .chat-question-list { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.6rem; }
+  .chat-question-btn { text-align: left; padding: 0.45rem 0.7rem; border: 1px solid #DC143C; border-radius: 0.75rem; background: white; color: #DC143C; font-size: 0.8rem; font-weight: 500; line-height: 1.35; cursor: pointer; transition: all 0.2s; overflow-wrap: anywhere; }
+  .chat-question-btn:hover { background: #DC143C; color: white; }
+  .chat-answer-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+`;
+
+function chatbotCategoryOf(qa) {
+  const name = typeof qa.category === 'string' ? qa.category.trim() : '';
+  return name || 'General'; // same default the server uses
+}
+
+// Unique category names (case-insensitive), alphabetical
+function getChatbotCategories() {
+  const unique = new Map();
+  dbChatbotQA.forEach(qa => {
+    const name = chatbotCategoryOf(qa);
+    if (!unique.has(name.toLowerCase())) unique.set(name.toLowerCase(), name);
+  });
+  return Array.from(unique.values()).sort((a, b) => a.localeCompare(b));
+}
+
+// Creates the widget row (and its styles) next to the quick actions, so every page with the chatbot gets it
+function ensureChatbotCategoryUi() {
+  const panel = document.getElementById('chatbotPanel');
+  if (!panel) return null;
+  if (!document.getElementById('kdChatbotCategoryStyles')) {
+    const style = document.createElement('style');
+    style.id = 'kdChatbotCategoryStyles';
+    style.textContent = CHATBOT_CATEGORY_CSS;
+    document.head.appendChild(style);
+  }
+  let box = document.getElementById('chatbotCategories');
+  if (!box) {
+    const anchor = document.getElementById('chatbotQuickReplies') || panel.querySelector('.chatbot-input-area');
+    if (!anchor || !anchor.parentNode) return null;
+    box = document.createElement('div');
+    box.id = 'chatbotCategories';
+    box.className = 'chatbot-categories';
+    box.hidden = true;
+    box.setAttribute('role', 'group');
+    box.setAttribute('aria-label', 'Browse topics');
+    anchor.parentNode.insertBefore(box, anchor.id === 'chatbotQuickReplies' ? anchor.nextSibling : anchor);
+    box.addEventListener('click', (event) => {
+      const button = event.target.closest ? event.target.closest('.category-widget') : null;
+      if (button) showChatbotCategory(button.dataset.category);
+    });
+  }
+  return box;
+}
+
+function renderChatbotCategories() {
+  const box = ensureChatbotCategoryUi();
+  if (!box) return;
+  const categories = getChatbotCategories();
+  const signature = categories.join('\u0001') + '\u0002' + (chatbotActiveCategory || '');
+  if (box.dataset.signature === signature) return; // nothing changed
+  box.dataset.signature = signature;
+  box.textContent = '';
+  if (categories.length === 0) { box.hidden = true; return; }
+  const label = document.createElement('span');
+  label.className = 'chatbot-categories-label';
+  label.textContent = 'Topics';
+  box.appendChild(label);
+  categories.forEach(name => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'category-widget' + (chatbotActiveCategory && chatbotActiveCategory.toLowerCase() === name.toLowerCase() ? ' active' : '');
+    button.dataset.category = name;
+    button.textContent = name;
+    box.appendChild(button);
+  });
+  box.hidden = false;
+}
+
+// Reloads the Q&A (one request at a time). A failed reload keeps what is already loaded.
+function refreshChatbotQA() {
+  if (!chatbotRefreshPromise) {
+    chatbotRefreshPromise = loadChatbotQA().finally(() => { chatbotRefreshPromise = null; });
+  }
+  return chatbotRefreshPromise;
+}
+
+const chatbotPause = () => new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 300));
+
+function hideChatbotQuickReplies() {
+  const quickReplies = document.getElementById('chatbotQuickReplies');
+  if (quickReplies) quickReplies.style.display = 'none'; // same behaviour as after the first typed message
+}
+
+// Customer clicked a category widget: list the saved questions of that category
+async function showChatbotCategory(name, { echoUser = true } = {}) {
+  if (chatbotBrowseBusy || !name) return; // ignore clicks while a previous one is still being answered
+  chatbotBrowseBusy = true;
+  chatbotActiveCategory = name;
+  renderChatbotCategories();
+  hideChatbotQuickReplies();
+  let typing = null;
+  try {
+    if (echoUser) addChatMessage(name, 'user');
+    typing = showTypingIndicator();
+    await Promise.all([refreshChatbotQA(), chatbotPause()]); // pick up anything the Admin added, edited or deleted
+    if (typing) { typing.remove(); typing = null; }
+    renderChatbotCategories();
+    const key = name.toLowerCase();
+    const items = dbChatbotQA.filter(qa => chatbotCategoryOf(qa).toLowerCase() === key);
+    const bubble = addChatMessage('', 'bot');
+    if (!bubble) return;
+    if (items.length === 0) {
+      bubble.textContent = `There are no questions saved under ${name} right now. You can type your question below, or choose another topic.`;
+      return;
+    }
+    const intro = document.createElement('div');
+    intro.textContent = `Here are the questions I can help with under ${name}. Tap one to see the answer:`;
+    const list = document.createElement('div');
+    list.className = 'chat-question-list';
+    items.forEach(qa => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'chat-question-btn';
+      button.dataset.qaId = String(qa.id);
+      button.dataset.category = name;
+      button.textContent = qa.question;
+      list.appendChild(button);
+    });
+    bubble.append(intro, list);
+    const messagesEl = document.getElementById('chatbotMessages');
+    if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
+  } finally {
+    if (typing) typing.remove();
+    chatbotBrowseBusy = false;
+  }
+}
+
+// Customer clicked one of the listed questions: show its saved answer
+async function showChatbotAnswer(qaId, categoryName) {
+  if (chatbotBrowseBusy) return;
+  chatbotBrowseBusy = true;
+  let typing = null;
+  try {
+    const clicked = dbChatbotQA.find(qa => String(qa.id) === String(qaId));
+    if (clicked) addChatMessage(clicked.question, 'user');
+    typing = showTypingIndicator();
+    await Promise.all([refreshChatbotQA(), chatbotPause()]);
+    if (typing) { typing.remove(); typing = null; }
+    renderChatbotCategories();
+    const qa = dbChatbotQA.find(item => String(item.id) === String(qaId));
+    const bubble = addChatMessage('', 'bot');
+    if (!bubble) return;
+    if (qa) {
+      const text = document.createElement('div');
+      text.className = 'chat-answer-text';
+      text.textContent = qa.answer;
+      bubble.appendChild(text);
+    } else {
+      bubble.textContent = 'Sorry, that question is no longer available. Please choose another one.';
+    }
+    if (categoryName) {
+      const list = document.createElement('div');
+      list.className = 'chat-question-list';
+      const more = document.createElement('button');
+      more.type = 'button';
+      more.className = 'chat-question-btn chat-more-btn';
+      more.dataset.category = categoryName;
+      more.textContent = `More ${categoryName} questions`;
+      list.appendChild(more);
+      bubble.appendChild(list);
+    }
+    const messagesEl = document.getElementById('chatbotMessages');
+    if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
+  } finally {
+    if (typing) typing.remove();
+    chatbotBrowseBusy = false;
+  }
+}
+
 function initChatbot() {
   const toggle = document.getElementById('chatbotToggle');
   const panel = document.getElementById('chatbotPanel');
@@ -4268,8 +4460,9 @@ function initChatbot() {
 
   if (!toggle || !panel) return;
 
-  // ✅ Load Q&A from the database when chatbot initializes
-  loadChatbotQA();
+  // ✅ Load Q&A from the database when chatbot initializes, then build the category widgets from it
+  ensureChatbotCategoryUi();
+  loadChatbotQA().then(renderChatbotCategories);
 
   // Show notification badge after 3 seconds
   setTimeout(() => {
@@ -4289,6 +4482,7 @@ function initChatbot() {
     if (isOpen) {
       const messagesEl = document.getElementById('chatbotMessages');
       if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
+      refreshChatbotQA().then(renderChatbotCategories); // pick up Q&A changes made by the Admin since the page loaded
       if (input) input.focus();
     }
   });
@@ -4316,6 +4510,17 @@ function initChatbot() {
         e.preventDefault();
         sendChatMessage(input.value);
       }
+    });
+  }
+
+  // Question buttons inside the chat (listed after a category widget was clicked)
+  const chatMessagesEl = document.getElementById('chatbotMessages');
+  if (chatMessagesEl) {
+    chatMessagesEl.addEventListener('click', (event) => {
+      const button = event.target.closest ? event.target.closest('.chat-question-btn') : null;
+      if (!button) return;
+      if (button.classList.contains('chat-more-btn')) showChatbotCategory(button.dataset.category, { echoUser: false });
+      else showChatbotAnswer(button.dataset.qaId, button.dataset.category);
     });
   }
 
@@ -4481,9 +4686,9 @@ async function loadChatbotList() {
         }[item.category] || '#374151';
         tbody.innerHTML += `
           <tr>
-            <td><span style="padding:0.2rem 0.6rem;background:${categoryColor}15;color:${categoryColor};border-radius:9999px;font-size:0.75rem;font-weight:600;">${item.category}</span></td>
-            <td style="max-width:200px;">${item.question}</td>
-            <td style="max-width:250px;color:#6b7280;">${item.answer.substring(0, 80)}${item.answer.length > 80 ? '...' : ''}</td>
+            <td><span style="padding:0.2rem 0.6rem;background:${categoryColor}15;color:${categoryColor};border-radius:9999px;font-size:0.75rem;font-weight:600;">${escapeHtmlText(item.category || 'General')}</span></td>
+            <td style="max-width:200px;">${escapeHtmlText(item.question || '')}</td>
+            <td style="max-width:250px;color:#6b7280;">${escapeHtmlText(String(item.answer || '').substring(0, 80))}${String(item.answer || '').length > 80 ? '...' : ''}</td>
             <td style="white-space:nowrap;">${formatDate(item.created_at)}</td>
             <td>
               <button class="action-btn edit" onclick="editChatbotQA(${item.id})" title="Edit">
@@ -4526,9 +4731,11 @@ async function handleChatbotSubmit(event) {
   event.preventDefault();
   const data = {
     category: document.getElementById('chatbotCategory').value,
-    question: document.getElementById('chatbotQuestion').value,
-    answer: document.getElementById('chatbotAnswer').value
+    question: document.getElementById('chatbotQuestion').value.trim(),
+    answer: document.getElementById('chatbotAnswer').value.trim()
   };
+  if (!data.question) { showToast('Please enter the question', 'warning'); return; }
+  if (!data.answer) { showToast('Please enter the answer', 'warning'); return; }
   try {
     const result = editingChatbotId
       ? await API.updateChatbotQA(editingChatbotId, data)
