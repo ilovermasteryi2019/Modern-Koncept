@@ -4934,3 +4934,237 @@ async function deleteAdminFeedback(id) {
   // ---- Pages that are empty until their data arrives ----
   kdWrapPage('loadFurnitureDetail', 'Loading furniture details...');
 })();
+
+// =============================================================================
+// FURNITURE DIMENSION INDICATOR (furniture-detail.html) — feet & inches
+// Self-contained: does nothing on pages that do not have the #dimFrame markup.
+// =============================================================================
+/* =============================================================================
+   K-Desk — Furniture Dimension Indicator (feet & inches)
+
+   What it does
+   - Reads the dimensions that the furniture details page ALREADY shows for the
+     selected product (the #productDimensions field, filled from the database).
+   - Parses them, converts everything to feet and inches (never centimeters), and
+     draws measurement rulers around the product image plus a small labelled
+     diagram below it.
+   - Never invents a value: a dimension that is missing, zero or ambiguous is
+     simply not drawn.
+
+   Stored format (written by Admin > Furniture):
+       "<Length>cm x <Width>cm x <Height>cm"      e.g. "200cm x 90cm x 80cm"
+   Mapping used for the customer view (the usual retail W x D x H convention):
+       1st value (Length) -> Width  (the long, front-facing side)
+       2nd value (Width)  -> Depth  (front to back)
+       3rd value (Height) -> Height
+   If your team means something different, change ORDER_TO_AXIS below — it is the
+   only place that mapping lives.
+
+   Rounding rule: every length is rounded to the NEAREST WHOLE INCH.
+     under 24 in  -> shown in inches        (18 in)
+     24 in and up -> shown in feet + inches (3 ft 6 in, or 4 ft when exact)
+   ========================================================================== */
+(function (root, factory) {
+  const api = factory();
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else root.KDeskDimensions = api;
+  if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', api.init);
+    else api.init();
+  }
+})(typeof window !== 'undefined' ? window : this, function () {
+  'use strict';
+
+  const CM_PER_INCH = 2.54;                          // 1 in = 2.54 cm
+  const UNIT_CM = { mm: 0.1, cm: 1, m: 100, in: CM_PER_INCH, ft: CM_PER_INCH * 12 }; // 1 ft = 30.48 cm
+  const ORDER_TO_AXIS = ['width', 'depth', 'height']; // stored order Length x Width x Height
+  const AXIS_LABEL = { width: 'Width', depth: 'Depth', height: 'Height' };
+
+  // ---------------------------------------------------------------- parsing
+  const TOKEN_RE = new RegExp(
+    '(?:\\b(width|depth|height|length|w|d|h|l)\\b\\s*[:=]?\\s*)?' +                     // optional label
+    '(\\d+(?:\\.\\d+)?)\\s*' +                                                          // number
+    '(?:(mm|cm|m|ft|feet|foot|inches|inch|in|\'|′|"|″|”)(?![a-z]))?' +                  // optional unit
+    '(?:\\s*(\\d+(?:\\.\\d+)?)\\s*(inches|inch|in|"|″|”)(?![a-z]))?',                   // optional "+ 2 in" after feet
+    'gi'
+  );
+
+  function normaliseUnit(u) {
+    if (!u) return null;
+    u = u.toLowerCase();
+    if (u === 'feet' || u === 'foot' || u === "'" || u === '′') return 'ft';
+    if (u === 'inch' || u === 'inches' || u === '"' || u === '″' || u === '”') return 'in';
+    return u;
+  }
+
+  function normaliseLabel(l) {
+    if (!l) return null;
+    l = l.toLowerCase();
+    if (l === 'w' || l === 'width') return 'width';
+    if (l === 'd' || l === 'depth') return 'depth';
+    if (l === 'h' || l === 'height') return 'height';
+    return 'length';
+  }
+
+  // Returns { entries: [{ label, cm, assumedUnit }] } — entries keep their original order.
+  function tokenize(raw) {
+    const entries = [];
+    const text = String(raw == null ? '' : raw);
+    TOKEN_RE.lastIndex = 0;
+    let m;
+    while ((m = TOKEN_RE.exec(text)) !== null) {
+      if (m[0] === '') { TOKEN_RE.lastIndex++; continue; }
+      const num = parseFloat(m[2]);
+      if (!isFinite(num)) continue;
+      const unit = normaliseUnit(m[3]);
+      let cm = null;
+      if (unit) {
+        cm = num * UNIT_CM[unit];
+        if (unit === 'ft' && m[4]) cm += parseFloat(m[4]) * CM_PER_INCH; // 6 ft 2 in / 6'2"
+      }
+      entries.push({ label: normaliseLabel(m[1]), num, unit, cm });
+    }
+    // A unit written once for the whole string ("200 x 90 x 80 cm") applies to values without one.
+    const fallbackUnit = (entries.find(e => e.unit) || {}).unit || 'cm'; // cm = the unit K-Desk stores
+    const assumedUnit = !entries.some(e => e.unit);
+    entries.forEach(e => { if (e.cm === null) e.cm = e.num * UNIT_CM[fallbackUnit]; e.assumedUnit = assumedUnit; });
+    return entries;
+  }
+
+  // Works out which value is width / depth / height. Anything that cannot be decided
+  // with certainty is left out (never guessed).
+  function parseDimensions(raw) {
+    const entries = tokenize(raw);
+    const result = { width: null, depth: null, height: null, entries, ambiguous: false };
+    if (entries.length === 0) return result;
+
+    const anyLabel = entries.some(e => e.label);
+    if (anyLabel) {
+      const hasExplicitWidth = entries.some(e => e.label === 'width');
+      entries.forEach(e => {
+        let axis = e.label;
+        if (axis === 'length') axis = hasExplicitWidth ? 'depth' : 'width';
+        if (axis && result[axis] === null && e.cm > 0) result[axis] = e.cm;
+      });
+      return result;
+    }
+    if (entries.length === 3) {
+      ORDER_TO_AXIS.forEach((axis, i) => { if (entries[i].cm > 0) result[axis] = entries[i].cm; });
+      return result;
+    }
+    result.ambiguous = true; // 1, 2 or 4+ unlabeled numbers: can't tell which side is which
+    return result;
+  }
+
+  // ------------------------------------------------------------- conversion
+  function cmToWholeInches(cm) { return Math.max(1, Math.round(cm / CM_PER_INCH)); }
+
+  function formatInches(totalInches) {
+    if (totalInches < 24) return totalInches + ' in';
+    const ft = Math.floor(totalInches / 12);
+    const inch = totalInches % 12;
+    return inch === 0 ? ft + ' ft' : ft + ' ft ' + inch + ' in';
+  }
+  function formatCm(cm) { return formatInches(cmToWholeInches(cm)); }
+
+  // One line for the "Dimensions:" row of the product details.
+  function summaryText(parsed) {
+    const parts = ['width', 'depth', 'height']
+      .filter(k => parsed[k] !== null)
+      .map(k => AXIS_LABEL[k] + ' ' + formatCm(parsed[k]));
+    if (parts.length) return parts.join(' × ');
+    // Ambiguous / partially readable text: still convert every number, keep original order, no cm.
+    const converted = parsed.entries.filter(e => e.cm > 0).map(e => formatCm(e.cm));
+    return converted.length ? converted.join(' × ') : null;
+  }
+
+  // ---------------------------------------------------------------- drawing
+  function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+  // Schematic box (NOT to scale) with an arrow + label only for the measurements that exist.
+  function diagramSvg(p) {
+    const W = p.width !== null ? formatCm(p.width) : null;
+    const D = p.depth !== null ? formatCm(p.depth) : null;
+    const H = p.height !== null ? formatCm(p.height) : null;
+    const line = '#4b5563', fill = '#ffffff', top = '#f3f4f6', side = '#e5e7eb';
+    let s = '<svg viewBox="0 0 335 215" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Dimension diagram">';
+    s += '<defs>' +
+      '<marker id="kdArrowEnd" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="' + line + '"/></marker>' +
+      '<marker id="kdArrowStart" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="' + line + '"/></marker>' +
+      '</defs>';
+    // box
+    s += '<polygon points="52,62 192,62 242,27 102,27" fill="' + top + '" stroke="' + line + '" stroke-width="1.5" stroke-linejoin="round"/>';
+    s += '<polygon points="192,62 242,27 242,127 192,162" fill="' + side + '" stroke="' + line + '" stroke-width="1.5" stroke-linejoin="round"/>';
+    s += '<rect x="52" y="62" width="140" height="100" fill="' + fill + '" stroke="' + line + '" stroke-width="1.5" stroke-linejoin="round"/>';
+    const lbl = 'font-family="Inter,Segoe UI,Arial,sans-serif" font-size="12" font-weight="600" fill="#111827" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round"';
+    if (W) {
+      s += '<line x1="52" y1="180" x2="192" y2="180" stroke="' + line + '" stroke-width="1.5" marker-start="url(#kdArrowStart)" marker-end="url(#kdArrowEnd)"/>';
+      s += '<text x="122" y="199" text-anchor="middle" ' + lbl + '>' + esc(W) + '</text>';
+    }
+    if (H) {
+      s += '<line x1="30" y1="62" x2="30" y2="162" stroke="' + line + '" stroke-width="1.5" marker-start="url(#kdArrowStart)" marker-end="url(#kdArrowEnd)"/>';
+      s += '<text transform="translate(21 112) rotate(-90)" text-anchor="middle" ' + lbl + '>' + esc(H) + '</text>';
+    }
+    if (D) {
+      s += '<line x1="204" y1="172" x2="254" y2="137" stroke="' + line + '" stroke-width="1.5" marker-start="url(#kdArrowStart)" marker-end="url(#kdArrowEnd)"/>';
+      s += '<text x="262" y="156" text-anchor="start" ' + lbl + '>' + esc(D) + '</text>';
+    }
+    return s + '</svg>';
+  }
+
+  function legendHtml(p) {
+    return ['width', 'depth', 'height'].filter(k => p[k] !== null).map(k =>
+      '<li><span class="dim-legend-name">' + AXIS_LABEL[k] + '</span><span class="dim-legend-value">' + esc(formatCm(p[k])) + '</span></li>').join('');
+  }
+
+  function setRuler(frame, id, valueText, axisLabel) {
+    const el = frame.querySelector('#' + id);
+    if (!el) return;
+    if (valueText) {
+      el.querySelector('.dim-label').textContent = valueText;
+      el.setAttribute('aria-label', axisLabel + ': ' + valueText);
+      el.hidden = false;
+    } else { el.hidden = true; }
+  }
+
+  function render(frame, p) {
+    const w = p.width !== null ? formatCm(p.width) : null;
+    const h = p.height !== null ? formatCm(p.height) : null;
+    setRuler(frame, 'dimWidth', w, 'Width');
+    setRuler(frame, 'dimHeight', h, 'Height');
+    frame.classList.toggle('has-height', !!h);
+    const diagram = frame.querySelector('#dimDiagram');
+    if (diagram) {
+      const any = p.width !== null || p.depth !== null || p.height !== null;
+      if (any) {
+        diagram.querySelector('.dim-diagram-svg').innerHTML = diagramSvg(p);
+        diagram.querySelector('.dim-legend').innerHTML = legendHtml(p);
+        diagram.hidden = false;
+      } else { diagram.hidden = true; }
+    }
+  }
+
+  // -------------------------------------------------------------------- wiring
+  function init() {
+    if (typeof document === 'undefined') return;
+    const cell = document.getElementById('productDimensions');
+    const frame = document.getElementById('dimFrame');
+    if (!cell || !frame) return;
+
+    const apply = function () {
+      const text = (cell.textContent || '').trim();
+      if (!text || cell.dataset.kdFormatted === text) return;       // empty, or our own output
+      const parsed = parseDimensions(text);
+      const summary = summaryText(parsed);
+      if (summary === null) return;                                   // "N/A", "-" ...: leave untouched
+      cell.dataset.kdFormatted = summary;
+      cell.textContent = summary;                                     // feet & inches, never cm
+      render(frame, parsed);
+    };
+    // The details page fills #productDimensions after it loads the product, so watch it.
+    new MutationObserver(apply).observe(cell, { childList: true, characterData: true, subtree: true });
+    apply();
+  }
+
+  return { init, parseDimensions, summaryText, formatCm, formatInches, cmToWholeInches, diagramSvg };
+});
