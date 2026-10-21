@@ -922,20 +922,39 @@
           
           <div class="form-group">
   <label class="form-label">Dimensions</label>
-  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem;">
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr)); gap: 0.75rem;">
     <div>
-      <label class="form-label" style="font-size: 0.75rem; color: #6b7280;">Length (cm)</label>
-      <input type="number" id="furnitureLength" class="form-input" placeholder="200" min="1" step="0.01" required>
+      <label class="form-label" id="furnitureLengthLabel" for="furnitureLength" style="font-size: 0.75rem; color: #6b7280;">Length (in)</label>
+      <div style="display: flex; gap: 0.4rem; align-items: center;">
+        <input type="number" id="furnitureLength" class="form-input" placeholder="80" min="0" step="any" inputmode="decimal" required style="flex: 1 1 auto; min-width: 0;">
+        <select id="furnitureLengthUnit" class="form-input" aria-label="Length unit" style="flex: 0 0 4.25rem; width: 4.25rem; padding-left: 0.5rem; padding-right: 0.25rem;">
+          <option value="in" selected>in</option>
+          <option value="ft">ft</option>
+        </select>
+      </div>
     </div>
     <div>
-      <label class="form-label" style="font-size: 0.75rem; color: #6b7280;">Width (cm)</label>
-      <input type="number" id="furnitureWidth" class="form-input" placeholder="90" min="1" step="0.01" required>
+      <label class="form-label" id="furnitureWidthLabel" for="furnitureWidth" style="font-size: 0.75rem; color: #6b7280;">Width (in)</label>
+      <div style="display: flex; gap: 0.4rem; align-items: center;">
+        <input type="number" id="furnitureWidth" class="form-input" placeholder="36" min="0" step="any" inputmode="decimal" required style="flex: 1 1 auto; min-width: 0;">
+        <select id="furnitureWidthUnit" class="form-input" aria-label="Width unit" style="flex: 0 0 4.25rem; width: 4.25rem; padding-left: 0.5rem; padding-right: 0.25rem;">
+          <option value="in" selected>in</option>
+          <option value="ft">ft</option>
+        </select>
+      </div>
     </div>
     <div>
-      <label class="form-label" style="font-size: 0.75rem; color: #6b7280;">Height (cm)</label>
-      <input type="number" id="furnitureHeight" class="form-input" placeholder="80" min="1" step="0.01" required>
+      <label class="form-label" id="furnitureHeightLabel" for="furnitureHeight" style="font-size: 0.75rem; color: #6b7280;">Height (in)</label>
+      <div style="display: flex; gap: 0.4rem; align-items: center;">
+        <input type="number" id="furnitureHeight" class="form-input" placeholder="32" min="0" step="any" inputmode="decimal" required style="flex: 1 1 auto; min-width: 0;">
+        <select id="furnitureHeightUnit" class="form-input" aria-label="Height unit" style="flex: 0 0 4.25rem; width: 4.25rem; padding-left: 0.5rem; padding-right: 0.25rem;">
+          <option value="in" selected>in</option>
+          <option value="ft">ft</option>
+        </select>
+      </div>
     </div>
   </div>
+  <small style="display:block;margin-top:0.25rem;color:#6b7280;font-size:0.8rem;">Choose inches or feet for each value. Changing the unit does not change the furniture's size.</small>
 </div>
           <div class="form-group">
             <label class="form-label">Description</label>

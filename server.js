@@ -4,6 +4,206 @@ const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
 const { GoogleGenAI } = require('@google/genai');
 const crypto = require('crypto');
+// ---- Shared dimension logic (identical copy of the block at the top of main.js) ----
+/* =============================================================================
+   K-Desk: shared furniture dimension utility (browser + Node)
+
+   SINGLE source of truth for reading, converting, validating and formatting furniture dimensions.
+   Used by: furniture-detail.html (text, rulers, diagram), ai-visualization.html (size label) and
+   server.js (the size sent to the AI room visualizer). Nothing else should parse or convert dimensions.
+
+   Verified storage (from main.js, admin furniture form, and server.js):
+     furniture.dimensions is ONE free-text string, written by the admin form as
+         "<Length>cm x <Width>cm x <Height>cm"          e.g. "81.3cm x 86.4cm x 91.4cm"
+     The server saves any string up to 100 characters with no format check, so a record may also hold
+     other units or formats. This module therefore reads the unit written on every value and NEVER guesses one.
+
+   Axis mapping (admin form order -> customer meaning), the only place it lives:
+     1st value (Length) -> Width   (left to right across the front)
+     2nd value (Width)  -> Depth   (front to back)
+     3rd value (Height) -> Height  (floor to top)
+   ========================================================================== */
+const KDeskDimensions = (function () {
+  'use strict';
+
+  const AXES = ['width', 'depth', 'height'];
+  const STORED_ORDER = ['width', 'depth', 'height'];            // Length x Width x Height as saved by the admin form
+  const AXIS_LABEL = { width: 'Width', depth: 'Depth', height: 'Height' };
+  const UNAVAILABLE_TEXT = 'Dimensions unavailable';
+  const INCHES_PER = { mm: 1 / 25.4, cm: 1 / 2.54, m: 100 / 2.54, in: 1, ft: 12 };   // 1 in = 2.54 cm, 1 ft = 12 in
+
+  // ---------------------------------------------------------------------------
+  // Validation rules per furniture type (inches). Configurable: edit here or call registerType().
+  // These are sanity checks, not manufacturer data. A value outside a range puts the record in
+  // the "review" state (never clamped or changed). Categories with no rule only get the basic checks.
+  // ---------------------------------------------------------------------------
+  const TYPE_RULES = {
+    armchair:      { label: 'Armchair',      aliases: ['armchair', 'arm chair'],           ranges: { width: [28, 40], depth: [30, 40], height: [30, 40] } },
+    sofa:          { label: 'Sofa',          aliases: ['sofa'],                            ranges: { width: [60, 96], depth: [30, 40], height: [28, 40] } },
+    'dining-chair': { label: 'Dining Chair', aliases: ['dining chair'],                    ranges: { width: [16, 24], depth: [18, 24], height: [30, 40] } }
+  };
+
+  function registerType(key, def) { TYPE_RULES[key] = def; }
+
+  // "Armchairs", "ARM-CHAIR", " Dining  Chair " -> comparable lowercase words, singular.
+  function normaliseText(s) {
+    return String(s == null ? '' : s).toLowerCase().replace(/[^a-z]+/g, ' ').trim().replace(/s$/, '');
+  }
+
+  // Picks the rule from the category. Only when the category matches nothing, the product NAME is checked,
+  // and only if it ENDS with a type phrase ("Oslo Armchair"), so "Sofa Table" is not treated as a sofa.
+  function detectType(product) {
+    const match = text => Object.keys(TYPE_RULES).find(k => TYPE_RULES[k].aliases.some(a => text === normaliseText(a)));
+    const byCategory = match(normaliseText(product && product.category));
+    if (byCategory) return byCategory;
+    const name = normaliseText(product && product.name);
+    return Object.keys(TYPE_RULES).find(k => TYPE_RULES[k].aliases.some(a => name === a || name.endsWith(' ' + a))) || null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Parsing: stored text -> inches per axis. Every unit is explicit or the record is rejected.
+  // ---------------------------------------------------------------------------
+  const UNIT_WORDS = 'mm|cm|m|ft|feet|foot|inches|inch|in|\'|′|"|″|”';
+  const PART_RE = new RegExp(
+    '^(?:(width|depth|height|length|w|d|h|l)\\s*[:=]?\\s*)?' +          // optional axis label
+    '(-?\\d+(?:\\.\\d+)?)\\s*' +                                        // number (decimals stay decimals)
+    '(?:(' + UNIT_WORDS + ')(?![a-z]))?' +                              // optional unit
+    '(?:\\s*(\\d+(?:\\.\\d+)?)\\s*(inches|inch|in|"|″|”)(?![a-z]))?$', // optional "+ 6 in" after feet
+    'i'
+  );
+
+  function unitKey(u) {
+    if (!u) return null;
+    u = u.toLowerCase();
+    if (u === 'feet' || u === 'foot' || u === "'" || u === '′') return 'ft';
+    if (u === 'inch' || u === 'inches' || u === '"' || u === '″' || u === '”') return 'in';
+    return u;
+  }
+  function labelKey(l) {
+    if (!l) return null;
+    l = l.toLowerCase();
+    return l[0] === 'w' ? 'width' : l[0] === 'd' ? 'depth' : l[0] === 'h' ? 'height' : 'length';
+  }
+
+  // Returns { exact: {width, depth, height} (unrounded inches), problem: null | code }
+  function parseStored(raw) {
+    const fail = problem => ({ exact: null, problem });
+    if (raw == null || typeof raw !== 'string' || !raw.trim()) return fail('missing');
+    const parts = raw.trim().split(/\s*(?:[x×*]|\bby\b)\s*/i);
+    if (parts.length !== 3) return fail('incomplete');   // 1, 2 or 4+ values: cannot tell which side is which
+
+    const tokens = [];
+    for (const p of parts) {
+      const m = PART_RE.exec(p.trim());
+      if (!m) return fail('unreadable');
+      const num = parseFloat(m[2]);
+      if (!Number.isFinite(num)) return fail('unreadable');
+      tokens.push({ label: labelKey(m[1]), num, unit: unitKey(m[3]), extraIn: m[4] ? parseFloat(m[4]) : null });
+    }
+
+    // A unit written once at the end ("32 x 34 x 36 in") applies to the values before it.
+    const last = tokens[2];
+    if (last.unit && tokens[0].unit === null && tokens[1].unit === null) { tokens[0].unit = last.unit; tokens[1].unit = last.unit; }
+    if (tokens.some(t => t.unit === null)) return fail('unit_unverified');
+    if (tokens.some(t => t.extraIn !== null && t.unit !== 'ft')) return fail('unreadable');
+
+    const inches = tokens.map(t => t.num * INCHES_PER[t.unit] + (t.extraIn || 0));
+
+    // Order: explicit labels win, otherwise the stored Length x Width x Height order.
+    const exact = { width: null, depth: null, height: null };
+    const labelled = tokens.filter(t => t.label).length;
+    if (labelled && labelled !== 3) return fail('unreadable');
+    if (labelled) {
+      const hasWidth = tokens.some(t => t.label === 'width');
+      for (let i = 0; i < 3; i++) {
+        let axis = tokens[i].label;
+        if (axis === 'length') axis = hasWidth ? 'depth' : 'width';
+        if (exact[axis] !== null) return fail('unreadable');   // same axis twice
+        exact[axis] = inches[i];
+      }
+    } else {
+      STORED_ORDER.forEach((axis, i) => { exact[axis] = inches[i]; });
+    }
+    return { exact, problem: null };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Formatting: decimal inches stay decimal inches. 29.5 -> "29.5 in", 32 -> "32 in". Never feet.
+  // ---------------------------------------------------------------------------
+  function roundInches(n) { return Math.round(n * 10) / 10; }          // one decimal place
+  function formatInches(n) {
+    if (typeof n !== 'number' || !Number.isFinite(n) || n <= 0) return null;
+    return String(roundInches(n)) + ' in';
+  }
+
+  const MESSAGES = {
+    missing: 'No dimensions are saved for this product.',
+    incomplete: 'Dimensions must contain exactly three values (width, depth, height).',
+    unreadable: 'The saved dimensions could not be read.',
+    unit_unverified: 'A saved dimension has no unit, so it cannot be converted safely.',
+    non_positive: 'A saved dimension is zero or negative.',
+    out_of_range: 'A saved dimension is outside the expected range for this furniture type.'
+  };
+
+  // ---------------------------------------------------------------------------
+  // resolve(): the one function every page calls.
+  //   status 'valid'       -> inches / formatted / text are safe to show and to send to the visualizer
+  //   status 'review'      -> all values readable but outside the type's range: customers see "Dimensions unavailable"
+  //   status 'unavailable' -> missing / unreadable / unit unknown / zero / negative
+  // ---------------------------------------------------------------------------
+  function resolve(product) {
+    const type = detectType(product || {});
+    const result = {
+      status: 'unavailable', reason: null, message: '', type, typeLabel: type ? TYPE_RULES[type].label : null,
+      inches: null, formatted: null, text: UNAVAILABLE_TEXT, issues: [], exactInches: null
+    };
+    const parsed = parseStored(product ? product.dimensions : null);
+    if (parsed.problem) { result.reason = parsed.problem; result.message = MESSAGES[parsed.problem]; return result; }
+
+    const bad = AXES.filter(a => !Number.isFinite(parsed.exact[a]) || roundInches(parsed.exact[a]) <= 0);
+    if (bad.length) {
+      result.reason = 'non_positive'; result.message = MESSAGES.non_positive;
+      result.issues = bad.map(a => ({ axis: a, problem: 'non_positive' }));
+      return result;
+    }
+
+    const inches = {};
+    AXES.forEach(a => { inches[a] = roundInches(parsed.exact[a]); });
+
+    if (type) {
+      const ranges = TYPE_RULES[type].ranges;
+      const outside = AXES.filter(a => ranges[a] && (inches[a] < ranges[a][0] || inches[a] > ranges[a][1]));
+      if (outside.length) {
+        result.status = 'review'; result.reason = 'out_of_range'; result.inches = inches;
+        result.issues = outside.map(a => ({ axis: a, problem: 'out_of_range', value: inches[a], min: ranges[a][0], max: ranges[a][1] }));
+        result.message = TYPE_RULES[type].label + ': ' + result.issues.map(i =>
+          AXIS_LABEL[i.axis] + ' ' + formatInches(i.value) + ' is outside ' + i.min + '-' + i.max + ' in').join('; ') + '.';
+        return result;                                         // reported, never clamped
+      }
+    }
+
+    const formatted = {};
+    AXES.forEach(a => { formatted[a] = formatInches(inches[a]); });
+    result.status = 'valid';
+    result.inches = inches;
+    result.exactInches = parsed.exact;
+    result.formatted = formatted;
+    result.text = AXES.map(a => AXIS_LABEL[a] + ': ' + formatted[a]).join(' × ');
+    return result;
+  }
+
+  // Admin edit form (still in centimetres): returns the saved values as cm for the three inputs, or null
+  // when the record cannot be read. Prevents "32in x 34in x 36in" being loaded as 32 / 34 / 36 cm.
+  function toFormCentimeters(raw) {
+    const p = parseStored(raw);
+    if (p.problem) return null;
+    const cm = a => Math.round(p.exact[a] * 2.54 * 100) / 100;
+    return { length: cm('width'), width: cm('depth'), height: cm('height') };
+  }
+
+  return { resolve, parseStored, formatInches, toFormCentimeters, registerType, detectType, TYPE_RULES, AXES, AXIS_LABEL, UNAVAILABLE_TEXT };
+})();
+// ---- end shared dimension logic ----
 
 // =============================================================================
 // PASSWORD HASHING (Node built-in crypto.scrypt - no extra npm package needed)
@@ -1555,12 +1755,16 @@ app.post('/api/visualize', limitVisualize, async (req, res) => {
     const safeStyle = ALLOWED_STYLES.includes(style) ? style : 'Modern';
     const reference = typeof referenceSize === 'string' ? referenceSize.trim().slice(0, 200) : '';
 
-    const sizeLine = furniture.dimensions
-      ? `The real size of the furniture is ${furniture.dimensions}. Render it at exactly this real-world size relative to the room, keeping these proportions.`
-      : '';
+    // One validated size (inches) from the shared utility. The raw saved text is never sent to the AI.
+    const dim = KDeskDimensions.resolve(furniture);
+    const sizeVerified = dim.status === 'valid';
+    if (!sizeVerified) console.warn(`[Visualize] No verified dimensions for furniture ${furniture.id}: ${dim.message}`);
+    const sizeLine = sizeVerified
+      ? `Verified real-world size of the furniture: width ${dim.formatted.width} (left to right across the front), depth ${dim.formatted.depth} (front to back), height ${dim.formatted.height} (floor to top). Size it to match these measurements relative to the room. Keep the product's proportions and do not stretch it.`
+      : 'No verified real-world size is available for this item. Do not state or imply any measurements; size it as a typical piece of this kind of furniture would be.';
     const refLine = reference
       ? `Scale reference in the room photo: ${reference}. Use it to size the furniture correctly.`
-      : 'No scale reference was given, so estimate scale from standard objects such as doors (about 200 cm tall) and ceiling height (about 250 cm).';
+      : 'No scale reference was given, so estimate scale from standard objects such as interior doors (about 80 in tall) and ceiling height (about 96 in or more).';
 
     const prompt = `You are an expert interior photo editor doing a realistic product-placement edit.
 Image 1 is the customer's room photo.${product ? ' Image 2 is the exact furniture product to add.' : ''}
@@ -1600,7 +1804,7 @@ Rules:
             : 'The AI did not return an image. Try rewording the placement and try again.'
         });
       }
-      return res.json({ success: true, image: `data:${imagePart.inlineData.mimeType || 'image/png'};base64,${imagePart.inlineData.data}`, furnitureName: furniture.name });
+      return res.json({ success: true, image: `data:${imagePart.inlineData.mimeType || 'image/png'};base64,${imagePart.inlineData.data}`, furnitureName: furniture.name, sizeVerified });
     } catch (aiError) {
       console.error(`❌ [Gemini] Error (${IMAGE_MODEL}):`, aiError.message);
       const friendly = friendlyGeminiError(aiError);
