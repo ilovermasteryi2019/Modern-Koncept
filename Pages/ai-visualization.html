@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI Furniture Visualizer - ecl FURNITURE MART</title>
+  <title>AI Furniture Visualizer - Modern Koncept</title>
   <!-- Bootstrap 5 is loaded BEFORE styles.css so the existing design keeps priority -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="../styles.css">
   <style>
     /* Upload Area */
     .upload-area {
@@ -39,8 +39,6 @@
       justify-content: center;
       margin: 0 auto 1rem;
     }
-
-    /* Step Badge */
 
     /* Furniture Preview */
     .furniture-preview-card {
@@ -148,10 +146,6 @@
       display: none;
     }
 
-    /* Layout */
-
-    /* Steps bar */
-
     /* AI badge */
     .ai-badge {
       display: inline-flex;
@@ -168,37 +162,31 @@
     }
 
     /* Placement Instructions */
-.placement-textarea {
-  width: 100%;
-  min-height: 110px;
-  padding: 0.75rem 1rem;
-  border: 2px solid #e5e7eb;
-  border-radius: 0.625rem;
-  font-size: 0.875rem;
-  font-family: inherit;
-  color: #374151;
-  background: #f9fafb;
-  resize: vertical;
-  transition: border-color 0.2s, background 0.2s;
-  box-sizing: border-box;
-  line-height: 1.6;
-}
-.placement-textarea:focus {
-  outline: none;
-  border-color: #DC143C;
-  background: white;
-}
-.placement-textarea::placeholder { color: #9ca3af; }
-
-
-    /* ══════════════════════════════════════════════════════════════════════════
-       THREE-STEP FLOW: Pick Furniture -> Upload Room Photo -> Generate & Download
-       Everything is prefixed "viz-" so it cannot clash with styles.css / Bootstrap.
-       ══════════════════════════════════════════════════════════════════════════ */
+    .placement-textarea {
+      width: 100%;
+      min-height: 110px;
+      padding: 0.75rem 1rem;
+      border: 2px solid #e5e7eb;
+      border-radius: 0.625rem;
+      font-size: 0.875rem;
+      font-family: inherit;
+      color: #374151;
+      background: #f9fafb;
+      resize: vertical;
+      transition: border-color 0.2s, background 0.2s;
+      box-sizing: border-box;
+      line-height: 1.6;
+    }
+    .placement-textarea:focus {
+      outline: none;
+      border-color: #DC143C;
+      background: white;
+    }
+    .placement-textarea::placeholder { color: #9ca3af; }
 
     /* ---------- Horizontal numbered stepper ---------- */
     .viz-stepper {
-      scroll-margin-top: 5.5rem;     /* keeps the stepper below the sticky site header when we scroll to it */
+      scroll-margin-top: 5.5rem;
       background: #fff;
       border-bottom: 1px solid #e5e7eb;
       box-shadow: 0 1px 3px rgba(0,0,0,0.04);
@@ -252,7 +240,7 @@
       flex-shrink: 0;
       font-weight: 700;
       font-size: 0.9rem;
-      background: #e5e7eb;          /* inactive */
+      background: #e5e7eb;
       color: #6b7280;
       transition: background 0.25s, color 0.25s, box-shadow 0.25s;
     }
@@ -268,7 +256,7 @@
     .viz-step.completed:not(.active) .viz-step-circle { background: #10b981; color: #fff; }
     .viz-step.completed:not(.active) .viz-step-label { color: #065f46; }
 
-    /* ---------- Panels (only the active one is shown) ---------- */
+    /* ---------- Panels ---------- */
     .viz-panel { animation: vizFade 0.25s ease; }
     .viz-panel[hidden] { display: none !important; }
     @keyframes vizFade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
@@ -281,9 +269,7 @@
     .viz-side-title { font-size: 1rem; font-weight: 700; color: #111827; margin-bottom: 0.75rem; }
     .viz-required { color: #DC143C; font-weight: 700; }
 
-    /* The Back / Next bar stays pinned to the bottom of the screen while the step is taller than the window,
-       so the buttons are always reachable without scrolling. It rests in place once the step ends. */
-    #vizWizard { overflow: visible; overflow: clip; }   /* .section's overflow:hidden would stop sticky from working */
+    #vizWizard { overflow: visible; overflow: clip; }
     .viz-nav {
       position: sticky;
       bottom: 0;
@@ -310,7 +296,7 @@
     .viz-link-btn { background: none; border: 0; padding: 0; color: #DC143C; font: inherit; font-size: 0.85rem; font-weight: 600; text-decoration: underline; cursor: pointer; }
     .viz-link-btn:hover { color: #A80728; }
 
-    /* ---------- Step 1: catalog + selected furniture ---------- */
+    /* ---------- Step 1 ---------- */
     .viz-pick { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 1.5rem; align-items: start; }
     .viz-pick-side { position: sticky; top: 1rem; }
     .viz-toolbar { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
@@ -336,7 +322,7 @@
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
       gap: 1rem;
-      padding: 4px;                 /* room for the selection ring */
+      padding: 4px;
     }
     @media (min-width: 901px) { .viz-grid { max-height: 640px; overflow-y: auto; } }
 
@@ -369,12 +355,12 @@
     }
     .viz-product.selected .viz-product-check { display: flex; }
 
-    /* ---------- Step 2: upload + placement ---------- */
+    /* ---------- Step 2 ---------- */
     .viz-upload-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; align-items: start; }
     .viz-upload-layout .room-preview-img { height: auto; max-height: 340px; object-fit: contain; background: #f3f4f6; }
     .viz-upload-layout .placement-textarea { min-height: 180px; }
 
-    /* ---------- Step 3: summary + states ---------- */
+    /* ---------- Step 3 ---------- */
     .viz-summary { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; }
     .viz-summary:empty { display: none; }
     .viz-chip {
@@ -418,11 +404,12 @@
 </head>
 <body class="bs-customer">
 
-  <!-- ══ HEADER ══ -->
+  <!-- [BEGIN PARTIAL: partials/header.html] -->
+  <!-- Header -->
   <header class="header">
     <nav class="navbar navbar-expand-md header-container" aria-label="Main navigation">
       <a class="navbar-brand p-0 m-0" href="index.html">
-        <img src="logo.jpg" alt="ECL Furniture Mart" class="logo">
+        <img src="../Images/logo.jpg" alt="Modern Koncept" class="logo">
       </a>
 
       <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNavbar" aria-controls="mainNavbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -481,6 +468,7 @@
       </div>
     </nav>
   </header>
+  <!-- [END PARTIAL: partials/header.html] -->
 
   <!-- ══ HERO ══ -->
   <section class="hero hero-bg furniture-bg">
@@ -595,27 +583,27 @@
           <!-- Furniture selected state -->
           <div id="furnitureSelectedState" data-furniture-id="" style="display: none;">
             <div class="furniture-preview-card">
-            <img id="vizFurnitureImg" src="" alt="Selected Furniture" onerror="this.src='placeholder-furniture.jpg'">
-            <div class="furniture-preview-info">
-              <p id="vizFurnitureCategory" style="font-size: 0.75rem; font-weight: 600; color: #DC143C; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.25rem;"></p>
-              <h3 id="vizFurnitureName" style="font-size: 1.1rem; font-weight: 700; color: #111827; margin-bottom: 0.25rem;"></h3>
-              <p id="vizFurnitureSize" style="font-size: 0.8rem; color: #4b5563; margin-bottom: 0.25rem;"></p>
-              <p id="vizFurniturePrice" style="font-size: 1.2rem; font-weight: 700; color: #DC143C;"></p>
+              <img id="vizFurnitureImg" src="" alt="Selected Furniture" onerror="this.src='placeholder-furniture.jpg'">
+              <div class="furniture-preview-info">
+                <p id="vizFurnitureCategory" style="font-size: 0.75rem; font-weight: 600; color: #DC143C; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.25rem;"></p>
+                <h3 id="vizFurnitureName" style="font-size: 1.1rem; font-weight: 700; color: #111827; margin-bottom: 0.25rem;"></h3>
+                <p id="vizFurnitureSize" style="font-size: 0.8rem; color: #4b5563; margin-bottom: 0.25rem;"></p>
+                <p id="vizFurniturePrice" style="font-size: 1.2rem; font-weight: 700; color: #DC143C;"></p>
+              </div>
             </div>
-          </div>
 
             <!-- Style Selector -->
-          <div class="card" style="margin-top: 1rem;">
-            <p style="font-size: 0.875rem; font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Choose Interior Style</p>
-            <div class="style-grid">
-              <button class="style-option selected" data-style="Modern">Modern</button>
-              <button class="style-option" data-style="Classic">Classic</button>
-              <button class="style-option" data-style="Minimalist">Minimalist</button>
-              <button class="style-option" data-style="Rustic">Rustic</button>
-              <button class="style-option" data-style="Scandinavian">Scandinavian</button>
-              <button class="style-option" data-style="Industrial">Industrial</button>
+            <div class="card" style="margin-top: 1rem;">
+              <p style="font-size: 0.875rem; font-weight: 600; color: #374151; margin-bottom: 0.5rem;">Choose Interior Style</p>
+              <div class="style-grid">
+                <button class="style-option selected" data-style="Modern">Modern</button>
+                <button class="style-option" data-style="Classic">Classic</button>
+                <button class="style-option" data-style="Minimalist">Minimalist</button>
+                <button class="style-option" data-style="Rustic">Rustic</button>
+                <button class="style-option" data-style="Scandinavian">Scandinavian</button>
+                <button class="style-option" data-style="Industrial">Industrial</button>
+              </div>
             </div>
-          </div>
           </div>
         </aside>
       </div>
@@ -638,10 +626,7 @@
         <div class="card">
           <h3 class="viz-card-title">Room Photo <span class="viz-required" aria-hidden="true">*</span></h3>
           <div class="upload-area" id="uploadArea">
-            <!-- The room image is read from this input / the in-memory copy made by processRoomFile() -->
-            
-            <!-- GEMINI INTEGRATION POINT: Read this input's file to get the room image (base64 or File object) -->
-<input type="file" id="roomImageInput" name="room_image" accept="image/*">
+            <input type="file" id="roomImageInput" name="room_image" accept="image/*">
             <div class="upload-icon">
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
@@ -655,19 +640,19 @@
 
           <img id="roomPreviewImg" class="room-preview-img" src="" alt="Room Preview">
           <!-- Mask drawing tool — appears after room photo is uploaded -->
-<div id="maskToolContainer" style="display:none; margin-top:0.75rem;">
-  <p style="font-size:0.8rem;color:#374151;font-weight:600;margin-bottom:0.5rem;">
-    🖌️ Paint where the furniture should go (white = placement zone)
-  </p>
-  <div style="position:relative;display:inline-block;width:100%;">
-    <img id="maskBaseImg" style="width:100%;border-radius:0.5rem;display:block;">
-    <canvas id="maskCanvas" style="position:absolute;top:0;left:0;width:100%;height:100%;border-radius:0.5rem;cursor:crosshair;opacity:0.55;"></canvas>
-  </div>
-  <div style="display:flex;gap:0.5rem;margin-top:0.5rem;align-items:center;">
-    <button id="clearMaskBtn" class="btn btn-primary" style="font-size:0.8rem;padding:0.4rem 0.75rem;">Clear</button>
-    <span style="font-size:0.75rem;color:#9ca3af;">Skip painting — AI will auto-place in the lower area</span>
-  </div>
-</div>
+          <div id="maskToolContainer" style="display:none; margin-top:0.75rem;">
+            <p style="font-size:0.8rem;color:#374151;font-weight:600;margin-bottom:0.5rem;">
+              🖌️ Paint where the furniture should go (white = placement zone)
+            </p>
+            <div style="position:relative;display:inline-block;width:100%;">
+              <img id="maskBaseImg" style="width:100%;border-radius:0.5rem;display:block;">
+              <canvas id="maskCanvas" style="position:absolute;top:0;left:0;width:100%;height:100%;border-radius:0.5rem;cursor:crosshair;opacity:0.55;"></canvas>
+            </div>
+            <div style="display:flex;gap:0.5rem;margin-top:0.5rem;align-items:center;">
+              <button id="clearMaskBtn" class="btn btn-primary" style="font-size:0.8rem;padding:0.4rem 0.75rem;">Clear</button>
+              <span style="font-size:0.75rem;color:#9ca3af;">Skip painting — AI will auto-place in the lower area</span>
+            </div>
+          </div>
 
           <div id="roomUploadedInfo" style="display: none; margin-top: 0.75rem; padding: 0.75rem; background: #f0fdf4; border-radius: 0.5rem; border: 1px solid #86efac; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2">
@@ -731,8 +716,6 @@
           <span style="font-size: 0.875rem;">AI results are approximate and may take 20–60 seconds. For visualization purposes only.</span>
         </div>
 
-        <!-- The generate request (furniture, room photo, placement instructions, style) is sent by generateVisualization() in main.js.
-             No API keys belong here: they stay in the backend .env file. -->
         <button class="generate-btn" id="generateBtn" disabled>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
@@ -747,18 +730,18 @@
 
       <!-- Processing -->
       <div id="loadingSection" style="display: none;">
-      <div class="card">
-        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 3rem; text-align: center; gap: 1rem;">
-          <div class="loading-spinner-large"></div>
-          <h3 style="font-size: 1.25rem; font-weight: 700; color: #111827;">AI is generating your visualization...</h3>
-          <p id="loadingMessage" style="color: #4b5563; max-width: 36rem;">This may take 20–60 seconds. Please do not close this page.</p>
-          <div class="progress-bar-track">
-            <div id="progressBar" style="height: 100%; background: #DC143C; border-radius: 9999px; width: 0%; transition: width 0.5s ease;"></div>
+        <div class="card">
+          <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 3rem; text-align: center; gap: 1rem;">
+            <div class="loading-spinner-large"></div>
+            <h3 style="font-size: 1.25rem; font-weight: 700; color: #111827;">AI is generating your visualization...</h3>
+            <p id="loadingMessage" style="color: #4b5563; max-width: 36rem;">This may take 20–60 seconds. Please do not close this page.</p>
+            <div class="progress-bar-track">
+              <div id="progressBar" style="height: 100%; background: #DC143C; border-radius: 9999px; width: 0%; transition: width 0.5s ease;"></div>
+            </div>
+            <p id="progressText" style="font-size: 0.875rem; color: #9ca3af;">0%</p>
           </div>
-          <p id="progressText" style="font-size: 0.875rem; color: #9ca3af;">0%</p>
         </div>
       </div>
-    </div>
 
       <!-- Result -->
       <div id="resultSection" style="display: none;">
@@ -794,53 +777,53 @@
             </div>
           </div>
 
-      <div class="result-grid">
-        <div class="result-image-box">
-          <span class="result-label">Before — Your Room</span>
-          <img id="beforeImage" src="" alt="Original Room">
-        </div>
-        <div class="result-image-box">
-          <span class="result-label ai-label">After — AI Visualization</span>
-          <img id="afterImage" src="" alt="AI Visualization">
-        </div>
-      </div>
-      
-      <div style="margin-top: 1rem; padding: 0.75rem 1rem; background: #fef2f2; border-radius: 0.5rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#DC143C" stroke-width="2">
-          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
-        </svg>
-        <span style="font-size: 0.875rem; color: #374151;">Furniture visualized: <strong id="resultFurnitureName">—</strong></span>
-        <span style="margin-left: auto; font-size: 0.75rem; color: #9ca3af;">AI-generated. Actual result may vary.</span>
-      </div>
+          <div class="result-grid">
+            <div class="result-image-box">
+              <span class="result-label">Before — Your Room</span>
+              <img id="beforeImage" src="" alt="Original Room">
+            </div>
+            <div class="result-image-box">
+              <span class="result-label ai-label">After — AI Visualization</span>
+              <img id="afterImage" src="" alt="AI Visualization">
+            </div>
+          </div>
+          
+          <div style="margin-top: 1rem; padding: 0.75rem 1rem; background: #fef2f2; border-radius: 0.5rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#DC143C" stroke-width="2">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+            </svg>
+            <span style="font-size: 0.875rem; color: #374151;">Furniture visualized: <strong id="resultFurnitureName">—</strong></span>
+            <span style="margin-left: auto; font-size: 0.75rem; color: #9ca3af;">AI-generated. Actual result may vary.</span>
+          </div>
         </div>
       </div>
 
       <!-- Error -->
       <div id="errorSection" style="display: none;">
-      <div class="card">
-        <div style="text-align: center; padding: 2rem;">
-          <div style="width: 4rem; height: 4rem; background: #fef2f2; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1rem;">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#DC143C" stroke-width="2">
-              <circle cx="12" cy="12" r="10"></circle>
-              <line x1="12" y1="8" x2="12" y2="12"></line>
-              <line x1="12" y1="16" x2="12.01" y2="16"></line>
-            </svg>
-          </div>
-          <h3 style="font-size: 1.125rem; font-weight: 700; color: #111827; margin-bottom: 0.5rem;">Generation Failed</h3>
-          <p id="errorMessage" style="color: #4b5563; margin-bottom: 1.5rem;">The AI model is currently loading. Please try again in a moment.</p>
-          <div style="display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">
-            <button id="retryBtn" class="btn btn-accent">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="23 4 23 10 17 10"></polyline>
-                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+        <div class="card">
+          <div style="text-align: center; padding: 2rem;">
+            <div style="width: 4rem; height: 4rem; background: #fef2f2; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1rem;">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#DC143C" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
               </svg>
-              Try Again
-            </button>
-            <button id="startOverBtn" class="btn btn-primary">Start Over</button>
+            </div>
+            <h3 style="font-size: 1.125rem; font-weight: 700; color: #111827; margin-bottom: 0.5rem;">Generation Failed</h3>
+            <p id="errorMessage" style="color: #4b5563; margin-bottom: 1.5rem;">The AI model is currently loading. Please try again in a moment.</p>
+            <div style="display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">
+              <button id="retryBtn" class="btn btn-accent">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="23 4 23 10 17 10"></polyline>
+                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                </svg>
+                Try Again
+              </button>
+              <button id="startOverBtn" class="btn btn-primary">Start Over</button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
 
       <div class="viz-nav">
         <button type="button" class="btn btn-primary" id="vizBack3"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg> Back: Upload Room Photo</button>
@@ -888,26 +871,31 @@
     </div>
   </section>
 
-  <!-- ══ FOOTER ══ -->
+  <!-- [BEGIN PARTIAL: partials/footer.html] -->
+  <!-- Footer -->
   <footer class="footer">
     <div class="footer-container">
       <div>
-        <img src="logo.jpg" alt="ECL Furniture Mart" class="logo" style="margin-bottom: 0.5rem;">
+        <img src="../Images/logo.jpg" alt="Modern Koncept Furniture Centre" class="logo" style="margin-bottom: 0.5rem;">
         <p class="footer-text">Quality furniture for your home</p>
       </div>
       <div style="text-align: right;">
-        <p class="footer-text">© Modern Koncept Furniture Centre. All rights reserved.</p>
+        <p class="footer-text">© 2022 Modern Koncept Furniture Centre. All rights reserved.</p>
         <p class="footer-text">REAL BLDG 1 JP RIZAL STREET Poblacion Sta Maria Bulacan, Philippines, 3022</p>
         <p class="footer-text">Phone: (044) 796-1234 | Email: info@modernkoncept.com</p>
-        <p class="footer-text">Follow us on
-          <a href="https://www.facebook.com/profile.php/?id=100064125784131" target="_blank" style="color: #4b5563; text-decoration: underline;">Facebook</a>
+        <p class="footer-text">
+          Follow us on 
+          <a href="https://www.facebook.com/profile.php/?id=100064125784131" target="_blank" style="color:#4b5563; text-decoration: underline;">Facebook</a>
         </p>
       </div>
     </div>
   </footer>
-
+  <!-- [END PARTIAL: partials/footer.html] -->
+  <!-- [BEGIN PARTIAL: partials/toast.html] -->
   <div id="toastContainer" class="toast-container"></div>
+  <!-- [END PARTIAL: partials/toast.html] -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="main.js"></script>
+  <script type="module" src="../js/main.js"></script>
 </body>
 </html>
+

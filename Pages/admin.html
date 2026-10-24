@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Admin Dashboard - ecl FURNITURE MART</title>
+  <title>Admin Dashboard - Modern Koncept</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
- <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="../styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
     .dashboard-header {
       background: white;
@@ -367,13 +367,14 @@
 <body class="bs-dashboard">
   <!-- Dashboard layout: sidebar (left) + content (right) -->
   <div class="dash-layout">
+    <!-- [BEGIN PARTIAL: partials/dashboards/sidebar-admin.html] -->
     <aside class="dash-sidebar" id="dashSidebar" aria-label="Admin Dashboard navigation">
 
       <!-- Header -->
       <header class="header">
         <div class="header-container">
           <div class="d-flex align-items-center gap-2" style="cursor: pointer;" data-navigate="index.html">
-            <img src="logo.jpg" alt="ECL Furniture Mart" class="logo logo-sm">
+            <img src="../Images/logo.jpg" alt="Modern Koncept" class="logo logo-sm">
             <span class="role-pill role-admin">Admin</span>
           </div>
         </div>
@@ -400,7 +401,7 @@
           <span>Inventory</span>
         </button>
         <button class="dashboard-tab" data-tab="delivery">
-          <svg class="tab-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
+          <svg class="tab-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
           <span>Delivery</span>
         </button>
         <button class="dashboard-tab" data-tab="sales">
@@ -430,10 +431,12 @@
         </button>
       </div>
     </aside>
+    <!-- [END PARTIAL: partials/dashboards/sidebar-admin.html] -->
 
     <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
 
     <div class="dash-content">
+      <!-- [BEGIN PARTIAL: partials/dashboards/topbar-admin.html] -->
       <!-- Mobile top bar with the menu toggle -->
       <div class="dash-topbar">
         <button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Open menu" aria-controls="dashSidebar" aria-expanded="false">
@@ -441,10 +444,11 @@
         </button>
         <span class="dash-topbar-title">Admin Dashboard</span>
       </div>
+      <!-- [END PARTIAL: partials/dashboards/topbar-admin.html] -->
 
-  <!-- Main Content -->
-  <section class="section dash-main">
-    
+      <!-- Main Content -->
+      <section class="section dash-main">
+        <!-- [BEGIN PARTIAL: partials/modules/furniture-module.html] -->
     <!-- Furniture Module -->
     <div id="furnitureModule" class="dashboard-module active">
       <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Furniture Management</h2>
@@ -493,7 +497,8 @@
         </div>
       </div>
     </div>
-
+        <!-- [END PARTIAL: partials/modules/furniture-module.html] -->
+        <!-- [BEGIN PARTIAL: partials/modules/business-module.html] -->
     <!-- Business Information Module -->
     <div id="businessModule" class="dashboard-module">
       <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Business Information</h2>
@@ -563,7 +568,8 @@
         </form>
       </div>
     </div>
-
+        <!-- [END PARTIAL: partials/modules/business-module.html] -->
+        <!-- [BEGIN PARTIAL: partials/modules/inventory-module-admin.html] -->
     <!-- Inventory Module -->
     <div id="inventoryModule" class="dashboard-module">
       <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Inventory Management</h2>
@@ -607,142 +613,144 @@
         </div>
       </div>
     </div>
-
+        <!-- [END PARTIAL: partials/modules/inventory-module-admin.html] -->
+        <!-- [BEGIN PARTIAL: partials/modules/delivery-module-admin.html] -->
     <!-- Delivery Module -->
-    <!-- Delivery Module -->
-<div id="deliveryModule" class="dashboard-module">
-  <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Delivery Management</h2>
-  
-  <!-- Delivery Metrics Panel -->
-  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
-    <div class="card" style="margin-bottom:0;">
-      <div style="font-size:0.875rem;color:#6b7280;font-weight:500;margin-bottom:0.25rem;">Pending</div>
-      <div style="font-size:2rem;font-weight:700;color:#111827;" id="deliveryPendingCount">0</div>
-    </div>
+    <div id="deliveryModule" class="dashboard-module">
+      <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Delivery Management</h2>
+      
+      <!-- Delivery Metrics Panel -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+        <div class="card" style="margin-bottom:0;">
+          <div style="font-size:0.875rem;color:#6b7280;font-weight:500;margin-bottom:0.25rem;">Pending</div>
+          <div style="font-size:2rem;font-weight:700;color:#111827;" id="deliveryPendingCount">0</div>
+        </div>
 
-    <div class="card" style="margin-bottom:0;">
-      <div style="font-size:0.875rem;color:#6b7280;font-weight:500;margin-bottom:0.25rem;">Processing</div>
-      <div style="font-size:2rem;font-weight:700;color:#111827;" id="deliveryProcessingCount">0</div>
-    </div>
+        <div class="card" style="margin-bottom:0;">
+          <div style="font-size:0.875rem;color:#6b7280;font-weight:500;margin-bottom:0.25rem;">Processing</div>
+          <div style="font-size:2rem;font-weight:700;color:#111827;" id="deliveryProcessingCount">0</div>
+        </div>
 
-    <div class="card" style="margin-bottom:0;">
-      <div style="font-size:0.875rem;color:#6b7280;font-weight:500;margin-bottom:0.25rem;">In Transit</div>
-      <div style="font-size:2rem;font-weight:700;color:#111827;" id="deliveryInTransitCount">0</div>
-    </div>
+        <div class="card" style="margin-bottom:0;">
+          <div style="font-size:0.875rem;color:#6b7280;font-weight:500;margin-bottom:0.25rem;">In Transit</div>
+          <div style="font-size:2rem;font-weight:700;color:#111827;" id="deliveryInTransitCount">0</div>
+        </div>
 
-    <div class="card" style="margin-bottom:0;">
-      <div style="font-size:0.875rem;color:#6b7280;font-weight:500;margin-bottom:0.25rem;">Delivered</div>
-      <div style="font-size:2rem;font-weight:700;color:#111827;" id="deliveryDeliveredCount">0</div>
+        <div class="card" style="margin-bottom:0;">
+          <div style="font-size:0.875rem;color:#6b7280;font-weight:500;margin-bottom:0.25rem;">Delivered</div>
+          <div style="font-size:2rem;font-weight:700;color:#111827;" id="deliveryDeliveredCount">0</div>
+        </div>
+      </div>
+      
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <button class="btn btn-accent" id="addDeliveryBtn">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          Add New Delivery
+        </button>
+      </div>
+      
+      <div class="card">
+        <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">All Deliveries</h3>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Send SMS</th>
+                <th>Delivery ID</th>
+                <th>Customer Name</th>
+                <th>Contact Number</th>
+                <th>Address</th>
+                <th>Product</th>
+                <th>Status</th>
+                <th>Type</th>
+                <th>Date</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="adminDeliveryList">
+              <!-- Deliveries will be loaded here -->
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
-  </div>
-  
-  <div class="card" style="margin-bottom: 1.5rem;">
-    <button class="btn btn-accent" id="addDeliveryBtn">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <line x1="12" y1="5" x2="12" y2="19"></line>
-        <line x1="5" y1="12" x2="19" y2="12"></line>
-      </svg>
-      Add New Delivery
-    </button>
-  </div>
-  
-  <div class="card">
-    <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">All Deliveries</h3>
-    <div class="table-container">
-      <table>
-        <thead>
-          <tr>
-            <th>Send SMS</th>
-            <th>Delivery ID</th>
-            <th>Customer Name</th>
-            <th>Contact Number</th>
-            <th>Address</th>
-            <th>Product</th>
-            <th>Status</th>
-            <th>Type</th>
-            <th>Date</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="adminDeliveryList">
-          <!-- Deliveries will be loaded here -->
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
+        <!-- [END PARTIAL: partials/modules/delivery-module-admin.html] -->
+        <!-- [BEGIN PARTIAL: partials/modules/sales-module-admin.html] -->
     <!-- Sales Records Module -->
-<div id="salesModule" class="dashboard-module">
-  <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Sales Records & Data Analysis</h2>
-  
-  <!-- Sales Overview Cards -->
-  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
-    <!-- Total Sales Card -->
-    <div class="summary-card">
-      <div class="summary-label">Total Sales</div>
-      <div class="summary-value" id="totalSales">₱0.00</div>
+    <div id="salesModule" class="dashboard-module">
+      <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Sales Records & Data Analysis</h2>
+      
+      <!-- Sales Overview Cards -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
+        <!-- Total Sales Card -->
+        <div class="summary-card">
+          <div class="summary-label">Total Sales</div>
+          <div class="summary-value" id="totalSales">₱0.00</div>
+        </div>
+        
+        <!-- Total Records Card -->
+        <div class="summary-card">
+          <div class="summary-label">Total Records</div>
+          <div class="summary-value" id="totalRecords">0</div>
+        </div>
+        
+        <!-- Average Sale Card -->
+        <div class="summary-card">
+          <div class="summary-label">Average Sale</div>
+          <div class="summary-value" id="averageSale">₱0.00</div>
+        </div>
+      </div>
+      
+      <!-- Charts Section -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
+        <!-- Revenue Updates (Bar Chart) -->
+        <div class="card">
+          <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">Revenue</h3>
+          <canvas id="revenueBarChart" style="max-height: 300px;"></canvas>
+        </div>
+        
+        <!-- Monthly Sales Trend (Line Chart) -->
+        <div class="card">
+          <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">Monthly Sales Trend</h3>
+          <canvas id="salesLineChart" style="max-height: 300px;"></canvas>
+        </div>
+      </div>
+      
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <button class="btn btn-accent" id="addSalesBtn">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          Add Sales Record
+        </button>
+      </div>
+      
+      <div class="card">
+        <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">All Sales Records</h3>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Customer</th>
+                <th>Product</th>
+                <th>Amount</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="adminSalesList">
+              <!-- Sales records will be loaded here -->
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
-    
-    <!-- Total Records Card -->
-    <div class="summary-card">
-      <div class="summary-label">Total Records</div>
-      <div class="summary-value" id="totalRecords">0</div>
-    </div>
-    
-    <!-- Average Sale Card -->
-    <div class="summary-card">
-      <div class="summary-label">Average Sale</div>
-      <div class="summary-value" id="averageSale">₱0.00</div>
-    </div>
-  </div>
-  
-  <!-- Charts Section -->
-  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
-    <!-- Revenue Updates (Bar Chart) -->
-    <div class="card">
-      <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">Revenue</h3>
-      <canvas id="revenueBarChart" style="max-height: 300px;"></canvas>
-    </div>
-    
-    <!-- Monthly Sales Trend (Line Chart) -->
-    <div class="card">
-      <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">Monthly Sales Trend</h3>
-      <canvas id="salesLineChart" style="max-height: 300px;"></canvas>
-    </div>
-  </div>
-  
-  <div class="card" style="margin-bottom: 1.5rem;">
-    <button class="btn btn-accent" id="addSalesBtn">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <line x1="12" y1="5" x2="12" y2="19"></line>
-        <line x1="5" y1="12" x2="19" y2="12"></line>
-      </svg>
-      Add Sales Record
-    </button>
-  </div>
-  
-  <div class="card">
-    <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">All Sales Records</h3>
-    <div class="table-container">
-      <table>
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Customer</th>
-            <th>Product</th>
-            <th>Amount</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="adminSalesList">
-          <!-- Sales records will be loaded here -->
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
+        <!-- [END PARTIAL: partials/modules/sales-module-admin.html] -->
+        <!-- [BEGIN PARTIAL: partials/modules/staff-module.html] -->
     <!-- Staff Accounts Module -->
     <div id="staffModule" class="dashboard-module">
       <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Staff Account Management</h2>
@@ -773,7 +781,9 @@
         </div>
       </div>
     </div>
-     <!-- ══ CHATBOT MODULE ══ -->
+        <!-- [END PARTIAL: partials/modules/staff-module.html] -->
+        <!-- [BEGIN PARTIAL: partials/modules/chatbot-module.html] -->
+    <!-- ══ CHATBOT MODULE ══ -->
     <div id="chatbotModule" class="dashboard-module">
       <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Chatbot Knowledge Base</h2>
 
@@ -810,7 +820,8 @@
         </div>
       </div>
     </div>
-
+        <!-- [END PARTIAL: partials/modules/chatbot-module.html] -->
+        <!-- [BEGIN PARTIAL: partials/modules/feedback-module.html] -->
     <!-- ══ FEEDBACK MODULE ══ -->
     <div id="feedbackModule" class="dashboard-module">
       <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Customer Feedback &amp; Inquiries</h2>
@@ -863,13 +874,15 @@
         </div>
       </div>
     </div>
-  </section>
+        <!-- [END PARTIAL: partials/modules/feedback-module.html] -->
+      </section>
 
-  <!-- Footer -->
+      <!-- [BEGIN PARTIAL: partials/dashboards/footer.html] -->
+  <!-- Dashboard Footer -->
   <footer class="footer">
     <div class="footer-container">
       <div>
-        <img src="logo.jpg" alt="ECL Furniture Mart" class="logo logo-sm" style="margin-bottom: 0.5rem;">
+        <img src="../Images/logo.jpg" alt="Modern Koncept" class="logo logo-sm" style="margin-bottom: 0.5rem;">
         <p class="footer-text">Quality furniture for your home</p>
       </div>
       <div style="text-align: right;">
@@ -883,10 +896,13 @@
       </div>
     </div>
   </footer>
+      <!-- [END PARTIAL: partials/dashboards/footer.html] -->
     </div><!-- /.dash-content -->
   </div><!-- /.dash-layout -->
 
-  <!-- Edit Furniture Details Modal (furniture is created from Inventory Management) -->
+  <!-- Modals -->
+  <!-- [BEGIN PARTIAL: partials/modals/furniture-modal.html] -->
+  <!-- Furniture Modal -->
   <div id="furnitureModal" class="modal">
     <div class="modal-content">
       <div class="modal-header">
@@ -921,41 +937,23 @@
           </div>
           
           <div class="form-group">
-  <label class="form-label">Dimensions</label>
-  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr)); gap: 0.75rem;">
-    <div>
-      <label class="form-label" id="furnitureLengthLabel" for="furnitureLength" style="font-size: 0.75rem; color: #6b7280;">Length (in)</label>
-      <div style="display: flex; gap: 0.4rem; align-items: center;">
-        <input type="number" id="furnitureLength" class="form-input" placeholder="80" min="0" step="any" inputmode="decimal" required style="flex: 1 1 auto; min-width: 0;">
-        <select id="furnitureLengthUnit" class="form-input" aria-label="Length unit" style="flex: 0 0 4.25rem; width: 4.25rem; padding-left: 0.5rem; padding-right: 0.25rem;">
-          <option value="in" selected>in</option>
-          <option value="ft">ft</option>
-        </select>
-      </div>
-    </div>
-    <div>
-      <label class="form-label" id="furnitureWidthLabel" for="furnitureWidth" style="font-size: 0.75rem; color: #6b7280;">Width (in)</label>
-      <div style="display: flex; gap: 0.4rem; align-items: center;">
-        <input type="number" id="furnitureWidth" class="form-input" placeholder="36" min="0" step="any" inputmode="decimal" required style="flex: 1 1 auto; min-width: 0;">
-        <select id="furnitureWidthUnit" class="form-input" aria-label="Width unit" style="flex: 0 0 4.25rem; width: 4.25rem; padding-left: 0.5rem; padding-right: 0.25rem;">
-          <option value="in" selected>in</option>
-          <option value="ft">ft</option>
-        </select>
-      </div>
-    </div>
-    <div>
-      <label class="form-label" id="furnitureHeightLabel" for="furnitureHeight" style="font-size: 0.75rem; color: #6b7280;">Height (in)</label>
-      <div style="display: flex; gap: 0.4rem; align-items: center;">
-        <input type="number" id="furnitureHeight" class="form-input" placeholder="32" min="0" step="any" inputmode="decimal" required style="flex: 1 1 auto; min-width: 0;">
-        <select id="furnitureHeightUnit" class="form-input" aria-label="Height unit" style="flex: 0 0 4.25rem; width: 4.25rem; padding-left: 0.5rem; padding-right: 0.25rem;">
-          <option value="in" selected>in</option>
-          <option value="ft">ft</option>
-        </select>
-      </div>
-    </div>
-  </div>
-  <small style="display:block;margin-top:0.25rem;color:#6b7280;font-size:0.8rem;">Choose inches or feet for each value. Changing the unit does not change the furniture's size.</small>
-</div>
+            <label class="form-label">Dimensions</label>
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem;">
+              <div>
+                <label class="form-label" style="font-size: 0.75rem; color: #6b7280;">Length (cm)</label>
+                <input type="number" id="furnitureLength" class="form-input" placeholder="200" min="1" step="0.01" required>
+              </div>
+              <div>
+                <label class="form-label" style="font-size: 0.75rem; color: #6b7280;">Width (cm)</label>
+                <input type="number" id="furnitureWidth" class="form-input" placeholder="90" min="1" step="0.01" required>
+              </div>
+              <div>
+                <label class="form-label" style="font-size: 0.75rem; color: #6b7280;">Height (cm)</label>
+                <input type="number" id="furnitureHeight" class="form-input" placeholder="80" min="1" step="0.01" required>
+              </div>
+            </div>
+          </div>
+
           <div class="form-group">
             <label class="form-label">Description</label>
             <textarea id="furnitureDescription" class="form-textarea" rows="3" placeholder="Describe the furniture..."></textarea>
@@ -969,7 +967,8 @@
       </div>
     </div>
   </div>
-
+  <!-- [END PARTIAL: partials/modals/furniture-modal.html] -->
+  <!-- [BEGIN PARTIAL: partials/modals/stock-modal-admin.html] -->
   <!-- Add/Edit Stock Modal -->
   <div id="stockModal" class="modal">
     <div class="modal-content">
@@ -1036,87 +1035,131 @@
       </div>
     </div>
   </div>
-
+  <!-- [END PARTIAL: partials/modals/stock-modal-admin.html] -->
+  <!-- [BEGIN PARTIAL: partials/modals/delivery-modals-admin.html] -->
   <!-- Add/Edit Delivery Modal -->
-<div id="deliveryModal" class="modal">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h3 class="modal-title" id="deliveryModalTitle">Add New Delivery</h3>
-      <button class="modal-close" data-close-modal="deliveryModal">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="18" y1="6" x2="6" y2="18"></line>
-          <line x1="6" y1="6" x2="18" y2="18"></line>
-        </svg>
-      </button>
-    </div>
-    <div class="modal-body">
-      <form id="deliveryForm">
-        <input type="hidden" id="deliveryId">
-        <input type="hidden" id="deliveryRefCode">
-        
-        <div id="generatedRefCode" class="alert alert-info" style="display: none; margin-bottom: 1rem;">
+  <div id="deliveryModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title" id="deliveryModalTitle">Add New Delivery</h3>
+        <button class="modal-close" data-close-modal="deliveryModal">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10"></circle>
-            <line x1="12" y1="16" x2="12" y2="12"></line>
-            <line x1="12" y1="8" x2="12.01" y2="8"></line>
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
           </svg>
-          <span>Auto-generated Reference Code: <strong id="displayRefCode"></strong></span>
-        </div>
-        
-        <div class="form-group">
-          <label class="form-label">Customer Name *</label>
-          <input type="text" id="deliveryCustomer" class="form-input" placeholder="Enter customer name" required>
-        </div>
-        
-        <div class="form-group">
-          <label class="form-label">Contact Number *</label>
-          <input type="text" id="deliveryContactNumber" class="form-input" placeholder="e.g., +63 912 345 6789" required>
-        </div>
-        
-        <div class="form-group">
-          <label class="form-label">Customer Address *</label>
-          <textarea id="deliveryAddress" class="form-textarea" rows="2" placeholder="Enter full delivery address" required></textarea>
-        </div>
-        
-        <div class="form-group">
-          <label class="form-label">Product *</label>
-          <input type="text" id="deliveryProduct" class="form-input" placeholder="Enter product name" required>
-        </div>
-        
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Status *</label>
-            <select id="deliveryStatus" class="form-input" required>
-              <option value="Pending">Pending</option>
-              <option value="Processing">Processing</option>
-              <option value="In Transit">In Transit</option>
-              <option value="Delivered">Delivered</option>
-            </select>
+        </button>
+      </div>
+      <div class="modal-body">
+        <form id="deliveryForm">
+          <input type="hidden" id="deliveryId">
+          <input type="hidden" id="deliveryRefCode">
+          
+          <div id="generatedRefCode" class="alert alert-info" style="display: none; margin-bottom: 1rem;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="16" x2="12" y2="12"></line>
+              <line x1="12" y1="8" x2="12.01" y2="8"></line>
+            </svg>
+            <span>Auto-generated Reference Code: <strong id="displayRefCode"></strong></span>
           </div>
           
           <div class="form-group">
-            <label class="form-label">Type *</label>
-            <select id="deliveryType" class="form-input" required>
-              <option value="Outbound">Outbound (Customer Delivery)</option>
-              <option value="Inbound">Inbound (Returns/Restock)</option>
-            </select>
+            <label class="form-label">Customer Name *</label>
+            <input type="text" id="deliveryCustomer" class="form-input" placeholder="Enter customer name" required>
           </div>
-        </div>
-        
-        <div class="form-group">
-          <label class="form-label">Delivery Date</label>
-          <input type="date" id="deliveryDate" class="form-input">
-        </div>
-        
-        <div style="display: flex; gap: 0.75rem;">
-          <button type="submit" class="btn btn-accent" style="flex: 1;">Save Delivery</button>
-          <button type="button" class="btn btn-secondary" data-close-modal="deliveryModal" style="flex: 1;">Cancel</button>
-        </div>
-      </form>
+          
+          <div class="form-group">
+            <label class="form-label">Contact Number *</label>
+            <input type="text" id="deliveryContactNumber" class="form-input" placeholder="e.g., +63 912 345 6789" required>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Customer Address *</label>
+            <textarea id="deliveryAddress" class="form-textarea" rows="2" placeholder="Enter full delivery address" required></textarea>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Product *</label>
+            <input type="text" id="deliveryProduct" class="form-input" placeholder="Enter product name" required>
+          </div>
+          
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Status *</label>
+              <select id="deliveryStatus" class="form-input" required>
+                <option value="Pending">Pending</option>
+                <option value="Processing">Processing</option>
+                <option value="In Transit">In Transit</option>
+                <option value="Delivered">Delivered</option>
+              </select>
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">Type *</label>
+              <select id="deliveryType" class="form-input" required>
+                <option value="Outbound">Outbound (Customer Delivery)</option>
+                <option value="Inbound">Inbound (Returns/Restock)</option>
+              </select>
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Delivery Date</label>
+            <input type="date" id="deliveryDate" class="form-input">
+          </div>
+          
+          <div style="display: flex; gap: 0.75rem;">
+            <button type="submit" class="btn btn-accent" style="flex: 1;">Save Delivery</button>
+            <button type="button" class="btn btn-secondary" data-close-modal="deliveryModal" style="flex: 1;">Cancel</button>
+          </div>
+        </form>
+      </div>
     </div>
   </div>
-</div>
 
+  <!-- Send SMS Modal -->
+  <div id="smsModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title">Send SMS</h3>
+        <button class="modal-close" data-close-modal="smsModal">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Customer</label>
+          <p id="smsCustomerName" style="font-weight:600;color:#111827;margin:0;"></p>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Contact Number</label>
+          <p id="smsContactNumber" style="font-weight:600;color:#111827;margin:0;"></p>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Reference Code</label>
+          <p id="smsRefCode" style="font-weight:600;color:#111827;margin:0;"></p>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Product</label>
+          <p id="smsProduct" style="font-weight:600;color:#111827;margin:0;"></p>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Current Status</label>
+          <p id="smsStatus" style="font-weight:600;color:#111827;margin:0;"></p>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Message</label>
+          <textarea id="smsMessagePreview" class="form-input" rows="4" readonly style="background:#f9fafb;resize:none;"></textarea>
+        </div>
+        <div style="display: flex; gap: 0.75rem;">
+          <button type="button" class="btn btn-accent" id="confirmSendSmsBtn" style="flex: 1;">Send SMS</button>
+          <button type="button" class="btn btn-secondary" data-close-modal="smsModal" style="flex: 1;">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- [END PARTIAL: partials/modals/delivery-modals-admin.html] -->
+  <!-- [BEGIN PARTIAL: partials/modals/sales-modals-admin.html] -->
   <!-- Add/Edit Sales Modal -->
   <div id="salesModal" class="modal">
     <div class="modal-content">
@@ -1171,46 +1214,6 @@
     </div>
   </div>
 
-  <!-- Edit Staff Account Modal -->
-  <div id="staffEditModal" class="modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3 class="modal-title">Edit Staff Account</h3>
-        <button class="modal-close" data-close-modal="staffEditModal">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
-        </button>
-      </div>
-      <div class="modal-body">
-        <form id="staffEditForm">
-          <input type="hidden" id="staffEditId">
-          <div class="form-group">
-            <label class="form-label">Full Name *</label>
-            <input type="text" id="staffEditFullName" class="form-input" placeholder="Enter full name" required>
-          </div>
-          
-          <div class="form-group">
-            <label class="form-label">Username *</label>
-            <input type="text" id="staffEditUsername" class="form-input" placeholder="Enter username" required>
-          </div>
-          
-          <div class="form-group">
-            <label class="form-label">New Password</label>
-            <input type="password" id="staffEditPassword" class="form-input" placeholder="Leave blank to keep current password" minlength="6">
-            <small style="color: #6b7280; font-size: 0.75rem;">Leave blank if you don't want to change the password. Minimum 6 characters if changing.</small>
-          </div>
-          
-          <div style="display: flex; gap: 0.75rem;">
-            <button type="submit" class="btn btn-accent" style="flex: 1;">Update Account</button>
-            <button type="button" class="btn btn-secondary" data-close-modal="staffEditModal" style="flex: 1;">Cancel</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  </div>
-
   <!-- Edit Sales Record Modal -->
   <div id="editAdminSalesModal" class="modal">
     <div class="modal-content">
@@ -1259,7 +1262,49 @@
       </div>
     </div>
   </div>
-
+  <!-- [END PARTIAL: partials/modals/sales-modals-admin.html] -->
+  <!-- [BEGIN PARTIAL: partials/modals/staff-modal.html] -->
+  <!-- Edit Staff Account Modal -->
+  <div id="staffEditModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title">Edit Staff Account</h3>
+        <button class="modal-close" data-close-modal="staffEditModal">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <form id="staffEditForm">
+          <input type="hidden" id="staffEditId">
+          <div class="form-group">
+            <label class="form-label">Full Name *</label>
+            <input type="text" id="staffEditFullName" class="form-input" placeholder="Enter full name" required>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Username *</label>
+            <input type="text" id="staffEditUsername" class="form-input" placeholder="Enter username" required>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">New Password</label>
+            <input type="password" id="staffEditPassword" class="form-input" placeholder="Leave blank to keep current password" minlength="6">
+            <small style="color: #6b7280; font-size: 0.75rem;">Leave blank if you don't want to change the password. Minimum 6 characters if changing.</small>
+          </div>
+          
+          <div style="display: flex; gap: 0.75rem;">
+            <button type="submit" class="btn btn-accent" style="flex: 1;">Update Account</button>
+            <button type="button" class="btn btn-secondary" data-close-modal="staffEditModal" style="flex: 1;">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <!-- [END PARTIAL: partials/modals/staff-modal.html] -->
+  <!-- [BEGIN PARTIAL: partials/modals/chatbot-modal.html] -->
   <!-- Add/Edit Chatbot Q&A Modal -->
   <div id="chatbotModal" class="modal">
     <div class="modal-content">
@@ -1305,52 +1350,13 @@
       </div>
     </div>
   </div>
+  <!-- [END PARTIAL: partials/modals/chatbot-modal.html] -->
 
-  <!-- Send SMS Modal -->
-  <div id="smsModal" class="modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3 class="modal-title">Send SMS</h3>
-        <button class="modal-close" data-close-modal="smsModal">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-        </button>
-      </div>
-      <div class="modal-body">
-        <div class="form-group">
-          <label class="form-label">Customer</label>
-          <p id="smsCustomerName" style="font-weight:600;color:#111827;margin:0;"></p>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Contact Number</label>
-          <p id="smsContactNumber" style="font-weight:600;color:#111827;margin:0;"></p>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Reference Code</label>
-          <p id="smsRefCode" style="font-weight:600;color:#111827;margin:0;"></p>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Product</label>
-          <p id="smsProduct" style="font-weight:600;color:#111827;margin:0;"></p>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Current Status</label>
-          <p id="smsStatus" style="font-weight:600;color:#111827;margin:0;"></p>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Message</label>
-          <textarea id="smsMessagePreview" class="form-input" rows="4" readonly style="background:#f9fafb;resize:none;"></textarea>
-        </div>
-        <div style="display: flex; gap: 0.75rem;">
-          <button type="button" class="btn btn-accent" id="confirmSendSmsBtn" style="flex: 1;">Send SMS</button>
-          <button type="button" class="btn btn-secondary" data-close-modal="smsModal" style="flex: 1;">Cancel</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Toast Container -->
-<div id="toastContainer" class="toast-container"></div>
-  <script src="main.js"></script>
-  <script src="dashboard.js"></script>
+  <!-- [BEGIN PARTIAL: partials/toast.html] -->
+  <div id="toastContainer" class="toast-container"></div>
+  <!-- [END PARTIAL: partials/toast.html] -->
+  <script type="module" src="../js/main.js"></script>
+  <script src="../js/dashboard.js"></script>
 </body>
 </html>
+

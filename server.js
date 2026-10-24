@@ -1228,14 +1228,37 @@ app.get('/business-info', async (req, res) => {
 });
 
 app.post('/business-info', async (req, res) => {
-  const { hero_title, hero_description, story, mission, return_policy, warranty_policy, delivery_policy, payment_policy } = req.body;
-  const { data: existing } = await db.from('business_info').select('id').eq('id', 1).single();
+  const { hero_title, hero_description, story, mission, return_policy, warranty_policy, delivery_policy, payment_policy } = req.body || {};
+  const baseFields = { hero_title, hero_description, story, mission };
+  const fullFields = { ...baseFields, return_policy, warranty_policy, delivery_policy, payment_policy };
+  const isMissingColumnError = (err) => err && (err.code === '42703' || err.code === 'PGRST204' || /column|schema cache/i.test(err.message || ''));
+
+  const { data: existing } = await db.from('business_info').select('id').eq('id', 1).maybeSingle();
   if (!existing) {
-    const { error } = await db.from('business_info').insert({ id: 1, hero_title, hero_description, story, mission, return_policy, warranty_policy, delivery_policy, payment_policy });
-    if (error) return res.status(500).json({ success: false, message: 'Failed to save business info' });
+    let { error } = await db.from('business_info').insert({ id: 1, ...fullFields });
+    if (error && isMissingColumnError(error)) {
+      ({ error } = await db.from('business_info').insert({ id: 1, ...baseFields, return_policy }));
+    }
+    if (error && isMissingColumnError(error)) {
+      ({ error } = await db.from('business_info').insert({ id: 1, ...baseFields }));
+    }
+    if (error) {
+      console.error('Business info insert error:', error.message);
+      return res.status(500).json({ success: false, message: error.message || 'Failed to save business info' });
+    }
   } else {
-    const { error } = await db.from('business_info').update({ hero_title, hero_description, story, mission, return_policy, warranty_policy, delivery_policy, payment_policy, updated_at: new Date() }).eq('id', 1);
-    if (error) return res.status(500).json({ success: false, message: 'Failed to update business info' });
+    const updated_at = new Date();
+    let { error } = await db.from('business_info').update({ ...fullFields, updated_at }).eq('id', 1);
+    if (error && isMissingColumnError(error)) {
+      ({ error } = await db.from('business_info').update({ ...baseFields, return_policy, updated_at }).eq('id', 1));
+    }
+    if (error && isMissingColumnError(error)) {
+      ({ error } = await db.from('business_info').update({ ...baseFields, updated_at }).eq('id', 1));
+    }
+    if (error) {
+      console.error('Business info update error:', error.message);
+      return res.status(500).json({ success: false, message: error.message || 'Failed to update business info' });
+    }
   }
   res.json({ success: true, message: 'Business information saved successfully' });
 });
@@ -1646,7 +1669,7 @@ app.set('trust proxy', 1);
 
 // Limit Visualize tries per visitor per day (each try costs money).
 // Kept in memory, so it resets if the server restarts or sleeps.
-const MAX_VISUALIZE_PER_DAY = Number(process.env.VISUALIZE_DAILY_LIMIT) || 3;
+const MAX_VISUALIZE_PER_DAY = Number(process.env.VISUALIZE_DAILY_LIMIT) || 40;
 const visualizeUsage = new Map(); // ip -> { count, resetAt }
 const visualizeInFlight = new Set(); // ips that currently have a generation running
 

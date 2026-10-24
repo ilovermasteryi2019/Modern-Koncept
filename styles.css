@@ -857,16 +857,16 @@ body {
   color: white;
 }
 .hero.hero-bg.furniture-bg {
-  background-image: linear-gradient(rgba(15,23,42,0.45), rgba(15,23,42,0.45)), url('background.jpg');
+  background-image: linear-gradient(rgba(15,23,42,0.45), rgba(15,23,42,0.45)), url('Images/background.jpg');
 }
 .hero.hero-bg.contact-bg {
-  background-image: linear-gradient(rgba(15,23,42,0.45), rgba(15,23,42,0.45)), url('bgdelivery.jpg');
+  background-image: linear-gradient(rgba(15,23,42,0.45), rgba(15,23,42,0.45)), url('Images/bgdelivery.jpg');
 }
 .hero.hero-bg.about-bg {
-  background-image: linear-gradient(rgba(15,23,42,0.45), rgba(15,23,42,0.45)), url('bgcontact.jpg');
+  background-image: linear-gradient(rgba(15,23,42,0.45), rgba(15,23,42,0.45)), url('Images/bgcontact.jpg');
 }
 .hero.hero-bg.track-bg {
-  background-image: linear-gradient(rgba(15,23,42,0.45), rgba(15,23,42,0.45)), url('bgabout.jpg');
+  background-image: linear-gradient(rgba(15,23,42,0.45), rgba(15,23,42,0.45)), url('Images/bgabout.jpg');
 }
 .hero.hero-bg .hero-container {
   position: relative;

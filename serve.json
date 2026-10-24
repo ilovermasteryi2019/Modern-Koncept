@@ -1,0 +1,32 @@
+{
+  "cleanUrls": false,
+  "rewrites": [
+    { "source": "/", "destination": "/Pages/index.html" },
+    { "source": "/index", "destination": "/Pages/index.html" },
+    { "source": "/index.html", "destination": "/Pages/index.html" },
+    { "source": "/about", "destination": "/Pages/about.html" },
+    { "source": "/about.html", "destination": "/Pages/about.html" },
+    { "source": "/login", "destination": "/Pages/login.html" },
+    { "source": "/login.html", "destination": "/Pages/login.html" },
+    { "source": "/furniture-list", "destination": "/Pages/furniture-list.html" },
+    { "source": "/furniture-list.html", "destination": "/Pages/furniture-list.html" },
+    { "source": "/furniture-detail", "destination": "/Pages/furniture-detail.html" },
+    { "source": "/furniture-detail.html", "destination": "/Pages/furniture-detail.html" },
+    { "source": "/track-delivery", "destination": "/Pages/track-delivery.html" },
+    { "source": "/track-delivery.html", "destination": "/Pages/track-delivery.html" },
+    { "source": "/contact", "destination": "/Pages/contact.html" },
+    { "source": "/contact.html", "destination": "/Pages/contact.html" },
+    { "source": "/customer-support", "destination": "/Pages/customer-support.html" },
+    { "source": "/customer-support.html", "destination": "/Pages/customer-support.html" },
+    { "source": "/ai-visualization", "destination": "/Pages/ai-visualization.html" },
+    { "source": "/ai-visualization.html", "destination": "/Pages/ai-visualization.html" },
+    { "source": "/admin", "destination": "/Pages/admin.html" },
+    { "source": "/admin.html", "destination": "/Pages/admin.html" },
+    { "source": "/manager", "destination": "/Pages/manager.html" },
+    { "source": "/manager.html", "destination": "/Pages/manager.html" },
+    { "source": "/staff", "destination": "/Pages/staff.html" },
+    { "source": "/staff.html", "destination": "/Pages/staff.html" },
+    { "source": "/placeholder-furniture.jpg", "destination": "/Images/sofa.png" },
+    { "source": "/Pages/placeholder-furniture.jpg", "destination": "/Images/sofa.png" }
+  ]
+}

@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Furniture Details - ecl FURNITURE MART</title>
+  <title>Furniture Details - Modern Koncept</title>
   <!-- Bootstrap 5 is loaded BEFORE styles.css so the existing design keeps priority -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="../styles.css">
   <style>
     .detail-container {
       max-width: 1200px;
@@ -117,100 +117,86 @@
       flex-wrap: wrap;
     }
 
-/* =============================================================================
-   K-Desk — Furniture Dimension Indicator (furniture-detail.html)
-   Rulers sit in the margins AROUND the image (never on top of it), so they stay
-   readable on light and dark photos and never block clicks on the image/buttons.
-   ========================================================================== */
-.dim-frame {
-  --dim-line: #4b5563;
-  --dim-accent: #DC143C;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  row-gap: 0.5rem;
-  min-width: 0;
-}
-.dim-frame.has-height {
-  grid-template-columns: 2.5rem minmax(0, 1fr);
-  column-gap: 0.4rem;
-}
-/* the existing image container is untouched; it just lives in the last grid column */
-.dim-image-slot { grid-row: 1; grid-column: -2 / -1; min-width: 0; }
-
-/* ---- rulers -------------------------------------------------------------- */
-.dim-ruler { position: relative; pointer-events: none; }
-.dim-ruler[hidden] { display: none; }
-.dim-ruler-v { grid-row: 1; grid-column: 1; align-self: stretch; }
-.dim-ruler-h { grid-row: 2; grid-column: -2 / -1; height: 2rem; }
-
-.dim-line { position: absolute; }
-.dim-ruler-v .dim-line { left: 50%; top: 0; bottom: 0; border-left: 1.5px solid var(--dim-line); transform: translateX(-50%); }
-.dim-ruler-h .dim-line { top: 50%; left: 0; right: 0; border-top: 1.5px solid var(--dim-line); transform: translateY(-50%); }
-
-/* arrow heads (CSS triangles at both ends) */
-.dim-line::before, .dim-line::after { content: ''; position: absolute; width: 0; height: 0; border: 5px solid transparent; }
-.dim-ruler-v .dim-line::before { top: 0;    left: 50%; transform: translateX(-50%); border-bottom: 9px solid var(--dim-line); border-top: 0; }
-.dim-ruler-v .dim-line::after  { bottom: 0; left: 50%; transform: translateX(-50%); border-top: 9px solid var(--dim-line); border-bottom: 0; }
-.dim-ruler-h .dim-line::before { left: 0;  top: 50%; transform: translateY(-50%); border-right: 9px solid var(--dim-line); border-left: 0; }
-.dim-ruler-h .dim-line::after  { right: 0; top: 50%; transform: translateY(-50%); border-left: 9px solid var(--dim-line); border-right: 0; }
-
-.dim-label {
-  position: absolute;
-  top: 50%; left: 50%;
-  white-space: nowrap;
-  padding: 0.15rem 0.6rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-  line-height: 1.3;
-  color: #111827;
-  background: #ffffff;
-  border: 1px solid #d1d5db;
-  border-radius: 999px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
-}
-.dim-ruler-h .dim-label { transform: translate(-50%, -50%); }
-.dim-ruler-v .dim-label { transform: translate(-50%, -50%) rotate(-90deg); }
-
-/* ---- diagram card --------------------------------------------------------- */
-.dim-diagram {
-  grid-row: 3;
-  grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.75rem 1.25rem;
-  margin-top: 0.5rem;
-  padding: 1rem;
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 0.75rem;
-}
-.dim-diagram[hidden] { display: none; }
-.dim-diagram-svg { flex: 1 1 220px; max-width: 320px; margin: 0 auto; }
-.dim-diagram-svg svg { display: block; width: 100%; height: auto; }
-.dim-legend { flex: 1 1 140px; list-style: none; margin: 0; padding: 0; }
-.dim-legend li { display: flex; justify-content: space-between; gap: 1rem; padding: 0.4rem 0; border-bottom: 1px solid #e5e7eb; font-size: 0.9rem; }
-.dim-legend li:last-child { border-bottom: none; }
-.dim-legend-name { font-weight: 600; color: #374151; }
-.dim-legend-value { color: var(--dim-accent); font-weight: 700; white-space: nowrap; }
-.dim-note { flex-basis: 100%; margin: 0; font-size: 0.75rem; color: #9ca3af; }
-
-/* ---- small screens -------------------------------------------------------- */
-@media (max-width: 576px) {
-  .dim-frame.has-height { grid-template-columns: 2rem minmax(0, 1fr); column-gap: 0.25rem; }
-  .dim-frame .detail-image-container { height: 320px; }   /* the existing 500px image box is too tall for phones */
-  .dim-label { font-size: 0.72rem; padding: 0.1rem 0.45rem; }
-  .dim-diagram { padding: 0.75rem; }
-}
+    /* K-Desk — Furniture Dimension Indicator (furniture-detail.html) */
+    .dim-frame {
+      --dim-line: #4b5563;
+      --dim-accent: #DC143C;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      row-gap: 0.5rem;
+      min-width: 0;
+    }
+    .dim-frame.has-height {
+      grid-template-columns: 2.5rem minmax(0, 1fr);
+      column-gap: 0.4rem;
+    }
+    .dim-image-slot { grid-row: 1; grid-column: -2 / -1; min-width: 0; }
+    .dim-ruler { position: relative; pointer-events: none; }
+    .dim-ruler[hidden] { display: none; }
+    .dim-ruler-v { grid-row: 1; grid-column: 1; align-self: stretch; }
+    .dim-ruler-h { grid-row: 2; grid-column: -2 / -1; height: 2rem; }
+    .dim-line { position: absolute; }
+    .dim-ruler-v .dim-line { left: 50%; top: 0; bottom: 0; border-left: 1.5px solid var(--dim-line); transform: translateX(-50%); }
+    .dim-ruler-h .dim-line { top: 50%; left: 0; right: 0; border-top: 1.5px solid var(--dim-line); transform: translateY(-50%); }
+    .dim-line::before, .dim-line::after { content: ''; position: absolute; width: 0; height: 0; border: 5px solid transparent; }
+    .dim-ruler-v .dim-line::before { top: 0; left: 50%; transform: translateX(-50%); border-bottom: 9px solid var(--dim-line); border-top: 0; }
+    .dim-ruler-v .dim-line::after { bottom: 0; left: 50%; transform: translateX(-50%); border-top: 9px solid var(--dim-line); border-bottom: 0; }
+    .dim-ruler-h .dim-line::before { left: 0; top: 50%; transform: translateY(-50%); border-right: 9px solid var(--dim-line); border-left: 0; }
+    .dim-ruler-h .dim-line::after { right: 0; top: 50%; transform: translateY(-50%); border-left: 9px solid var(--dim-line); border-right: 0; }
+    .dim-label {
+      position: absolute;
+      top: 50%; left: 50%;
+      white-space: nowrap;
+      padding: 0.15rem 0.6rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      line-height: 1.3;
+      color: #111827;
+      background: #ffffff;
+      border: 1px solid #d1d5db;
+      border-radius: 999px;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+    }
+    .dim-ruler-h .dim-label { transform: translate(-50%, -50%); }
+    .dim-ruler-v .dim-label { transform: translate(-50%, -50%) rotate(-90deg); }
+    .dim-diagram {
+      grid-row: 3;
+      grid-column: 1 / -1;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem 1.25rem;
+      margin-top: 0.5rem;
+      padding: 1rem;
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 0.75rem;
+    }
+    .dim-diagram[hidden] { display: none; }
+    .dim-diagram-svg { flex: 1 1 220px; max-width: 320px; margin: 0 auto; }
+    .dim-diagram-svg svg { display: block; width: 100%; height: auto; }
+    .dim-legend { flex: 1 1 140px; list-style: none; margin: 0; padding: 0; }
+    .dim-legend li { display: flex; justify-content: space-between; gap: 1rem; padding: 0.4rem 0; border-bottom: 1px solid #e5e7eb; font-size: 0.9rem; }
+    .dim-legend li:last-child { border-bottom: none; }
+    .dim-legend-name { font-weight: 600; color: #374151; }
+    .dim-legend-value { color: var(--dim-accent); font-weight: 700; white-space: nowrap; }
+    .dim-note { flex-basis: 100%; margin: 0; font-size: 0.75rem; color: #9ca3af; }
+    @media (max-width: 576px) {
+      .dim-frame.has-height { grid-template-columns: 2rem minmax(0, 1fr); column-gap: 0.25rem; }
+      .dim-frame .detail-image-container { height: 320px; }
+      .dim-label { font-size: 0.72rem; padding: 0.1rem 0.45rem; }
+      .dim-diagram { padding: 0.75rem; }
+    }
   </style>
 </head>
 <body class="bs-customer">
 
+  <!-- [BEGIN PARTIAL: partials/header.html] -->
   <!-- Header -->
   <header class="header">
     <nav class="navbar navbar-expand-md header-container" aria-label="Main navigation">
       <a class="navbar-brand p-0 m-0" href="index.html">
-        <img src="logo.jpg" alt="ECL Furniture Mart" class="logo">
+        <img src="../Images/logo.jpg" alt="Modern Koncept" class="logo">
       </a>
 
       <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNavbar" aria-controls="mainNavbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -226,7 +212,7 @@
             </svg>
             <span>Home</span>
           </a>
-          <a href="furniture-list.html" class="nav-btn">
+          <a href="furniture-list.html" class="nav-btn active">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="16.5" y1="9.4" x2="7.5" y2="4.21"></line>
               <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
@@ -269,6 +255,7 @@
       </div>
     </nav>
   </header>
+  <!-- [END PARTIAL: partials/header.html] -->
 
   <!-- Product Detail Section -->
   <section class="section">
@@ -284,9 +271,7 @@
 
       <div class="row g-4 g-lg-5 mb-5">
 
-        <!-- Product Image + dimension indicator.
-             The image container is unchanged; rulers are drawn in the margins around it
-             and stay hidden until real dimensions are available for the product. -->
+        <!-- Product Image -->
         <div class="col-12 col-md-6">
           <div id="dimFrame" class="dim-frame">
             <div id="dimHeight" class="dim-ruler dim-ruler-v" role="img" hidden>
@@ -347,7 +332,7 @@
               Contact Us
             </button>
 
-            <!--  NEW: AI Visualizer Button -->
+            <!-- ✅ NEW: AI Visualizer Button -->
             <button class="btn btn-ai" id="visualizeBtn">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
@@ -368,27 +353,31 @@
     </div>
   </section>
 
+  <!-- [BEGIN PARTIAL: partials/footer.html] -->
   <!-- Footer -->
   <footer class="footer">
     <div class="footer-container">
       <div>
-        <img src="logo.jpg" alt="ECL Furniture Mart" class="logo" style="margin-bottom: 0.5rem;">
+        <img src="../Images/logo.jpg" alt="Modern Koncept Furniture Centre" class="logo" style="margin-bottom: 0.5rem;">
         <p class="footer-text">Quality furniture for your home</p>
       </div>
       <div style="text-align: right;">
-        <p class="footer-text">© Modern Koncept Furniture Centre. All rights reserved.</p>
+        <p class="footer-text">© 2022 Modern Koncept Furniture Centre. All rights reserved.</p>
         <p class="footer-text">REAL BLDG 1 JP RIZAL STREET Poblacion Sta Maria Bulacan, Philippines, 3022</p>
         <p class="footer-text">Phone: (044) 796-1234 | Email: info@modernkoncept.com</p>
         <p class="footer-text">
-          Follow us on
+          Follow us on 
           <a href="https://www.facebook.com/profile.php/?id=100064125784131" target="_blank" style="color:#4b5563; text-decoration: underline;">Facebook</a>
         </p>
       </div>
     </div>
   </footer>
-
+  <!-- [END PARTIAL: partials/footer.html] -->
+  <!-- [BEGIN PARTIAL: partials/toast.html] -->
   <div id="toastContainer" class="toast-container"></div>
+  <!-- [END PARTIAL: partials/toast.html] -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="main.js"></script>
+  <script type="module" src="../js/main.js"></script>
 </body>
 </html>
+
