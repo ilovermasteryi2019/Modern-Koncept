@@ -141,15 +141,18 @@ export async function initDashboardSession() {
   try {
     const response = await fetch(`${API_URL}/session`, { headers: authHeaders() });
     if (response.status === 401) return; // handled by the fetch check above
-    const result = await response.json();
-    if (result && result.success && result.user) {
-      const role = result.user.role || 'staff';
-      sessionStorage.setItem('currentUser', JSON.stringify({ id: result.user.id, name: result.user.name, email: result.user.email, role }));
-      if (role !== DASHBOARD_ROLE) {
-        sessionEnding = true;
-        document.documentElement.style.visibility = 'hidden';
-        window.location.replace(dashboardPageFor(role));
-      }
+    let result = null;
+    try { result = await response.json(); } catch (e) { result = null; }
+    if (!response.ok || !result || !result.success || !result.user) {
+      handleSessionExpired(result && result.code === 'ACCOUNT_DEACTIVATED' ? 'deactivated' : 'expired');
+      return;
+    }
+    const role = result.user.role || 'staff';
+    sessionStorage.setItem('currentUser', JSON.stringify({ id: result.user.id, name: result.user.name, email: result.user.email, role }));
+    if (role !== DASHBOARD_ROLE) {
+      sessionEnding = true;
+      document.documentElement.style.visibility = 'hidden';
+      window.location.replace(dashboardPageFor(role));
     }
   } catch (e) { /* server unreachable (e.g. waking up): keep the page, the next request will re-check */ }
   finally { hideLoader(); }
@@ -196,7 +199,7 @@ function completeLogin(result) {
 //   4. POST /login/mfa/verify  { challengeId, code } -> { success:true, user, token }   (the only place a session is issued)
 //   5. POST /login/mfa/cancel  { challengeId }   (optional, best effort)
 // Error answers use { success:false, code, message } with these codes: MFA_COOLDOWN (+retryAfterSeconds), SMS_FAILED,
-// INVALID_CODE (+attemptsRemaining), CODE_EXPIRED, CHALLENGE_EXPIRED, CHALLENGE_NOT_FOUND, TOO_MANY_ATTEMPTS.
+// INVALID_CODE (+attemptsRemaining), CODE_EXPIRED, CHALLENGE_EXPIRED, CHALLENGE_NOT_FOUND, TOO_MANY_ATTEMPTS, ACCOUNT_DEACTIVATED.
 // Routes 1-5 are implemented in server.js ("SMS OTP MFA (Semaphore)"). The server issues a token ONLY from route 4.
 // The challengeId only lives in a JavaScript variable (never in sessionStorage / localStorage) and the OTP is never stored anywhere.
 // =============================================================================
@@ -218,6 +221,20 @@ let loginInFlight = false;
 
 const mfaEl = (id) => document.getElementById(id);
 
+function setLoginErrorBanner(message) {
+  const errBox = mfaEl('loginError');
+  const errMsg = mfaEl('loginErrorMsg');
+  if (!errBox || !errMsg) return;
+  if (message) {
+    errMsg.textContent = message;
+    errBox.classList.remove('hidden');
+    errBox.hidden = false;
+  } else {
+    errBox.classList.add('hidden');
+    errBox.hidden = true;
+  }
+}
+
 // Only the last two digits of the number are ever shown, even if the server sent more than it should
 function mfaDisplayPhone(value) {
   const digits = String(value || '').replace(/\D/g, '');
@@ -236,7 +253,7 @@ function mfaSetStep(step) { // 'credentials' | 'send' | 'code'
   mfaEl('mfaPanel').hidden = step === 'credentials';
   mfaEl('mfaStepSend').hidden = step !== 'send';
   mfaEl('mfaStepCode').hidden = step !== 'code';
-  mfaEl('loginError').classList.add('hidden');
+  setLoginErrorBanner('');
 }
 
 function mfaError(message) {
@@ -329,6 +346,12 @@ function mfaShowCodeStep(codeExpiresInSeconds) {
 
 function mfaHandleError(result) {
   const code = result && result.code;
+  if (code === 'ACCOUNT_DEACTIVATED') {
+    const msg = (result && result.message) || 'This account is deactivated. Please contact your administrator.';
+    mfaReset(msg, 'error');
+    setLoginErrorBanner(msg);
+    return;
+  }
   if (code === 'CHALLENGE_EXPIRED' || code === 'CHALLENGE_NOT_FOUND') { mfaReset('Your verification session expired. Please log in again.'); return; }
   if (code === 'TOO_MANY_ATTEMPTS') { mfaReset('Too many incorrect codes. Please log in again.', 'error'); return; }
   if (code === 'MFA_COOLDOWN') {
@@ -442,6 +465,7 @@ export async function handleLogin(event) {
   const submitBtn = event.target && event.target.querySelector ? event.target.querySelector('button[type="submit"]') : null;
   const originalLabel = submitBtn ? submitBtn.innerHTML : '';
   loginInFlight = true;
+  setLoginErrorBanner('');
   const loginProgress = kdStartProgress('Signing you in...');
   if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Logging in…'; }
   let keepDisabled = false;
@@ -453,7 +477,9 @@ export async function handleLogin(event) {
       if (MFA_ALLOW_DIRECT_LOGIN) { keepDisabled = true; completeLogin(result); }
       else showToast('Login could not continue: SMS verification was not started by the server.', 'error');
     } else {
-      showToast(result.message || 'Login failed.', 'error');
+      const msg = result.message || 'Login failed.';
+      if (result.code === 'ACCOUNT_DEACTIVATED') setLoginErrorBanner(msg);
+      showToast(msg, 'error');
     }
   } catch (error) {
     showToast('Failed to login. Please check your connection.', 'error');

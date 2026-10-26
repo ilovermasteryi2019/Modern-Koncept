@@ -136,6 +136,15 @@
       background: rgba(239, 68, 68, 0.1);
       color: #ef4444;
     }
+
+    .action-btn.activate {
+      color: #059669;
+    }
+
+    .action-btn.activate:hover {
+      background: rgba(16, 185, 129, 0.1);
+      color: #059669;
+    }
     
     .modal {
       display: none;
@@ -503,34 +512,6 @@
     <div id="businessModule" class="dashboard-module">
       <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Business Information</h2>
       
-      <!-- About Page Editor -->
-      <div class="card" style="margin-bottom: 1.5rem;">
-        <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">About Page Content</h3>
-        <form id="aboutForm">
-          <div class="form-group">
-            <label class="form-label">About Description</label>
-            <input type="text" id="aboutHeroDesc" class="form-input" placeholder="Enter hero description">
-          </div>
-          
-          <div class="form-group">
-            <label class="form-label">Our Story</label>
-            <textarea id="aboutStory" class="form-textarea" rows="5" placeholder="Write your company story..."></textarea>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">Policies Statement</label>
-            <textarea id="aboutPolicies" class="form-textarea" rows="3" placeholder="Write your policies statement..."></textarea>
-          </div>
-          
-          <div class="form-group">
-            <label class="form-label">Mission Statement</label>
-            <textarea id="aboutMission" class="form-textarea" rows="3" placeholder="Write your mission statement..."></textarea>
-          </div>
-          
-          <button type="submit" class="btn btn-accent">Save About Page Changes</button>
-        </form>
-      </div>
-      
       <!-- Contact Page Editor -->
       <div class="card">
         <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">Contact Page Content</h3>
@@ -587,6 +568,32 @@
           </svg>
           Add New Stock Item
         </button>
+      </div>
+
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="search-toolbar">
+          <div class="form-group">
+            <label class="form-label" for="adminInventorySearch">Search inventory</label>
+            <input id="adminInventorySearch" type="text" class="form-input" placeholder="Search by name, item code, category">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="adminInventoryCategoryFilter">Filter by category</label>
+            <select id="adminInventoryCategoryFilter" class="form-input">
+              <option value="all">All Categories</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="adminInventoryStatusFilter">Filter by stock status</label>
+            <select id="adminInventoryStatusFilter" class="form-input">
+              <option value="all">All Statuses</option>
+              <option value="in-stock">In Stock</option>
+              <option value="low-stock">Low Stock</option>
+            </select>
+          </div>
+          <div class="form-group" style="display:flex;align-items:flex-end;">
+            <button type="button" id="adminInventoryResetFilters" class="btn btn-secondary" style="width:100%;">Reset Filters</button>
+          </div>
+        </div>
       </div>
       
       <div class="card">
@@ -770,6 +777,7 @@
                 <th>Username</th>
                 <th>Role</th>
                 <th>Phone Number</th>
+                <th>Status</th>
                 <th>Created Date</th>
                 <th>Actions</th>
               </tr>

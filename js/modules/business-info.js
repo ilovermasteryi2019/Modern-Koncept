@@ -10,21 +10,6 @@ import { kdFormOptions as submit, kdGuard, showToast } from './ui.js';
 // =============================================================================
 // ADMIN MODULE - BUSINESS INFORMATION
 // =============================================================================
-export async function handleAboutFormSubmit(event) {
-  event.preventDefault();
-  try {
-    const result = await API.saveBusinessInfo({
-      hero_title: 'About ECL FURNITURE MART',
-      hero_description: document.getElementById('aboutHeroDesc').value,
-      story: document.getElementById('aboutStory').value,
-      mission: document.getElementById('aboutMission').value,
-      return_policy: document.getElementById('aboutPolicies').value, warranty_policy: '', delivery_policy: '', payment_policy: ''
-    });
-    if (result.success) showToast('✅ About page information saved!', 'success');
-    else showToast('❌ Failed to save: ' + result.message, 'error');
-  } catch (error) { showToast('❌ Failed to save business information', 'error'); }
-}
-
 export async function handleContactFormSubmit(event) {
   event.preventDefault();
   try {
@@ -41,15 +26,6 @@ export async function handleContactFormSubmit(event) {
 
 export async function loadBusinessInfo() {
   try {
-    const businessResult = await API.getBusinessInfo();
-    if (businessResult.success && businessResult.data) {
-      const d = businessResult.data;
-      const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
-      setVal('aboutHeroDesc', d.hero_description);
-      setVal('aboutStory', d.story);
-      setVal('aboutMission', d.mission);
-      setVal('aboutPolicies', d.return_policy);
-    }
     const contactResult = await API.getContactInfo();
     if (contactResult.success && contactResult.data) {
       const d = contactResult.data;
@@ -110,5 +86,4 @@ export async function loadContactPageContent() {
 
 
 // ---- loading / duplicate-click protection (helpers live in ui.js; each function is wrapped once, here, where it is defined) ----
-handleAboutFormSubmit = kdGuard(handleAboutFormSubmit, submit('Saving...', 'Saving changes...'));
 handleContactFormSubmit = kdGuard(handleContactFormSubmit, submit('Saving...', 'Saving changes...'));

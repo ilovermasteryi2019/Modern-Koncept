@@ -57,7 +57,14 @@ async function kdFetchWithSessionCheck(input, init) {
   try {
     const url = typeof input === 'string' ? input : ((input && input.url) || '');
     const sentToken = !!(init && init.headers && init.headers.Authorization);
-    if (response.status === 401 && sentToken && url.startsWith(API_URL) && kdUnauthorizedHandler) kdUnauthorizedHandler('expired');
+    if (response.status === 401 && sentToken && url.startsWith(API_URL) && kdUnauthorizedHandler) {
+      let reason = 'expired';
+      try {
+        const body = await response.clone().json();
+        if (body && body.code === 'ACCOUNT_DEACTIVATED') reason = 'deactivated';
+      } catch (e) { /* ignore non-JSON */ }
+      kdUnauthorizedHandler(reason);
+    }
   } catch (e) { /* never break a request because of this check */ }
   return response;
 }
@@ -131,7 +138,9 @@ export const API = {
   getStaff: async () => (await fetch(`${API_URL}/staff`, { headers: authHeaders() })).json(),
   createStaff: async (data) => (await fetch(`${API_URL}/staff`, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(data) })).json(),
   updateStaff: async (id, data) => (await fetch(`${API_URL}/staff/${id}`, { method: 'PUT', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(data) })).json(),
-  deleteStaff: async (id) => (await fetch(`${API_URL}/staff/${id}`, { method: 'DELETE', headers: authHeaders() })).json(),
+  deactivateStaff: async (id) => (await fetch(`${API_URL}/staff/${id}/deactivate`, { method: 'PATCH', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ is_active: false }) })).json(),
+  activateStaff: async (id) => (await fetch(`${API_URL}/staff/${id}/activate`, { method: 'PATCH', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ is_active: true }) })).json(),
+  updateStaffStatus: async (id, isActive) => (await fetch(`${API_URL}/staff/${id}/status`, { method: 'PATCH', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ is_active: Boolean(isActive) }) })).json(),
   getMyAccount: async () => (await fetch(`${API_URL}/account/me`, { headers: authHeaders() })).json(),
   updateMyAccount: async (data) => (await fetch(`${API_URL}/account/me`, { method: 'PUT', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(data) })).json(),
   // SMS verification at login (backend routes: /login/mfa/send, /resend, /verify, /cancel - see "LOGIN WITH SMS VERIFICATION" below).

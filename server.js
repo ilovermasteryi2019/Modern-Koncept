@@ -330,8 +330,30 @@ function verifyToken(token) {
   } catch (e) { return null; }
 }
 
-// Allows the request only if the token is valid AND the user's CURRENT role in the
-// users table is one of the allowed roles (so the frontend role can never be trusted alone).
+// Account active-status helpers:
+// Minimal schema migration for Supabase:
+//   ALTER TABLE public.users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
+// If the `is_active` column has not yet been added in Supabase SQL Editor, the server seamlessly
+// falls back to storing/reading the deactivated marker in the unused `mfa_secret` column so
+// activation and deactivation persist in the database without errors.
+const USER_ACTIVE_COLUMN = 'is_active';
+const DEACTIVATED_FALLBACK_MARKER = 'ACCOUNT_DEACTIVATED';
+const isMissingColumnError = (err) => err && (err.code === '42703' || err.code === 'PGRST204' || /column|schema cache/i.test(err.message || ''));
+
+function isAccountActive(row) {
+  if (!row) return false;
+  if (typeof row[USER_ACTIVE_COLUMN] === 'boolean') return row[USER_ACTIVE_COLUMN];
+  if (typeof row.status === 'string') {
+    const s = row.status.trim().toLowerCase();
+    if (s === 'deactivated' || s === 'inactive') return false;
+    if (s === 'active') return true;
+  }
+  if (row.mfa_secret === DEACTIVATED_FALLBACK_MARKER) return false;
+  return true;
+}
+
+// Allows the request only if the token is valid, the account is currently active, AND the user's CURRENT role
+// in the users table is one of the allowed roles (so the frontend role or status can never be trusted alone).
 function requireRole(...allowedRoles) {
   return async (req, res, next) => {
     const header = req.headers.authorization || '';
@@ -344,8 +366,12 @@ function requireRole(...allowedRoles) {
       if (decoded.jti) sessions.delete(decoded.jti);
       return res.status(401).json({ success: false, message: 'Your session has expired. Please log in again.' });
     }
-    const { data: user, error } = await db.from('users').select('id,name,email,role').eq('id', decoded.id).single();
+    const { data: user, error } = await db.from('users').select('*').eq('id', decoded.id).single();
     if (error || !user) return res.status(401).json({ success: false, message: 'Account not found. Please log in again.' });
+    if (!isAccountActive(user)) {
+      revokeUserSessions(user.id);
+      return res.status(401).json({ success: false, code: 'ACCOUNT_DEACTIVATED', message: 'This account is deactivated. Please contact your administrator.' });
+    }
     const role = user.role || 'staff';
     if (!allowedRoles.includes(role)) return res.status(403).json({ success: false, message: 'You do not have permission to perform this action.' });
     session.lastSeen = Date.now();
@@ -447,10 +473,19 @@ app.post('/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ success: false, message: 'Email and password are required' });
   if (typeof email !== 'string' || typeof password !== 'string' || password.length > 128) return res.status(401).json({ success: false, message: 'Invalid email or password' });
-  const { data, error } = await db.from('users').select('id,name,email,role,password').eq('email', email).single();
+  const { data, error } = await db.from('users').select('*').eq('email', email).single();
   if (error || !data) return res.status(401).json({ success: false, message: 'Invalid email or password' });
   const check = await verifyPassword(password, data.password);
   if (!check.ok) return res.status(401).json({ success: false, message: 'Invalid email or password' });
+  if (!isAccountActive(data)) {
+    revokeUserSessions(data.id);
+    revokeUserMfaChallenges(data.id);
+    return res.status(403).json({
+      success: false,
+      code: 'ACCOUNT_DEACTIVATED',
+      message: 'This account is deactivated. Please contact your administrator.'
+    });
+  }
   if (check.needsUpgrade) {
     // Old plain-text account: it logged in correctly, so re-save its password as a hash (login still succeeds if this fails)
     const upgraded = await hashForStorage(password);
@@ -617,6 +652,12 @@ async function sendOtpSms(phone, otp) {
   }
 }
 
+function revokeUserMfaChallenges(userId) {
+  for (const [id, challenge] of mfaChallenges) {
+    if (String(challenge.userId) === String(userId)) mfaChallenges.delete(id);
+  }
+}
+
 async function mfaSendHandler(req, res) {
   const found = findMfaChallenge((req.body || {}).challengeId);
   if (found.error) return mfaFail(res, found.error.status, found.error.code, found.error.message);
@@ -624,6 +665,19 @@ async function mfaSendHandler(req, res) {
   const now = Date.now();
 
   if (challenge.sending) return mfaFail(res, 429, 'SMS_IN_PROGRESS', 'A code is already being sent. Please wait a moment.');
+
+  // Verify the account still exists and is active before sending any verification code
+  const { data: userRow, error: userError } = await db.from('users').select('*').eq('id', challenge.userId).single();
+  if (userError || !userRow) {
+    mfaChallenges.delete(id);
+    return mfaFail(res, 401, 'CHALLENGE_EXPIRED', 'Your account could not be found. Please log in again.');
+  }
+  if (!isAccountActive(userRow)) {
+    mfaChallenges.delete(id);
+    revokeUserSessions(challenge.userId);
+    return mfaFail(res, 403, 'ACCOUNT_DEACTIVATED', 'This account is deactivated. Please contact your administrator.');
+  }
+
   if (challenge.lastSentAt && now - challenge.lastSentAt < MFA_RESEND_COOLDOWN_MS) {
     const retry = Math.ceil((MFA_RESEND_COOLDOWN_MS - (now - challenge.lastSentAt)) / 1000);
     return mfaFail(res, 429, 'MFA_COOLDOWN', `Please wait ${retry} seconds before requesting another code.`, { retryAfterSeconds: retry });
@@ -697,8 +751,12 @@ app.post('/login/mfa/verify', async (req, res) => {
   // Correct code. The challenge is removed BEFORE anything is awaited, so the same code cannot be used twice,
   // not even by two requests arriving at the same moment.
   mfaChallenges.delete(id);
-  const { data: user, error } = await db.from('users').select('id,name,email,role').eq('id', challenge.userId).single();
+  const { data: user, error } = await db.from('users').select('*').eq('id', challenge.userId).single();
   if (error || !user) return mfaFail(res, 401, 'CHALLENGE_EXPIRED', 'Your account could not be found. Please log in again.');
+  if (!isAccountActive(user)) {
+    revokeUserSessions(user.id);
+    return mfaFail(res, 403, 'ACCOUNT_DEACTIVATED', 'This account is deactivated. Please contact your administrator.');
+  }
   const loggedInUser = { id: user.id, name: user.name, email: user.email, role: user.role || 'staff' }; // role comes from the database, never from the browser
   res.json({ success: true, message: 'Login successful', user: loggedInUser, token: createSession(loggedInUser) });
 });
@@ -1324,14 +1382,44 @@ async function getMfaPhoneForUser(userId) {
 
 // Account row as the dashboard receives it (the password hash is never included)
 function publicAccount(row) {
-  return { id: row.id, name: row.name, email: row.email, role: row.role, phone: row[USER_PHONE_COLUMN] || null, created_at: row.created_at };
+  const active = isAccountActive(row);
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    role: row.role,
+    phone: row[USER_PHONE_COLUMN] || null,
+    is_active: active,
+    status: active ? 'active' : 'deactivated',
+    created_at: row.created_at
+  };
+}
+
+// Updates the account's active status in the database (reusing `is_active` when present,
+// with a seamless fallback to `mfa_secret` if the `is_active` column migration has not been run yet).
+async function setAccountActiveInDb(targetId, isActive) {
+  let { data, error } = await db
+    .from('users')
+    .update({ [USER_ACTIVE_COLUMN]: Boolean(isActive), mfa_secret: isActive ? null : DEACTIVATED_FALLBACK_MARKER })
+    .eq('id', targetId)
+    .select('*')
+    .single();
+  if (error && isMissingColumnError(error)) {
+    ({ data, error } = await db
+      .from('users')
+      .update({ mfa_secret: isActive ? null : DEACTIVATED_FALLBACK_MARKER })
+      .eq('id', targetId)
+      .select('*')
+      .single());
+  }
+  return { data, error };
 }
 
 // =============================================================================
 // STAFF/MANAGER ACCOUNTS
 // =============================================================================
 app.get('/staff', requireRole('admin'), async (req, res) => {
-  const { data, error } = await db.from('users').select(`id,name,email,role,${USER_PHONE_COLUMN},created_at`).neq('role', 'admin').order('created_at', { ascending: false });
+  const { data, error } = await db.from('users').select('*').neq('role', 'admin').order('created_at', { ascending: false });
   if (error) { console.error('Staff list error:', error.message); return res.status(500).json({ success: false, message: 'Failed to fetch staff accounts' }); }
   res.json({ success: true, data: data.map(publicAccount) });
 });
@@ -1401,7 +1489,7 @@ app.put('/staff/:id', requireRole('admin'), async (req, res) => {
   }
   let query = db.from('users').update(updates).eq('id', targetId);
   query = target.role ? query.eq('role', target.role) : query.is('role', null);
-  const { data: updated, error } = await query.select(`id,name,email,role,${USER_PHONE_COLUMN}`).single();
+  const { data: updated, error } = await query.select('*').single();
   if (error) {
     if (error.code === '23505') return res.status(409).json({ success: false, message: 'Email already exists' });
     if (error.code === 'PGRST116') return res.status(409).json({ success: false, message: 'This account changed while you were editing. Please refresh the list.' });
@@ -1412,15 +1500,78 @@ app.put('/staff/:id', requireRole('admin'), async (req, res) => {
   res.json({
     success: true,
     message: (updated.role === 'manager' ? 'Manager' : 'Staff') + ' account updated successfully',
-    data: { id: updated.id, name: updated.name, email: updated.email, role: updated.role, phone: updated[USER_PHONE_COLUMN] || null }
+    data: publicAccount(updated)
   });
 });
 
-app.delete('/staff/:id', requireRole('admin'), async (req, res) => {
-  const { error } = await db.from('users').delete().eq('id', req.params.id);
-  if (error) return res.status(500).json({ success: false, message: 'Failed to delete account' });
-  revokeUserSessions(req.params.id);
-  res.json({ success: true, message: 'Account deleted successfully' });
+// Activate or deactivate a Staff/Manager account (Admin only).
+// Preserves the account record, ID, role, phone number and historical data.
+async function handleStaffStatusChange(req, res, forcedActive) {
+  const rawId = String(req.params.id || '');
+  const targetId = /^\d+$/.test(rawId) ? Number(rawId) : (UUID_RE.test(rawId) ? rawId : null);
+  if (targetId === null) return res.status(400).json({ success: false, message: 'Invalid account.' });
+
+  let desiredActive = forcedActive;
+  if (typeof desiredActive !== 'boolean') {
+    const body = req.body || {};
+    if (typeof body.is_active === 'boolean') desiredActive = body.is_active;
+    else if (typeof body.active === 'boolean') desiredActive = body.active;
+    else if (typeof body.status === 'string') {
+      const s = body.status.trim().toLowerCase();
+      if (s === 'active') desiredActive = true;
+      else if (s === 'deactivated' || s === 'inactive') desiredActive = false;
+    }
+  }
+  if (typeof desiredActive !== 'boolean') {
+    return res.status(400).json({ success: false, message: 'A valid account status (active or deactivated) is required.' });
+  }
+
+  const { data: target, error: targetError } = await db.from('users').select('*').eq('id', targetId).single();
+  if (targetError && targetError.code !== 'PGRST116') return res.status(500).json({ success: false, message: 'Failed to load the account.' });
+  if (!target) return res.status(404).json({ success: false, message: 'Account not found. Please refresh the list.' });
+  if (String(target.id) === String(req.authUser.id)) {
+    return res.status(403).json({ success: false, message: 'You cannot change the active status of your own account.' });
+  }
+  if (!STAFF_EDITABLE_ROLES.includes(target.role || 'staff')) {
+    return res.status(403).json({ success: false, message: 'Only Staff and Manager accounts can be activated or deactivated here.' });
+  }
+
+  const { data: updated, error: updateError } = await setAccountActiveInDb(targetId, desiredActive);
+  if (updateError || !updated) {
+    console.error('Staff status update error:', updateError && updateError.message);
+    return res.status(500).json({
+      success: false,
+      message: desiredActive ? 'Failed to activate account.' : 'Failed to deactivate account.'
+    });
+  }
+
+  if (!desiredActive) {
+    revokeUserSessions(targetId);
+    revokeUserMfaChallenges(targetId);
+  }
+
+  const roleLabel = updated.role === 'manager' ? 'Manager' : 'Staff';
+  res.json({
+    success: true,
+    message: desiredActive
+      ? `${roleLabel} account activated successfully`
+      : `${roleLabel} account deactivated successfully`,
+    data: publicAccount(updated)
+  });
+}
+
+app.patch('/staff/:id/status', requireRole('admin'), (req, res) => handleStaffStatusChange(req, res));
+app.patch('/staff/:id/deactivate', requireRole('admin'), (req, res) => handleStaffStatusChange(req, res, false));
+app.post('/staff/:id/deactivate', requireRole('admin'), (req, res) => handleStaffStatusChange(req, res, false));
+app.patch('/staff/:id/activate', requireRole('admin'), (req, res) => handleStaffStatusChange(req, res, true));
+app.post('/staff/:id/activate', requireRole('admin'), (req, res) => handleStaffStatusChange(req, res, true));
+
+// Permanent account deletion is disabled so account records and historical data are preserved.
+app.delete('/staff/:id', requireRole('admin'), (req, res) => {
+  res.status(405).json({
+    success: false,
+    message: 'Permanent account deletion is disabled. Please deactivate the account instead.'
+  });
 });
 
 // =============================================================================

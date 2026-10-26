@@ -15,17 +15,36 @@ let editingInventoryId = null;
 
 let currentStockImage = null;
 
+// Admin inventory search / filter (same pattern as Furniture Management: keep the last loaded list and filter it in the browser)
+let adminInventoryItems = [];
+
+// Same rule the table already uses for the Status column
+function inventoryStockStatus(item) {
+  return item.quantity > 10 ? 'in-stock' : 'low-stock';
+}
+
 export async function loadInventoryList() {
   try {
     const result = await API.getInventory();
     if (result.success) {
       const tbody = document.getElementById('adminInventoryList');
       if (!tbody) return;
-      tbody.innerHTML = '';
-      if (result.data.length === 0) { tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#9ca3af;">No inventory items found</td></tr>'; return; }
-      result.data.forEach(item => {
-        const status = item.quantity > 10 ? 'in-stock' : 'low-stock';
-        const statusText = item.quantity > 10 ? 'In Stock' : 'Low Stock';
+      adminInventoryItems = result.data || [];
+      refreshInventoryCategoryOptions(adminInventoryItems);
+      filterAdminInventoryList(); // re-applies the active search / filters after every load or refresh
+    }
+  } catch (error) { showToast('❌ Failed to load inventory', 'error'); }
+}
+
+function renderAdminInventoryTable(items) {
+  const tbody = document.getElementById('adminInventoryList');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  if (adminInventoryItems.length === 0) { tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#9ca3af;">No inventory items found</td></tr>'; return; }
+  if (items.length === 0) { tbody.innerHTML = '<tr class="no-data-row"><td colspan="9">No inventory items match your search or filters.</td></tr>'; return; }
+  items.forEach(item => {
+        const status = inventoryStockStatus(item);
+        const statusText = status === 'in-stock' ? 'In Stock' : 'Low Stock';
         tbody.innerHTML += `
           <tr>
             <td>${item.image ? `<img src="${item.image}" alt="${item.name}" style="width:50px;height:50px;object-fit:cover;border-radius:0.375rem;">` : '<span style="color:#9ca3af;font-size:0.75rem;">No image</span>'}</td>
@@ -41,9 +60,60 @@ export async function loadInventoryList() {
               <button class="action-btn delete" onclick="deleteInventory(${item.id})" title="Delete"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
             </td>
           </tr>`;
-      });
-    }
-  } catch (error) { showToast('❌ Failed to load inventory', 'error'); }
+  });
+}
+
+// Category options come from the loaded inventory records (not hardcoded). The current choice is kept even if no item uses it any more.
+function refreshInventoryCategoryOptions(items) {
+  const select = document.getElementById('adminInventoryCategoryFilter');
+  if (!select) return;
+  const selected = select.value || 'all';
+  const categories = new Set(items.map(item => item.category).filter(Boolean));
+  if (selected !== 'all') categories.add(selected);
+  select.replaceChildren(new Option('All Categories', 'all'));
+  Array.from(categories).sort((a, b) => a.localeCompare(b)).forEach(cat => select.appendChild(new Option(cat, cat)));
+  select.value = selected;
+}
+
+function filterAdminInventoryList() {
+  const searchInput = document.getElementById('adminInventorySearch');
+  const categoryFilter = document.getElementById('adminInventoryCategoryFilter');
+  const statusFilter = document.getElementById('adminInventoryStatusFilter');
+  let filtered = [...adminInventoryItems];
+  if (searchInput && searchInput.value.trim()) {
+    const s = searchInput.value.trim().toLowerCase();
+    filtered = filtered.filter(item =>
+      (item.name && item.name.toLowerCase().includes(s)) ||
+      (item.item_code && String(item.item_code).toLowerCase().includes(s)) ||
+      (item.category && item.category.toLowerCase().includes(s)));
+  }
+  if (categoryFilter && categoryFilter.value !== 'all') filtered = filtered.filter(item => item.category === categoryFilter.value);
+  if (statusFilter && statusFilter.value !== 'all') filtered = filtered.filter(item => inventoryStockStatus(item) === statusFilter.value);
+  renderAdminInventoryTable(filtered);
+}
+
+function resetAdminInventoryFilters() {
+  const searchInput = document.getElementById('adminInventorySearch');
+  const categoryFilter = document.getElementById('adminInventoryCategoryFilter');
+  const statusFilter = document.getElementById('adminInventoryStatusFilter');
+  if (searchInput) searchInput.value = '';
+  if (categoryFilter) categoryFilter.value = 'all';
+  if (statusFilter) statusFilter.value = 'all';
+  filterAdminInventoryList();
+}
+
+// Called once from main.js on the Admin page (the dataset flag prevents duplicate listeners)
+export function initAdminInventorySearch() {
+  const searchInput = document.getElementById('adminInventorySearch');
+  if (!searchInput || searchInput.dataset.kdBound === '1') return;
+  searchInput.dataset.kdBound = '1';
+  const categoryFilter = document.getElementById('adminInventoryCategoryFilter');
+  const statusFilter = document.getElementById('adminInventoryStatusFilter');
+  const resetBtn = document.getElementById('adminInventoryResetFilters');
+  searchInput.addEventListener('input', filterAdminInventoryList);
+  if (categoryFilter) categoryFilter.addEventListener('change', filterAdminInventoryList);
+  if (statusFilter) statusFilter.addEventListener('change', filterAdminInventoryList);
+  if (resetBtn) resetBtn.addEventListener('click', resetAdminInventoryFilters);
 }
 
 export function openAddInventoryModal() {

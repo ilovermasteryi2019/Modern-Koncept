@@ -7,11 +7,11 @@ import { API, API_URL } from './modules/core.js';
 import { hideModal, initDashboardTabs, initModalCloseButtons, kdEventButton, kdRun, showToast } from './modules/ui.js';
 import { handleLogin, handleLogout, handleSignup, initDashboardSession, initMfaUi } from './modules/auth.js';
 import { editFurniture, handleFurnitureSubmit, initAdminFurnitureSearch, initFurnitureListFilters, loadFurnitureDetail, loadFurnitureList, loadPublicFurnitureList, loadSpecialOffers } from './modules/furniture.js';
-import { currentManagerStockImage, deleteInventory, editInventory, handleInventorySubmit, handleManagerAddInventorySubmit, handleManagerAddStockImageUpload, handleManagerEditStockImageUpload, handleStockImageUpload, loadInventoryList, loadManagerInventoryList, loadStaffInventoryList, openAddInventoryModal, openAddManagerInventoryModal, openManagerEditInventoryModal, updateManagerStockPreview } from './modules/inventory.js';
+import { currentManagerStockImage, deleteInventory, editInventory, handleInventorySubmit, handleManagerAddInventorySubmit, handleManagerAddStockImageUpload, handleManagerEditStockImageUpload, handleStockImageUpload, initAdminInventorySearch, loadInventoryList, loadManagerInventoryList, loadStaffInventoryList, openAddInventoryModal, openAddManagerInventoryModal, openManagerEditInventoryModal, updateManagerStockPreview } from './modules/inventory.js';
 import { deleteSales, editAdminSalesRecord, editManagerSalesRecord, editStaffSalesRecord, handleManagerSalesSubmit, handleSalesSubmit, handleStaffSalesSubmit, loadManagerSalesAnalytics, loadManagerSalesList, loadSalesAnalytics, loadSalesList, loadSalesProductOptions, loadStaffSalesAnalytics, loadStaffSalesList, openAddSalesModal, submitSalesEdit } from './modules/sales.js';
 import { confirmSendSms, deleteDelivery, editDelivery, handleDeliverySubmit, handlePublicTrackDelivery, handleStaffDeliverySubmit, loadDeliveryList, loadDeliveryStats, loadManagerDeliveryList, loadStaffDeliveryList, openAddDeliveryModal, openSmsModal, openStaffAddDeliveryModal, updateDeliveryStatus } from './modules/delivery.js';
-import { handleAboutFormSubmit, handleContactFormSubmit, loadAboutPageContent, loadBusinessInfo, loadContactPageContent } from './modules/business-info.js';
-import { closeEditStaffModal, closeMyAccountModal, deleteStaffAccount, loadStaffAccountsList, openAddStaffModal, openEditStaffModal, openMyAccountModal } from './modules/staff-accounts.js';
+import { handleContactFormSubmit, loadAboutPageContent, loadBusinessInfo, loadContactPageContent } from './modules/business-info.js';
+import { activateStaffAccount, closeEditStaffModal, closeMyAccountModal, deactivateStaffAccount, loadStaffAccountsList, openAddStaffModal, openEditStaffModal, openMyAccountModal } from './modules/staff-accounts.js';
 import { deleteAdminFeedback, deleteAdminInquiry, deleteChatbotItem, editChatbotQA, handleChatbotSubmit, initChatbot, initCustomerSupportPage, loadAdminFeedback, loadAdminInquiries, loadChatbotList, openAddChatbotModal } from './modules/chatbot.js';
 import { initVisualizationPage } from './modules/ai-visualization.js';
 
@@ -29,6 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     loadFurnitureList();
     initAdminFurnitureSearch();
+    initAdminInventorySearch();
 
     // ── Click handlers ──
     const bind = (id, handler) => { const el = document.getElementById(id); if (el) el.addEventListener('click', handler); };
@@ -42,7 +43,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // ── Submit handlers ──
     const bindSubmit = (id, handler) => { const el = document.getElementById(id); if (el) el.addEventListener('submit', handler); };
     bindSubmit('furnitureForm', handleFurnitureSubmit);
-    bindSubmit('aboutForm', handleAboutFormSubmit);
     bindSubmit('contactForm', handleContactFormSubmit);
     bindSubmit('stockForm', handleInventorySubmit);
     bindSubmit('deliveryForm', handleDeliverySubmit);
@@ -204,11 +204,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const reasons = {
       expired: 'Your session has expired. Please log in again.',
       idle: 'You were logged out because of inactivity.',
-      required: 'Please log in to continue.'
+      required: 'Please log in to continue.',
+      deactivated: 'This account is deactivated. Please contact your administrator.'
     };
     const reason = new URLSearchParams(window.location.search).get('reason');
     if (reason && reasons[reason]) {
-      showToast(reasons[reason], 'info', 6000);
+      showToast(reasons[reason], reason === 'deactivated' ? 'error' : 'info', 6000);
       window.history.replaceState({}, '', window.location.pathname);
     }
     const loginForm = document.getElementById('loginForm');
@@ -324,20 +325,21 @@ function onDashboardTabOpened(targetTab, { isAdmin, isStaff, isManager }) {
 
 // =============================================================================
 // INLINE-HANDLER COMPATIBILITY LAYER (the only place functions are exposed globally)
-// Generated HTML (e.g. onclick="deleteInventory(3)") calls these 23 functions by name. ES modules are not global,
+// Generated HTML (e.g. onclick="deleteInventory(3)") calls these functions by name. ES modules are not global,
 // so exactly these names are exposed here, each pointing at the module's (already wrapped) implementation.
 // To retire this layer later, convert those handlers to addEventListener, then delete this block.
 // =============================================================================
 Object.assign(window, {
+  activateStaffAccount,
   closeEditStaffModal,
   closeMyAccountModal,
+  deactivateStaffAccount,
   deleteAdminFeedback,
   deleteAdminInquiry,
   deleteChatbotItem,
   deleteDelivery,
   deleteInventory,
   deleteSales,
-  deleteStaffAccount,
   editAdminSalesRecord,
   editChatbotQA,
   editDelivery,

@@ -5,7 +5,7 @@
 // =============================================================================
 
 import { API, escapeHtmlText, formatDate, formatPhoneForDisplay, kdCreateOnce, normalizePhPhoneClient, validatePhPhoneClient } from './core.js';
-import { hideModal, kdConfirm, kdDeleteOptions as del, kdFormOptions as submit, kdGuard, kdWrapLoader, showToast } from './ui.js';
+import { hideModal, kdConfirm, kdFormOptions as submit, kdGuard, kdWrapLoader, showToast } from './ui.js';
 
 let staffAccountsCache = {};
 
@@ -20,25 +20,35 @@ export async function loadStaffAccountsList() {
       if (!tbody) return;
       tbody.innerHTML = '';
       staffAccountsCache = {};
-      if (result.data.length === 0) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#9ca3af;">No accounts found</td></tr>'; return; }
+      if (result.data.length === 0) { tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#9ca3af;">No accounts found</td></tr>'; return; }
       result.data.forEach(item => {
-        staffAccountsCache[item.id] = item;
+        const isActive = item.is_active !== false && String(item.status || '').toLowerCase() !== 'deactivated';
+        staffAccountsCache[item.id] = { ...item, is_active: isActive };
         const editBtn = ['staff', 'manager'].includes(item.role || 'staff')
           ? `<button class="action-btn edit" onclick="openEditStaffModal(${item.id})" title="Edit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Edit</button> `
           : '';
+        const statusBtn = isActive
+          ? `<button class="action-btn delete" onclick="deactivateStaffAccount(${item.id})" title="Deactivate Account"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line></svg> Deactivate Account</button>`
+          : `<button class="action-btn activate" onclick="activateStaffAccount(${item.id})" title="Activate Account"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg> Activate Account</button>`;
         const roleColor = item.role === 'manager' ? '#8b5cf6' : '#065f46';
         const roleBg = item.role === 'manager' ? '#ede9fe' : '#d1fae5';
         const roleLabel = item.role === 'manager' ? 'Manager' : 'Staff';
+        const statusColor = isActive ? '#065f46' : '#991b1b';
+        const statusBg = isActive ? '#d1fae5' : '#fee2e2';
+        const statusLabel = isActive ? 'Active' : 'Deactivated';
         tbody.innerHTML += `
           <tr>
-            <td>${item.name}</td>
-            <td>${item.email}</td>
+            <td>${escapeHtmlText(item.name || '')}</td>
+            <td>${escapeHtmlText(item.email || '')}</td>
             <td><span style="padding:0.25rem 0.75rem;background:${roleBg};color:${roleColor};border-radius:9999px;font-size:0.75rem;font-weight:600;">${roleLabel}</span></td>
             <td>${item.phone ? escapeHtmlText(formatPhoneForDisplay(item.phone)) : '<span style="color:#9ca3af;">Not set</span>'}</td>
+            <td><span style="padding:0.25rem 0.75rem;background:${statusBg};color:${statusColor};border-radius:9999px;font-size:0.75rem;font-weight:600;">${statusLabel}</span></td>
             <td>${formatDate(item.created_at)}</td>
-            <td>${editBtn}<button class="action-btn delete" onclick="deleteStaffAccount(${item.id})" title="Delete"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button></td>
+            <td>${editBtn}${statusBtn}</td>
           </tr>`;
       });
+    } else {
+      showToast('❌ ' + (result.message || 'Failed to load accounts'), 'error');
     }
   } catch (error) { showToast('❌ Failed to load accounts', 'error'); }
 }
@@ -111,13 +121,34 @@ async function handleStaffAccountSubmit(event) {
   } catch (error) { showToast('❌ Failed to create account', 'error'); }
 }
 
-export async function deleteStaffAccount(id) {
-  if (!(await kdConfirm('Are you sure you want to delete this account?', { title: 'Delete Account' }))) return;
+export async function deactivateStaffAccount(id) {
+  const account = staffAccountsCache[id];
+  const label = account && account.name ? `${account.name} (${account.email})` : 'this account';
+  if (!(await kdConfirm(`Are you sure you want to deactivate ${label}?\n\nThis account will no longer be able to log in until reactivated by an administrator.`, { title: 'Deactivate Account', confirmText: 'Deactivate Account' }))) return;
   try {
-    const result = await API.deleteStaff(id);
-    if (result.success) { showToast(result.message, 'success'); loadStaffAccountsList(); }
-    else showToast('❌ ' + result.message, 'error');
-  } catch (error) { showToast('❌ Failed to delete account', 'error'); }
+    const result = await API.deactivateStaff(id);
+    if (result && result.success) {
+      showToast(result.message || 'Account deactivated successfully.', 'success');
+      await loadStaffAccountsList();
+    } else {
+      showToast('❌ ' + ((result && result.message) || 'Failed to deactivate account'), 'error');
+    }
+  } catch (error) { showToast('❌ Failed to deactivate account', 'error'); }
+}
+
+export async function activateStaffAccount(id) {
+  const account = staffAccountsCache[id];
+  const label = account && account.name ? `${account.name} (${account.email})` : 'this account';
+  if (!(await kdConfirm(`Are you sure you want to activate ${label}?\n\nThis account will be able to log in again.`, { title: 'Activate Account', confirmText: 'Activate Account' }))) return;
+  try {
+    const result = await API.activateStaff(id);
+    if (result && result.success) {
+      showToast(result.message || 'Account activated successfully.', 'success');
+      await loadStaffAccountsList();
+    } else {
+      showToast('❌ ' + ((result && result.message) || 'Failed to activate account'), 'error');
+    }
+  } catch (error) { showToast('❌ Failed to activate account', 'error'); }
 }
 
 export function closeEditStaffModal() {
@@ -378,6 +409,7 @@ if (window.location.pathname.includes('admin')) {
 handleStaffAccountSubmit = kdGuard(handleStaffAccountSubmit, { ...submit('Creating Account...', 'Creating account...'), key: 'staffAccountCreate' });
 handleEditStaffSubmit = kdGuard(handleEditStaffSubmit, submit('Saving...', 'Saving changes...'));
 handleMyAccountSubmit = kdGuard(handleMyAccountSubmit, submit('Saving...', 'Saving changes...'));
-deleteStaffAccount = kdGuard(deleteStaffAccount, del('staff'));
+deactivateStaffAccount = kdGuard(deactivateStaffAccount, { key: (id) => 'deactivate:staff:' + id, progress: 'Deactivating account...' });
+activateStaffAccount = kdGuard(activateStaffAccount, { key: (id) => 'activate:staff:' + id, progress: 'Activating account...' });
 openMyAccountModal = kdGuard(openMyAccountModal, { key: 'openMyAccount', progress: 'Loading your account...' });
 loadStaffAccountsList = kdWrapLoader(loadStaffAccountsList, { target: 'staffAccountsList', loading: 'Loading staff accounts...', empty: 'No accounts found', error: 'Unable to load staff accounts.' });
