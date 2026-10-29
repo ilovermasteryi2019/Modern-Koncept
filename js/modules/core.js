@@ -122,6 +122,12 @@ export const API = {
   createDelivery: async (data) => (await fetch(`${API_URL}/deliveries`, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(data) })).json(),
   updateDelivery: async (id, data) => (await fetch(`${API_URL}/deliveries/${id}`, { method: 'PUT', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(data) })).json(),
   updateDeliveryStatus: async (id, status) => (await fetch(`${API_URL}/deliveries/${id}/status`, { method: 'PATCH', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ status }) })).json(),
+  // Bulk status update; returns { success, partial, updated, unchanged, failed, message }. A non-JSON reply (e.g. the
+  // deployed server does not have the route yet) is turned into a normal failure instead of throwing.
+  bulkUpdateDeliveryStatus: async (ids, status) => {
+    const r = await fetch(`${API_URL}/deliveries/bulk-status`, { method: 'PATCH', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ ids, status }) });
+    try { return await r.json(); } catch (e) { return { success: false, message: `Bulk status update is not available on the server (HTTP ${r.status}).` }; }
+  },
   deleteDelivery: async (id) => (await fetch(`${API_URL}/deliveries/${id}`, { method: 'DELETE', headers: authHeaders() })).json(),
   sendDeliverySms: async (id) => (await fetch(`${API_URL}/deliveries/${id}/send-sms`, { method: 'POST', headers: authHeaders() })).json(),
   getSales: async () => (await fetch(`${API_URL}/sales`)).json(),

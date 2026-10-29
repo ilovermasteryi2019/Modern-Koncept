@@ -2,6 +2,7 @@
 // K-DESK · ai-visualization.js
 // ai-visualization
 // Cut from the original main.js (lines 3745-4358 region). Code is unchanged except where a comment says otherwise.
+// Enhanced: predefined placement prompts, furniture-only instructions, and multiple furniture items per generation.
 // =============================================================================
 
 import { API, API_URL, escapeHtmlText, formatCurrency, getDiscountInfo, renderPriceHTML } from './core.js';
@@ -12,11 +13,45 @@ import { resolveFurnitureDimensions } from './dimensions.js';
 // AI VISUALIZATION PAGE
 // =============================================================================
 
-let selectedFurniture = null;
+// Maximum furniture items in one generation. Keep in sync with MAX_VISUALIZE_ITEMS in server.js (the server enforces it).
+const VIZ_MAX_ITEMS = 3;
+
+// Predefined placement prompts. Only the id is sent; the server owns the exact instruction text for each id
+// (VISUALIZE_PROMPT_PRESETS in server.js), so these labels are for display only. Keep the ids in sync.
+const VIZ_PROMPT_PRESETS = [
+  { id: 'natural', label: 'Place the selected furniture naturally in my room' },
+  { id: 'near_wall', label: 'Position the furniture near a wall' },
+  { id: 'center', label: 'Place the furniture in the center of the room' },
+  { id: 'beside_window', label: 'Position the furniture beside a window' },
+  { id: 'arrange_layout', label: 'Arrange the selected furniture with the existing room layout' },
+  { id: 'realistic', label: 'Maintain realistic proportions, lighting, perspective, and shadows' }
+];
+
+// Client-side furniture-only guard (mirrored on the backend in server.js so bypassing the UI is also blocked).
+const VIZ_OFF_TOPIC_PATTERNS = [
+  /\b(generate|create|draw|make|render|paint|design)\s+(me\s+)?(an?\s+|the\s+|some\s+)?(new\s+)?(image|picture|photo|drawing|painting|illustration|artwork|wallpaper|poster)s?\b/i,
+  /\bturn\s+(the|this|my)\s+(room|photo|image|picture)\s+into\b/i,
+  /\b(add|insert|draw|put|place|include|show|generate|create)\s+(an?\s+|some\s+|the\s+|my\s+|two\s+|three\s+)?(person|people|man|men|woman|women|child|children|kid|kids|baby|girl|boy|human|family|dog|cat|pet|animal|bird|horse|car|tree|plant)s?\b/i,
+  /\b(anime|cartoon|celebrity|selfie|portrait|landscape|scenery|nude|naked|nsfw|weapon|gun|rifle|knife|blood|dragon|monster|zombie|superhero|logo|watermark|meme)s?\b/i,
+  /\b(repaint|paint|recolou?r|change|remove|delete|demolish|replace|move)\s+(the\s+|my\s+|all\s+|every\s+)?(walls?|floor|flooring|ceiling|windows?|doors?|existing\s+furniture)\b/i
+];
+const VIZ_OFF_TOPIC_MESSAGE = 'This feature is only for visualizing the selected furniture in your room photo. Please describe where to place the furniture (for example "beside the window" or "against the left wall").';
+
+function isOffTopicInstruction(text) {
+  return VIZ_OFF_TOPIC_PATTERNS.some(re => re.test(text));
+}
+
+let selectedItems = [];
+
+   // furniture records chosen in Step 1 (from GET /products), in selection order
 
 let roomImageBase64 = null;
 
 let selectedStyle = 'Modern';
+
+let selectedPreset = '';
+
+   // id from VIZ_PROMPT_PRESETS, or '' when only custom instructions are used
 
 let lastGeneratedResult = null;
 
@@ -84,46 +119,90 @@ if (retryBtn) retryBtn.addEventListener('click', generateVisualization);
   const downloadBtn = document.getElementById('downloadBtn');
   if (downloadBtn) downloadBtn.addEventListener('click', downloadResult);
 
+  initVizPresets();
   initVizWizard();
 }
 
+// Selection persistence: 'vizSelectedFurniture' holds the list; 'selectedFurniture' (set by the
+// "Visualize in My Room" button on the furniture detail page) is kept equal to the first item, so the original
+// single-furniture workflow keeps working and a fresh click on that button is always added to the selection.
 function loadSelectedFurniture() {
-  let stored = null;
-  try { stored = JSON.parse(sessionStorage.getItem('selectedFurniture') || 'null'); } catch (e) { stored = null; }
-  if (stored && typeof stored === 'object') {
-    selectedFurniture = stored;
-    showFurnitureOnVizPage();
-    const backBtn = document.getElementById('backBtnContainer');
-    if (backBtn) backBtn.style.display = 'block';
-    activateStepBadge('stepBadge2', 'stepLabel2');
+  let list = null;
+  let single = null;
+  try { list = JSON.parse(sessionStorage.getItem('vizSelectedFurniture') || 'null'); } catch (e) { list = null; }
+  try { single = JSON.parse(sessionStorage.getItem('selectedFurniture') || 'null'); } catch (e) { single = null; }
+  selectedItems = Array.isArray(list) ? list.filter(p => p && typeof p === 'object' && p.id !== undefined).slice(0, VIZ_MAX_ITEMS) : [];
+  if (single && typeof single === 'object' && single.id !== undefined && !selectedItems.some(p => String(p.id) === String(single.id))) {
+    selectedItems.unshift(single);
+    selectedItems = selectedItems.slice(0, VIZ_MAX_ITEMS);
   }
+  if (selectedItems.length) {
+    persistSelection();
+    if (single) {
+      const backBtn = document.getElementById('backBtnContainer');
+      if (backBtn) backBtn.style.display = 'block';
+    }
+  }
+  showFurnitureOnVizPage();
+  activateStepBadge();
   updateGenerateButton();
 }
 
+function persistSelection() {
+  try {
+    sessionStorage.setItem('vizSelectedFurniture', JSON.stringify(selectedItems));
+    if (selectedItems.length) sessionStorage.setItem('selectedFurniture', JSON.stringify(selectedItems[0]));
+    else sessionStorage.removeItem('selectedFurniture');
+  } catch (e) { /* storage unavailable: the selection still works for this visit */ }
+}
+
+function selectedNames() {
+  return selectedItems.map(p => p.name || 'Furniture');
+}
+
+// Readable list: "Sofa", "Sofa and Table", "Sofa, Table and Chair"
+function joinNames(names) {
+  if (names.length <= 1) return names[0] || '';
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+function itemPriceHTML(item) {
+  const info = getDiscountInfo(item);
+  if (info.isDiscounted) {
+    return `<span style="font-size:0.8rem;color:#9ca3af;text-decoration:line-through;font-weight:500;margin-right:0.35rem;">${formatCurrency(info.regular)}</span>${formatCurrency(info.final)} <span style="background:#DC143C;color:#fff;font-size:0.65rem;font-weight:700;padding:0.1rem 0.45rem;border-radius:9999px;vertical-align:middle;">${info.percent}% OFF</span>`;
+  }
+  return escapeHtmlText(formatCurrency(item.price));
+}
+
+// Renders the "Selected Furniture" side panel (name, image, category, size, price and a Remove button per item)
 function showFurnitureOnVizPage() {
   const noState = document.getElementById('noFurnitureState');
   const selectedState = document.getElementById('furnitureSelectedState');
-  if (noState) noState.style.display = 'none';
-  if (selectedState) selectedState.style.display = 'block';
+  const has = selectedItems.length > 0;
+  if (noState) noState.style.display = has ? 'none' : 'block';
+  if (selectedState) selectedState.style.display = has ? 'block' : 'none';
 
-  const imgEl = document.getElementById('vizFurnitureImg');
-  const nameEl = document.getElementById('vizFurnitureName');
-  const catEl = document.getElementById('vizFurnitureCategory');
-  const priceEl = document.getElementById('vizFurniturePrice');
-  const sizeEl = document.getElementById('vizFurnitureSize');
+  const countEl = document.getElementById('vizSelectedCount');
+  if (countEl) countEl.textContent = `${selectedItems.length} of ${VIZ_MAX_ITEMS} selected`;
 
-  if (imgEl) imgEl.src = selectedFurniture.image || 'placeholder-furniture.jpg';
-  if (nameEl) nameEl.textContent = selectedFurniture.name || '';
-  if (catEl) catEl.textContent = selectedFurniture.category || '';
-  if (sizeEl) sizeEl.textContent = resolveFurnitureDimensions(selectedFurniture).text;   // same validated value the server sends to the AI
-  if (priceEl) {
-    const info = getDiscountInfo(selectedFurniture);
-    if (info.isDiscounted) {
-      priceEl.innerHTML = `<span style="font-size:0.85rem;color:#9ca3af;text-decoration:line-through;font-weight:500;margin-right:0.4rem;">${formatCurrency(info.regular)}</span>${formatCurrency(info.final)} <span style="background:#DC143C;color:#fff;font-size:0.7rem;font-weight:700;padding:0.15rem 0.5rem;border-radius:9999px;vertical-align:middle;">${info.percent}% OFF</span>`;
-    } else {
-      priceEl.textContent = formatCurrency(selectedFurniture.price);
-    }
-  }
+  const listEl = document.getElementById('vizSelectedList');
+  if (!listEl) return;
+  listEl.innerHTML = '';
+  selectedItems.forEach(item => {
+    const row = document.createElement('div');
+    row.className = 'viz-selected-item';
+    row.innerHTML = `
+      <img src="${escapeHtmlText(item.image || 'placeholder-furniture.jpg')}" alt="${escapeHtmlText(item.name || 'Furniture')}" onerror="this.onerror=null;this.src='placeholder-furniture.jpg'">
+      <div class="viz-selected-info">
+        <p class="viz-selected-cat">${escapeHtmlText(item.category || '')}</p>
+        <p class="viz-selected-name">${escapeHtmlText(item.name || '')}</p>
+        <p class="viz-selected-size">${escapeHtmlText(resolveFurnitureDimensions(item).text)}</p>
+        <p class="viz-selected-price">${itemPriceHTML(item)}</p>
+      </div>
+      <button type="button" class="viz-remove-btn" aria-label="Remove ${escapeHtmlText(item.name || 'item')}" title="Remove">×</button>`;
+    row.querySelector('.viz-remove-btn').addEventListener('click', () => removeVizFurniture(item.id));
+    listEl.appendChild(row);
+  });
 }
 
 const ALLOWED_ROOM_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
@@ -204,14 +283,14 @@ function updateGenerateButton() {
   const hint = document.getElementById('generateHint');
   if (!btn) return;
 
-  if (selectedFurniture && roomImageBase64) {
+  if (selectedItems.length && roomImageBase64) {
     btn.disabled = false;
-    if (hint) hint.textContent = `Ready! Click to visualize "${selectedFurniture.name}" in your room.`;
+    if (hint) hint.textContent = `Ready! Click to visualize ${joinNames(selectedNames().map(n => `"${n}"`))} in your room.`;
     activateStepBadge('stepBadge3', 'stepLabel3');
     activateStepBadge('step3BadgeRight', null);
-  } else if (!selectedFurniture) {
+  } else if (!selectedItems.length) {
     btn.disabled = true;
-    if (hint) hint.textContent = 'Please select a furniture first from the furniture list.';
+    if (hint) hint.textContent = 'Please select at least one furniture item first.';
   } else {
     btn.disabled = true;
     if (hint) hint.textContent = 'Please upload a photo of your room to continue.';
@@ -223,13 +302,22 @@ let isGenerating = false;
 async function generateVisualization() {
   if (isGenerating) return; // ignore double-clicks while a request is running
 
-  if (!selectedFurniture) { showToast('Please select a furniture first.', 'warning'); return; }
+  if (!selectedItems.length) { showToast('Please select a furniture first.', 'warning'); return; }
   if (!roomImageBase64) { showToast('Please upload a photo of your room first.', 'warning'); return; }
 
-  const placement = (document.getElementById('placementInstructions')?.value || '').trim();
-  if (!placement) { showToast('Please describe where to place the furniture.', 'warning'); return; }
+  const placement = vizPlacementText();
+  if (!placement && !selectedPreset) { showToast('Please choose a placement option or describe where to place the furniture.', 'warning'); return; }
+  if (placement && isOffTopicInstruction(placement)) {
+    setVizFieldError('placementError', VIZ_OFF_TOPIC_MESSAGE, { noScroll: true });
+    showToast(VIZ_OFF_TOPIC_MESSAGE, 'warning', 5000);
+    return;
+  }
 
   isGenerating = true;
+
+  // Snapshot of the inputs for this request (the selection cannot change while generating, but be safe)
+  const items = selectedItems.slice();
+  const names = items.map(p => p.name || 'Furniture');
 
   const generateBtn = document.getElementById('generateBtn');
   const generateBtnText = document.getElementById('generateBtnText');
@@ -248,7 +336,7 @@ async function generateVisualization() {
   const loadingMessages = [
     'Sending room photo to AI server...',
     'AI is analyzing your room layout...',
-    'Placing furniture into your room...',
+    items.length > 1 ? `Placing ${items.length} furniture items into your room...` : 'Placing furniture into your room...',
     'Almost done! Finalizing the result...'
   ];
   let msgIndex = 0;
@@ -275,9 +363,11 @@ async function generateVisualization() {
       headers: { 'Content-Type': 'application/json' },
       signal: controller.signal,
       body: JSON.stringify({
-        furnitureId: selectedFurniture.id,
+        furnitureIds: items.map(p => p.id),
+        furnitureId: items[0].id, // original single-item field, kept for compatibility
         style: selectedStyle,
         roomImage: roomImageBase64,
+        promptPreset: selectedPreset || undefined,
         placementInstructions: placement,
         referenceSize: document.getElementById('referenceSize')?.value || ''
       })
@@ -290,7 +380,11 @@ async function generateVisualization() {
         ? 'Your room photo is too large. Please upload a smaller photo.'
         : 'The server sent an unexpected response. Please try again in a moment.');
     }
-    if (!result.success || !result.image) throw new Error(result.message || 'Something went wrong. Please try again.');
+    if (!result.success || !result.image) {
+      const err = new Error(result.message || 'Something went wrong. Please try again.');
+      err.code = result.code;
+      throw err;
+    }
 
     lastGeneratedResult = result.image;
     lastResultSig = vizInputSignature();
@@ -303,10 +397,16 @@ async function generateVisualization() {
     document.getElementById('loadingSection').style.display = 'none';
     document.getElementById('beforeImage').src = roomImageBase64;
     document.getElementById('afterImage').src = result.image;
-    document.getElementById('resultFurnitureName').textContent = selectedFurniture.name;
+    document.getElementById('resultFurnitureName').textContent = joinNames(names);
     document.getElementById('resultSection').style.display = 'block';
     showToast('Visualization complete!', 'success');
-    if (result.sizeVerified === false) showToast('This item has no verified dimensions, so its size in the picture is only approximate.', 'warning', 6000);
+    if (result.sizeVerified === false) {
+      const unverified = Array.isArray(result.unverifiedItems) && result.unverifiedItems.length ? joinNames(result.unverifiedItems) : 'This item';
+      showToast(`${unverified} ${Array.isArray(result.unverifiedItems) && result.unverifiedItems.length > 1 ? 'have' : 'has'} no verified dimensions, so the size in the picture is only approximate.`, 'warning', 6000);
+    }
+    if (Array.isArray(result.missingReferences) && result.missingReferences.length) {
+      showToast(`No product photo could be used for ${joinNames(result.missingReferences)}, so its look is based on the description only.`, 'warning', 6000);
+    }
     syncVizStep3();
 
   } catch (error) {
@@ -319,6 +419,8 @@ async function generateVisualization() {
     } else if (error instanceof TypeError) {
       friendlyMessage = 'We could not reach the server. Please check your internet connection and try again. If the server was asleep, wait a few seconds first.';
     }
+    // Off-topic instructions: also flag the instructions field in Step 2 so the user knows what to change
+    if (error.code === 'OFF_TOPIC_REQUEST') setVizFieldError('placementError', friendlyMessage, { noScroll: true });
 
     const errMsgEl = document.getElementById('errorMessage');
     if (errMsgEl) errMsgEl.textContent = friendlyMessage;
@@ -357,11 +459,12 @@ function resetVisualization() {
   renderVizStepper();
 }
 
-// "Start Over": clear the photo, instructions and result, and go back to Step 1 (the furniture stays selected)
+// "Start Over": clear the photo, instructions, placement option and result, and go back to Step 1 (the furniture stays selected)
 function startOverVisualization() {
   resetVisualization();
   const note = document.getElementById('placementInstructions');
   if (note) note.value = '';
+  setVizPreset('');
   setVizFieldError('roomPhotoError', '');
   setVizFieldError('placementError', '');
   showVizStep(1);
@@ -371,8 +474,45 @@ function downloadResult() {
   if (!lastGeneratedResult) return;
   const link = document.createElement('a');
   link.href = lastGeneratedResult;
-  link.download = `ecl-visualization-${selectedFurniture ? selectedFurniture.name.replace(/\s+/g, '-') : 'result'}.png`;
+  const base = selectedItems.length ? selectedNames().join('-').replace(/[^\w-]+/g, '-').replace(/-+/g, '-').slice(0, 80) : 'result';
+  link.download = `ecl-visualization-${base}.png`;
   link.click();
+}
+
+// -----------------------------------------------------------------------------
+// PREDEFINED PLACEMENT PROMPTS (Step 2). One option can be selected; clicking it again clears it.
+// It can be combined with the optional custom instructions in the textarea.
+// -----------------------------------------------------------------------------
+function initVizPresets() {
+  const grid = document.getElementById('vizPresetGrid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  VIZ_PROMPT_PRESETS.forEach(preset => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'viz-preset';
+    btn.dataset.preset = preset.id;
+    btn.setAttribute('aria-pressed', 'false');
+    btn.textContent = preset.label;
+    btn.addEventListener('click', () => setVizPreset(selectedPreset === preset.id ? '' : preset.id));
+    grid.appendChild(btn);
+  });
+}
+
+function setVizPreset(id) {
+  selectedPreset = VIZ_PROMPT_PRESETS.some(p => p.id === id) ? id : '';
+  document.querySelectorAll('#vizPresetGrid .viz-preset').forEach(btn => {
+    const on = btn.dataset.preset === selectedPreset;
+    btn.classList.toggle('selected', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  if (selectedPreset) setVizFieldError('placementError', '');
+  renderVizStepper();
+}
+
+function vizPresetLabel() {
+  const preset = VIZ_PROMPT_PRESETS.find(p => p.id === selectedPreset);
+  return preset ? preset.label : '';
 }
 
 // -----------------------------------------------------------------------------
@@ -393,14 +533,17 @@ function vizPlacementText() {
 
 // Identifies the inputs a result was generated from, so a result is never shown for different inputs
 function vizInputSignature() {
-  if (!selectedFurniture || !roomImageBase64) return null;
-  return JSON.stringify([selectedFurniture.id, selectedStyle, vizPlacementText(), roomImageBase64.length, roomImageBase64.slice(-64)]);
+  if (!selectedItems.length || !roomImageBase64) return null;
+  return JSON.stringify([selectedItems.map(p => p.id), selectedStyle, selectedPreset, vizPlacementText(), roomImageBase64.length, roomImageBase64.slice(-64)]);
 }
 
 // Is the requirement of this step satisfied? (Step 3 = a result exists for the current inputs)
 function vizStepComplete(n) {
-  if (n === 1) return !!selectedFurniture;
-  if (n === 2) return !!roomImageBase64 && vizPlacementText().length > 0;
+  if (n === 1) return selectedItems.length > 0;
+  if (n === 2) {
+    const note = vizPlacementText();
+    return !!roomImageBase64 && (!!selectedPreset || note.length > 0) && (!note || !isOffTopicInstruction(note));
+  }
   if (n === 3) {
     const sig = vizInputSignature();
     return !!lastGeneratedResult && !!sig && sig === lastResultSig;
@@ -426,26 +569,28 @@ function renderVizStepper() {
   }
 }
 
-function setVizFieldError(id, message) {
+function setVizFieldError(id, message, opts = {}) {
   const el = document.getElementById(id);
   if (!el) return;
   el.textContent = message || '';
   el.classList.toggle('show', !!message);
-  if (message) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  if (message && !opts.noScroll) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 // Tells the user exactly what is missing for a step
 function showVizValidation(step) {
   if (step === 1) {
-    setVizFieldError('vizStep1Error', 'Please select a furniture to continue.');
+    setVizFieldError('vizStep1Error', 'Please select at least one furniture item to continue.');
     showToast('Please select a furniture first.', 'warning');
   } else if (step === 2) {
     const noPhoto = !roomImageBase64;
-    const noNote = !vizPlacementText();
+    const note = vizPlacementText();
+    const noNote = !note && !selectedPreset;
+    const offTopic = !!note && isOffTopicInstruction(note);
     setVizFieldError('roomPhotoError', noPhoto ? 'Please upload a photo of your room.' : '');
-    setVizFieldError('placementError', noNote ? 'Please describe where to place the furniture.' : '');
-    showToast(noPhoto ? 'Please upload a photo of your room first.' : 'Please describe where to place the furniture.', 'warning');
-    if (!noPhoto && noNote) { const t = document.getElementById('placementInstructions'); if (t) t.focus(); }
+    setVizFieldError('placementError', offTopic ? VIZ_OFF_TOPIC_MESSAGE : (noNote ? 'Please choose a placement option or describe where to place the furniture.' : ''));
+    showToast(noPhoto ? 'Please upload a photo of your room first.' : (offTopic ? VIZ_OFF_TOPIC_MESSAGE : 'Please choose a placement option or describe where to place the furniture.'), 'warning');
+    if (!noPhoto && (noNote || offTopic)) { const t = document.getElementById('placementInstructions'); if (t) t.focus(); }
   }
 }
 
@@ -467,14 +612,16 @@ function syncVizStep3() {
 function renderVizSummary() {
   const el = document.getElementById('vizSummary');
   if (!el) return;
-  if (!selectedFurniture) { el.innerHTML = ''; return; }
+  if (!selectedItems.length) { el.innerHTML = ''; return; }
   const chip = (label, value) => `<span class="viz-chip"><strong>${label}</strong> ${escapeHtmlText(value)}</span>`;
   const note = vizPlacementText();
+  const preset = vizPresetLabel();
   el.innerHTML =
-    chip('Furniture:', selectedFurniture.name || '') +
+    chip(selectedItems.length > 1 ? `Furniture (${selectedItems.length}):` : 'Furniture:', selectedNames().join(', ')) +
     chip('Style:', selectedStyle) +
     (roomImageBase64 ? chip('Room photo:', 'Attached') : '') +
-    (note ? chip('Placement:', note.length > 70 ? note.slice(0, 70) + '…' : note) : '');
+    (preset ? chip('Placement:', preset) : '') +
+    (note ? chip(preset ? 'Notes:' : 'Placement:', note.length > 70 ? note.slice(0, 70) + '…' : note) : '');
 }
 
 function prepareVizStep3() {
@@ -500,7 +647,7 @@ function showVizStep(n, opts = {}) {
   }
   if (n === 2) {
     const sub = document.getElementById('vizPanel2Sub');
-    if (sub && selectedFurniture) sub.textContent = `Placing: ${selectedFurniture.name}. Add a clear photo of your room and tell the AI where it should go.`;
+    if (sub && selectedItems.length) sub.textContent = `Placing: ${joinNames(selectedNames())}. Add a clear photo of your room and choose where ${selectedItems.length > 1 ? 'they' : 'it'} should go.`;
   }
   if (n === 3) prepareVizStep3();
   renderVizStepper();
@@ -543,6 +690,17 @@ async function loadVizCatalog() {
     if (!result || !result.success) throw new Error('catalog failed');
     vizCatalog = Array.isArray(result.data) ? result.data : [];
 
+    // Refresh stored selections with the current database records, and drop items that no longer exist
+    if (selectedItems.length) {
+      const before = selectedItems.length;
+      selectedItems = selectedItems.map(sel => vizCatalog.find(p => String(p.id) === String(sel.id))).filter(Boolean);
+      if (selectedItems.length !== before) showToast('Some previously selected furniture is no longer available and was removed.', 'info');
+      persistSelection();
+      showFurnitureOnVizPage();
+      updateGenerateButton();
+      renderVizStepper();
+    }
+
     const select = document.getElementById('vizCategory');
     if (select) {
       const categories = [...new Set(vizCatalog.map(p => p.category).filter(Boolean))].sort();
@@ -579,13 +737,17 @@ function renderVizCatalog() {
   list.forEach(p => grid.appendChild(buildVizProductCard(p)));
 }
 
+function isVizSelected(id) {
+  return selectedItems.some(p => String(p.id) === String(id));
+}
+
 function buildVizProductCard(p) {
   const card = document.createElement('div');
   card.className = 'viz-product';
   card.setAttribute('role', 'button');
   card.tabIndex = 0;
   card.dataset.id = p.id;
-  const isSelected = !!selectedFurniture && String(selectedFurniture.id) === String(p.id);
+  const isSelected = isVizSelected(p.id);
   card.classList.toggle('selected', isSelected);
   card.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
   card.innerHTML = `
@@ -603,19 +765,43 @@ function buildVizProductCard(p) {
   return card;
 }
 
-// Same storage the "Visualize in My Room" button uses, so a page refresh keeps the selection
-function selectVizFurniture(product) {
-  selectedFurniture = product;
-  try { sessionStorage.setItem('selectedFurniture', JSON.stringify(product)); } catch (e) { /* storage unavailable: the selection still works for this visit */ }
-  showFurnitureOnVizPage();
+function syncVizCatalogSelection() {
   document.querySelectorAll('#vizProductGrid .viz-product').forEach(card => {
-    const on = String(card.dataset.id) === String(product.id);
+    const on = isVizSelected(card.dataset.id);
     card.classList.toggle('selected', on);
     card.setAttribute('aria-pressed', on ? 'true' : 'false');
   });
-  setVizFieldError('vizStep1Error', '');
+}
+
+function onVizSelectionChanged() {
+  persistSelection();
+  showFurnitureOnVizPage();
+  syncVizCatalogSelection();
+  if (selectedItems.length) setVizFieldError('vizStep1Error', '');
   updateGenerateButton();
   renderVizStepper();
+}
+
+// Clicking a product toggles it in the selection (up to VIZ_MAX_ITEMS). Same storage the "Visualize in My Room"
+// button uses, so a page refresh keeps the selection.
+function selectVizFurniture(product) {
+  if (isGenerating) { showToast('Please wait until the visualization finishes.', 'info'); return; }
+  if (isVizSelected(product.id)) {
+    selectedItems = selectedItems.filter(p => String(p.id) !== String(product.id));
+  } else {
+    if (selectedItems.length >= VIZ_MAX_ITEMS) {
+      showToast(`You can visualize up to ${VIZ_MAX_ITEMS} furniture items at a time. Remove one to add another.`, 'warning');
+      return;
+    }
+    selectedItems = [...selectedItems, product];
+  }
+  onVizSelectionChanged();
+}
+
+function removeVizFurniture(id) {
+  if (isGenerating) { showToast('Please wait until the visualization finishes.', 'info'); return; }
+  selectedItems = selectedItems.filter(p => String(p.id) !== String(id));
+  onVizSelectionChanged();
 }
 
 function initVizWizard() {

@@ -8,8 +8,8 @@ import { hideModal, initDashboardTabs, initModalCloseButtons, kdEventButton, kdR
 import { handleLogin, handleLogout, handleSignup, initDashboardSession, initMfaUi } from './modules/auth.js';
 import { editFurniture, handleFurnitureSubmit, initAdminFurnitureSearch, initFurnitureListFilters, loadFurnitureDetail, loadFurnitureList, loadPublicFurnitureList, loadSpecialOffers } from './modules/furniture.js';
 import { currentManagerStockImage, deleteInventory, editInventory, handleInventorySubmit, handleManagerAddInventorySubmit, handleManagerAddStockImageUpload, handleManagerEditStockImageUpload, handleStockImageUpload, initAdminInventorySearch, loadInventoryList, loadManagerInventoryList, loadStaffInventoryList, openAddInventoryModal, openAddManagerInventoryModal, openManagerEditInventoryModal, updateManagerStockPreview } from './modules/inventory.js';
-import { deleteSales, editAdminSalesRecord, editManagerSalesRecord, editStaffSalesRecord, handleManagerSalesSubmit, handleSalesSubmit, handleStaffSalesSubmit, loadManagerSalesAnalytics, loadManagerSalesList, loadSalesAnalytics, loadSalesList, loadSalesProductOptions, loadStaffSalesAnalytics, loadStaffSalesList, openAddSalesModal, submitSalesEdit } from './modules/sales.js';
-import { confirmSendSms, deleteDelivery, editDelivery, handleDeliverySubmit, handlePublicTrackDelivery, handleStaffDeliverySubmit, loadDeliveryList, loadDeliveryStats, loadManagerDeliveryList, loadStaffDeliveryList, openAddDeliveryModal, openSmsModal, openStaffAddDeliveryModal, updateDeliveryStatus } from './modules/delivery.js';
+import { deleteSales, editAdminSalesRecord, editManagerSalesRecord, editStaffSalesRecord, handleManagerSalesSubmit, handleSalesSubmit, handleStaffSalesSubmit, initAdminSalesControls, initManagerSalesControls, loadManagerSalesAnalytics, loadManagerSalesList, loadSalesAnalytics, loadSalesList, loadSalesProductOptions, loadStaffSalesAnalytics, loadStaffSalesList, openAddSalesModal, submitSalesEdit } from './modules/sales.js';
+import { confirmSendSms, deleteDelivery, editDelivery, handleDeliverySubmit, handlePublicTrackDelivery, handleStaffDeliverySubmit, initAdminDeliveryControls, initManagerDeliveryControls, loadDeliveryList, loadDeliveryStats, loadManagerDeliveryList, loadStaffDeliveryList, openAddDeliveryModal, openSmsModal, openStaffAddDeliveryModal, toggleDeliverySelection, updateDeliveryStatus } from './modules/delivery.js';
 import { handleContactFormSubmit, loadAboutPageContent, loadBusinessInfo, loadContactPageContent } from './modules/business-info.js';
 import { activateStaffAccount, closeEditStaffModal, closeMyAccountModal, deactivateStaffAccount, loadStaffAccountsList, openAddStaffModal, openEditStaffModal, openMyAccountModal } from './modules/staff-accounts.js';
 import { deleteAdminFeedback, deleteAdminInquiry, deleteChatbotItem, editChatbotQA, handleChatbotSubmit, initChatbot, initCustomerSupportPage, loadAdminFeedback, loadAdminInquiries, loadChatbotList, openAddChatbotModal } from './modules/chatbot.js';
@@ -30,6 +30,8 @@ document.addEventListener('DOMContentLoaded', () => {
     loadFurnitureList();
     initAdminFurnitureSearch();
     initAdminInventorySearch();
+    initAdminSalesControls();
+    initAdminDeliveryControls();
 
     // ── Click handlers ──
     const bind = (id, handler) => { const el = document.getElementById(id); if (el) el.addEventListener('click', handler); };
@@ -194,9 +196,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const managerDeliveryForm = document.getElementById('deliveryForm');
     if (managerDeliveryForm) managerDeliveryForm.addEventListener('submit', handleDeliverySubmit);
 
-    // Manager delivery search
-    const managerDeliverySearch = document.getElementById('managerDeliverySearch');
-    if (managerDeliverySearch) managerDeliverySearch.addEventListener('input', loadManagerDeliveryList);
+    // Manager delivery controls (search, status/date-range filters, sorting, bulk status update)
+    initManagerDeliveryControls();
+
+    // Manager sales controls (search, category filter, date range, sort, chart interval/comparison)
+    initManagerSalesControls();
   }
 
   // ---- LOGIN PAGE ----
@@ -353,5 +357,6 @@ Object.assign(window, {
   openManagerEditInventoryModal,
   openMyAccountModal,
   openSmsModal,
+  toggleDeliverySelection,
   updateDeliveryStatus,
 });

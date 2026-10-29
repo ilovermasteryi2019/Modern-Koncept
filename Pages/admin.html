@@ -208,22 +208,108 @@
     }
     
     .summary-card {
-      background: linear-gradient(135deg, #DC143C 0%, #A80728 100%);
-      color: white;
+      --summary-bg: linear-gradient(135deg, #DC143C 0%, #A80728 100%);
+      --summary-text: #ffffff;
+      --summary-subtext: rgba(255, 255, 255, 0.92);
+      --summary-badge-bg: rgba(255, 255, 255, 0.2);
+      --summary-badge-text: #ffffff;
+      background: var(--summary-bg);
+      color: var(--summary-text);
       padding: 1.5rem;
       border-radius: 0.75rem;
       margin-bottom: 1.5rem;
+      box-shadow: 0 4px 12px rgba(17, 24, 39, 0.08);
+    }
+
+    /* Dynamic performance states (Red = Low, Yellow = Middle Range, Green = High) */
+    .summary-card.summary-card--low {
+      --summary-bg: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+      --summary-text: #ffffff;
+      --summary-subtext: rgba(255, 255, 255, 0.92);
+      --summary-badge-bg: rgba(255, 255, 255, 0.22);
+      --summary-badge-text: #ffffff;
+    }
+
+    .summary-card.summary-card--medium {
+      --summary-bg: linear-gradient(135deg, #fbbf24 0%, #d97706 100%);
+      --summary-text: #111827;
+      --summary-subtext: #1f2937;
+      --summary-badge-bg: rgba(17, 24, 39, 0.14);
+      --summary-badge-text: #111827;
+    }
+
+    .summary-card.summary-card--high {
+      --summary-bg: linear-gradient(135deg, #10b981 0%, #047857 100%);
+      --summary-text: #ffffff;
+      --summary-subtext: rgba(255, 255, 255, 0.92);
+      --summary-badge-bg: rgba(255, 255, 255, 0.22);
+      --summary-badge-text: #ffffff;
     }
     
     .summary-value {
       font-size: 2.5rem;
       font-weight: 700;
       margin-bottom: 0.25rem;
+      color: var(--summary-text);
     }
     
     .summary-label {
       font-size: 0.875rem;
-      opacity: 0.9;
+      color: var(--summary-subtext);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+
+    .summary-scope {
+      font-size: 0.78rem;
+      color: var(--summary-subtext);
+      margin-top: 0.35rem;
+      line-height: 1.4;
+    }
+
+    .summary-perf-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.18rem 0.6rem;
+      border-radius: 9999px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      background: var(--summary-badge-bg);
+      color: var(--summary-badge-text);
+      white-space: nowrap;
+    }
+
+    .kd-bulk-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.75rem 1rem;
+      margin-bottom: 1rem;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 0.5rem;
+    }
+
+    .table-container table tbody tr.kd-row-selected {
+      background: #eff6ff;
+    }
+
+    .kd-delivery-window {
+      font-size: 0.74rem;
+      color: #4b5563;
+      margin-top: 0.15rem;
+    }
+
+    .kd-delivery-basis {
+      font-size: 0.72rem;
+      color: #2563eb;
+      font-weight: 500;
+      margin-top: 0.1rem;
     }
 
     .notification-badge {
@@ -628,25 +714,79 @@
       
       <!-- Delivery Metrics Panel -->
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
-        <div class="card" style="margin-bottom:0;">
+        <div class="card" style="margin-bottom:0; border-left: 4px solid #f59e0b;">
           <div style="font-size:0.875rem;color:#6b7280;font-weight:500;margin-bottom:0.25rem;">Pending</div>
           <div style="font-size:2rem;font-weight:700;color:#111827;" id="deliveryPendingCount">0</div>
+          <div style="font-size:0.75rem;color:#d97706;margin-top:0.25rem;" id="deliveryPendingScope">Awaiting processing</div>
         </div>
 
-        <div class="card" style="margin-bottom:0;">
+        <div class="card" style="margin-bottom:0; border-left: 4px solid #f59e0b;">
           <div style="font-size:0.875rem;color:#6b7280;font-weight:500;margin-bottom:0.25rem;">Processing</div>
           <div style="font-size:2rem;font-weight:700;color:#111827;" id="deliveryProcessingCount">0</div>
+          <div style="font-size:0.75rem;color:#d97706;margin-top:0.25rem;" id="deliveryProcessingScope">Preparing shipment</div>
         </div>
 
-        <div class="card" style="margin-bottom:0;">
+        <div class="card" style="margin-bottom:0; border-left: 4px solid #3b82f6;">
           <div style="font-size:0.875rem;color:#6b7280;font-weight:500;margin-bottom:0.25rem;">In Transit</div>
           <div style="font-size:2rem;font-weight:700;color:#111827;" id="deliveryInTransitCount">0</div>
+          <div style="font-size:0.75rem;color:#2563eb;margin-top:0.25rem;" id="deliveryInTransitScope">Active on route</div>
         </div>
 
-        <div class="card" style="margin-bottom:0;">
+        <div class="card" style="margin-bottom:0; border-left: 4px solid #10b981;">
           <div style="font-size:0.875rem;color:#6b7280;font-weight:500;margin-bottom:0.25rem;">Delivered</div>
           <div style="font-size:2rem;font-weight:700;color:#111827;" id="deliveryDeliveredCount">0</div>
+          <div style="font-size:0.75rem;color:#059669;margin-top:0.25rem;" id="deliveryDeliveredScope">Completed</div>
         </div>
+      </div>
+
+      <!-- Delivery Line Graph Card -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1rem;">
+          <div>
+            <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 0.25rem;">Delivery Activity &amp; Status Trend</h3>
+            <p style="font-size: 0.8125rem; color: #6b7280; margin: 0;">
+              Tracks deliveries over time using actual database records (grouped by Scheduled Delivery Date or Created Date). Status series reflect current delivery statuses.
+            </p>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center;">
+            <div>
+              <label for="deliveryChartDateField" style="display:block;font-size:0.75rem;font-weight:600;color:#4b5563;margin-bottom:0.2rem;">Date Basis</label>
+              <select id="deliveryChartDateField" class="form-input" style="padding: 0.4rem 0.65rem; font-size: 0.8125rem; min-width: 170px;">
+                <option value="delivery_date">Scheduled Delivery Date</option>
+                <option value="created_at">Record Created Date</option>
+              </select>
+            </div>
+            <div>
+              <label for="deliveryChartInterval" style="display:block;font-size:0.75rem;font-weight:600;color:#4b5563;margin-bottom:0.2rem;">Time Interval</label>
+              <select id="deliveryChartInterval" class="form-input" style="padding: 0.4rem 0.65rem; font-size: 0.8125rem; min-width: 135px;">
+                <option value="auto">Auto Interval</option>
+                <option value="day">Daily</option>
+                <option value="week">Weekly</option>
+                <option value="month">Monthly</option>
+              </select>
+            </div>
+            <div>
+              <label for="deliveryChartView" style="display:block;font-size:0.75rem;font-weight:600;color:#4b5563;margin-bottom:0.2rem;">Chart Metric</label>
+              <select id="deliveryChartView" class="form-input" style="padding: 0.4rem 0.65rem; font-size: 0.8125rem; min-width: 210px;">
+                <option value="status_breakdown">By Status (Delivered / In Transit / Pending / Overdue)</option>
+                <option value="total_vs_completed">Total Scheduled vs. Delivered &amp; Overdue</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Semantic Status Color Key -->
+        <div style="display: flex; flex-wrap: wrap; gap: 1rem; padding: 0.6rem 0.85rem; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 0.5rem; margin-bottom: 1rem; font-size: 0.78rem; color: #374151;">
+          <span style="display:inline-flex;align-items:center;gap:0.4rem;"><span style="width:10px;height:10px;border-radius:50%;background:#10b981;display:inline-block;"></span><strong>Green:</strong> Delivered (Completed)</span>
+          <span style="display:inline-flex;align-items:center;gap:0.4rem;"><span style="width:10px;height:10px;border-radius:50%;background:#3b82f6;display:inline-block;"></span><strong>Blue:</strong> In Transit (Active Progress)</span>
+          <span style="display:inline-flex;align-items:center;gap:0.4rem;"><span style="width:10px;height:10px;border-radius:50%;background:#f59e0b;display:inline-block;"></span><strong>Orange:</strong> Pending / Processing (Attention / Queued)</span>
+          <span style="display:inline-flex;align-items:center;gap:0.4rem;"><span style="width:10px;height:10px;border-radius:50%;background:#ef4444;display:inline-block;"></span><strong>Red:</strong> Overdue (Scheduled Date Passed &amp; Not Delivered)</span>
+        </div>
+
+        <div style="position: relative; min-height: 280px;">
+          <canvas id="deliveryLineChart" style="max-height: 320px;"></canvas>
+        </div>
+        <div id="deliveryChartNotice" style="display:none; margin-top: 0.75rem; padding: 0.65rem 0.9rem; border-radius: 0.5rem; font-size: 0.8125rem; background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe;"></div>
       </div>
       
       <div class="card" style="margin-bottom: 1.5rem;">
@@ -658,13 +798,91 @@
           Add New Delivery
         </button>
       </div>
+
+      <!-- Delivery Filter & Sort Toolbar -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="search-toolbar">
+          <div class="form-group">
+            <label class="form-label" for="adminDeliverySearch">Search deliveries</label>
+            <input id="adminDeliverySearch" type="text" class="form-input" placeholder="Search ID, customer, product, address">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="adminDeliveryStatusFilter">Filter by status</label>
+            <select id="adminDeliveryStatusFilter" class="form-input">
+              <option value="all">All Statuses</option>
+              <option value="Pending">Pending</option>
+              <option value="Processing">Processing</option>
+              <option value="In Transit">In Transit</option>
+              <option value="Delivered">Delivered</option>
+              <option value="Overdue">Overdue (Past Due)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="adminDeliveryTypeFilter">Filter by delivery type</label>
+            <select id="adminDeliveryTypeFilter" class="form-input">
+              <option value="all">All Types</option>
+              <option value="Outbound">Outbound</option>
+              <option value="Inbound">Inbound</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="adminDeliveryDateFrom">Delivery date from</label>
+            <input id="adminDeliveryDateFrom" type="date" class="form-input">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="adminDeliveryDateTo">Delivery date to</label>
+            <input id="adminDeliveryDateTo" type="date" class="form-input">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="adminDeliverySort">Sort by</label>
+            <select id="adminDeliverySort" class="form-input">
+              <option value="date-desc">Delivery Date: Newest First</option>
+              <option value="date-asc">Delivery Date: Oldest First</option>
+              <option value="status-asc">Status: Pending → Delivered</option>
+              <option value="status-desc">Status: Delivered → Pending</option>
+              <option value="customer-asc">Customer Name: A–Z</option>
+              <option value="customer-desc">Customer Name: Z–A</option>
+              <option value="id-asc">Delivery ID: A–Z</option>
+              <option value="id-desc">Delivery ID: Z–A</option>
+            </select>
+          </div>
+          <div class="form-group" style="display:flex;align-items:flex-end;">
+            <button type="button" id="adminDeliveryResetFilters" class="btn btn-secondary" style="width:100%;">Reset Filters</button>
+          </div>
+        </div>
+      </div>
       
       <div class="card">
-        <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">All Deliveries</h3>
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem;">
+          <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin: 0;">All Deliveries</h3>
+          <span id="adminDeliveryFilterSummary" style="font-size: 0.8125rem; color: #6b7280; font-weight: 500;"></span>
+        </div>
+
+        <!-- Bulk Status Update Action Bar -->
+        <div class="kd-bulk-bar" role="region" aria-label="Bulk delivery status actions">
+          <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+            <span id="adminBulkSelectedCount" style="font-size: 0.875rem; font-weight: 600; color: #1f2937;">0 selected</span>
+            <button type="button" id="adminBulkClearBtn" class="btn btn-secondary" style="display: none; padding: 0.35rem 0.75rem; font-size: 0.8125rem;">Clear Selection</button>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+            <label for="adminBulkDeliveryStatus" style="font-size: 0.8125rem; font-weight: 600; color: #374151;">Set selected status to:</label>
+            <select id="adminBulkDeliveryStatus" class="form-input" style="width: auto; min-width: 155px; padding: 0.4rem 0.7rem; font-size: 0.875rem;">
+              <option value="Pending">Pending</option>
+              <option value="Processing">Processing</option>
+              <option value="In Transit">In Transit</option>
+              <option value="Delivered">Delivered</option>
+            </select>
+            <button type="button" id="adminBulkApplyBtn" class="btn btn-accent" style="padding: 0.45rem 0.95rem; font-size: 0.875rem;" disabled>Apply to Selected</button>
+          </div>
+        </div>
+
         <div class="table-container">
           <table>
             <thead>
               <tr>
+                <th style="width: 42px; text-align: center;">
+                  <input type="checkbox" id="adminDeliverySelectAll" title="Select all visible deliveries" aria-label="Select all visible deliveries">
+                </th>
                 <th>Send SMS</th>
                 <th>Delivery ID</th>
                 <th>Customer Name</th>
@@ -673,7 +891,7 @@
                 <th>Product</th>
                 <th>Status</th>
                 <th>Type</th>
-                <th>Date</th>
+                <th>Scheduled / Applicable Date</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -688,42 +906,78 @@
         <!-- [BEGIN PARTIAL: partials/modules/sales-module-admin.html] -->
     <!-- Sales Records Module -->
     <div id="salesModule" class="dashboard-module">
-      <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Sales Records & Data Analysis</h2>
+      <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Sales Records &amp; Data Analysis</h2>
       
       <!-- Sales Overview Cards -->
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
         <!-- Total Sales Card -->
-        <div class="summary-card">
-          <div class="summary-label">Total Sales</div>
+        <div class="summary-card summary-card--low" id="totalSalesCard" data-performance-level="low">
+          <div class="summary-label">
+            <span>Total Sales</span>
+            <span class="summary-perf-badge" id="totalSalesPerfBadge" role="status">Low Performance</span>
+          </div>
           <div class="summary-value" id="totalSales">₱0.00</div>
+          <div id="totalSalesScope" class="summary-scope">All-Time Total</div>
         </div>
         
         <!-- Total Records Card -->
-        <div class="summary-card">
-          <div class="summary-label">Total Records</div>
+        <div class="summary-card summary-card--low" id="totalRecordsCard" data-performance-level="low">
+          <div class="summary-label">
+            <span>Total Records</span>
+            <span class="summary-perf-badge" id="totalRecordsPerfBadge" role="status">Low Performance</span>
+          </div>
           <div class="summary-value" id="totalRecords">0</div>
+          <div id="totalRecordsScope" class="summary-scope">All Sales Records</div>
         </div>
         
         <!-- Average Sale Card -->
-        <div class="summary-card">
-          <div class="summary-label">Average Sale</div>
+        <div class="summary-card summary-card--low" id="averageSaleCard" data-performance-level="low">
+          <div class="summary-label">
+            <span>Average Sale</span>
+            <span class="summary-perf-badge" id="averageSalePerfBadge" role="status">Low Performance</span>
+          </div>
           <div class="summary-value" id="averageSale">₱0.00</div>
+          <div id="averageSaleScope" class="summary-scope">Per Transaction Average</div>
         </div>
       </div>
       
-      <!-- Charts Section -->
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
-        <!-- Revenue Updates (Bar Chart) -->
-        <div class="card">
-          <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">Revenue</h3>
-          <canvas id="revenueBarChart" style="max-height: 300px;"></canvas>
+      <!-- Single Responsive Sales Revenue Line Graph Card -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1rem;">
+          <div>
+            <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 0.25rem;">Sales Revenue Over Time</h3>
+            <p style="font-size: 0.8125rem; color: #6b7280; margin: 0;">
+              Chronological sales revenue trend aggregated from actual sales records in Philippine pesos (₱). Respects active search, category, and date filters.
+            </p>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center;">
+            <div>
+              <label for="salesChartInterval" style="display:block;font-size:0.75rem;font-weight:600;color:#4b5563;margin-bottom:0.2rem;">Time Interval</label>
+              <select id="salesChartInterval" class="form-input" style="padding: 0.4rem 0.65rem; font-size: 0.8125rem; min-width: 145px;">
+                <option value="auto">Auto (Best Fit)</option>
+                <option value="day">Daily</option>
+                <option value="week">Weekly</option>
+                <option value="month">Monthly</option>
+              </select>
+            </div>
+            <div>
+              <label for="salesChartComparison" style="display:block;font-size:0.75rem;font-weight:600;color:#4b5563;margin-bottom:0.2rem;">Period Comparison</label>
+              <select id="salesChartComparison" class="form-input" style="padding: 0.4rem 0.65rem; font-size: 0.8125rem; min-width: 210px;">
+                <option value="none">Single Trend (No Comparison)</option>
+                <option value="month_over_month">This Month vs. Previous Month</option>
+                <option value="previous_period">Selected Range vs. Prior Period</option>
+              </select>
+            </div>
+          </div>
         </div>
-        
-        <!-- Monthly Sales Trend (Line Chart) -->
-        <div class="card">
-          <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">Monthly Sales Trend</h3>
-          <canvas id="salesLineChart" style="max-height: 300px;"></canvas>
+
+        <div id="salesComparisonSummary" style="display:none; margin-bottom: 0.85rem; padding: 0.6rem 0.9rem; border-radius: 0.5rem; font-size: 0.8125rem; background: #f8fafc; border: 1px solid #e2e8f0; color: #334155;"></div>
+
+        <div style="position: relative; min-height: 300px;">
+          <canvas id="salesLineChart" style="max-height: 340px;"></canvas>
         </div>
+
+        <div id="salesChartNotice" style="display:none; margin-top: 0.75rem; padding: 0.65rem 0.9rem; border-radius: 0.5rem; font-size: 0.8125rem; background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe;"></div>
       </div>
       
       <div class="card" style="margin-bottom: 1.5rem;">
@@ -735,9 +989,52 @@
           Add Sales Record
         </button>
       </div>
+
+      <!-- Sales Filter & Sort Toolbar -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="search-toolbar">
+          <div class="form-group">
+            <label class="form-label" for="adminSalesSearch">Search sales</label>
+            <input id="adminSalesSearch" type="text" class="form-input" placeholder="Search customer or product name">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="adminSalesCategoryFilter">Filter by product category</label>
+            <select id="adminSalesCategoryFilter" class="form-input">
+              <option value="all">All Categories</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="adminSalesDateFrom">Sale date from</label>
+            <input id="adminSalesDateFrom" type="date" class="form-input">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="adminSalesDateTo">Sale date to</label>
+            <input id="adminSalesDateTo" type="date" class="form-input">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="adminSalesSort">Sort by</label>
+            <select id="adminSalesSort" class="form-input">
+              <option value="date-desc">Date: Newest First</option>
+              <option value="date-asc">Date: Oldest First</option>
+              <option value="amount-desc">Sale Amount: Highest First</option>
+              <option value="amount-asc">Sale Amount: Lowest First</option>
+              <option value="product-asc">Product Name: A–Z</option>
+              <option value="product-desc">Product Name: Z–A</option>
+              <option value="customer-asc">Customer Name: A–Z</option>
+              <option value="customer-desc">Customer Name: Z–A</option>
+            </select>
+          </div>
+          <div class="form-group" style="display:flex;align-items:flex-end;">
+            <button type="button" id="adminSalesResetFilters" class="btn btn-secondary" style="width:100%;">Reset Filters</button>
+          </div>
+        </div>
+      </div>
       
       <div class="card">
-        <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">All Sales Records</h3>
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem;">
+          <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin: 0;">All Sales Records</h3>
+          <span id="adminSalesFilterSummary" style="font-size: 0.8125rem; color: #6b7280; font-weight: 500;"></span>
+        </div>
         <div class="table-container">
           <table>
             <thead>
@@ -745,6 +1042,7 @@
                 <th>Date</th>
                 <th>Customer</th>
                 <th>Product</th>
+                <th>Category</th>
                 <th>Amount</th>
                 <th>Actions</th>
               </tr>
@@ -1111,10 +1409,19 @@
             </div>
           </div>
           
-          <div class="form-group">
-            <label class="form-label">Delivery Date</label>
-            <input type="date" id="deliveryDate" class="form-input">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="deliveryDate">Delivery Start Date (Scheduled)</label>
+              <input type="date" id="deliveryDate" class="form-input">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="deliveryEndDate">Delivery End Date (Optional Window)</label>
+              <input type="date" id="deliveryEndDate" class="form-input">
+            </div>
           </div>
+          <small style="display:block;margin-top:-0.5rem;margin-bottom:1rem;font-size:0.75rem;color:#6b7280;">
+            Set an optional End Date for multi-day delivery windows (e.g., Oct 6–7). While active within the window, the applicable delivery date automatically reflects the current day.
+          </small>
           
           <div style="display: flex; gap: 0.75rem;">
             <button type="submit" class="btn btn-accent" style="flex: 1;">Save Delivery</button>

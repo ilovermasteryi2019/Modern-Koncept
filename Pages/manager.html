@@ -73,6 +73,12 @@
     .summary-value { font-size: 2.5rem; font-weight: 700; margin-bottom: 0.25rem; }
     .summary-label { font-size: 0.875rem; opacity: 0.9; }
     .manager-badge { display: inline-flex; align-items: center; gap: 0.5rem; background: rgba(124,58,237,0.1); color: #7c3aed; padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
+    .search-toolbar { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1rem; margin-bottom: 0; }
+    .search-toolbar .form-group { margin-bottom: 0; }
+    .kd-bulk-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.75rem 1rem; margin-bottom: 1rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 0.5rem; }
+    .table-container table tbody tr.kd-row-selected { background: #f5f3ff; }
+    .kd-delivery-window { font-size: 0.74rem; color: #4b5563; margin-top: 0.15rem; }
+    .kd-delivery-basis { font-size: 0.72rem; color: #7c3aed; font-weight: 500; margin-top: 0.1rem; }
     /* Toast styles */
     .toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
     .toast { min-width: 300px; max-width: 400px; padding: 16px 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: flex; align-items: center; gap: 12px; font-size: 14px; font-weight: 500; pointer-events: all; animation: slideIn 0.3s ease-out; }
@@ -178,19 +184,57 @@
         </div>
       </div>
 
-      <!-- Search -->
+      <!-- Search, Filter & Sort Toolbar -->
       <div class="card" style="margin-bottom:1.5rem;">
-        <div style="display:flex;gap:1rem;align-items:flex-end;flex-wrap:wrap;">
-          <div class="form-group" style="flex:1;min-width:200px;margin-bottom:0;">
-            <label class="form-label">Search Deliveries</label>
-            <input type="text" id="managerDeliverySearch" class="form-input" placeholder="Search by ref code, customer, status...">
+        <div class="search-toolbar">
+          <div class="form-group">
+            <label class="form-label" for="managerDeliverySearch">Search Deliveries</label>
+            <input type="text" id="managerDeliverySearch" class="form-input" placeholder="Search by ref code, customer, product, address...">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="managerDeliveryStatusFilter">Filter by Status</label>
+            <select id="managerDeliveryStatusFilter" class="form-input">
+              <option value="all">All Statuses</option>
+              <option value="Pending">Pending</option>
+              <option value="Processing">Processing</option>
+              <option value="In Transit">In Transit</option>
+              <option value="Delivered">Delivered</option>
+              <option value="Overdue">Overdue (Past Due)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="managerDeliveryDateFrom">Delivery Date From</label>
+            <input type="date" id="managerDeliveryDateFrom" class="form-input">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="managerDeliveryDateTo">Delivery Date To</label>
+            <input type="date" id="managerDeliveryDateTo" class="form-input">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="managerDeliverySort">Sort By</label>
+            <select id="managerDeliverySort" class="form-input">
+              <option value="date-desc">Delivery Date: Newest First</option>
+              <option value="date-asc">Delivery Date: Oldest First</option>
+              <option value="status-asc">Status: Pending → Delivered</option>
+              <option value="status-desc">Status: Delivered → Pending</option>
+              <option value="customer-asc">Customer Name: A–Z</option>
+              <option value="customer-desc">Customer Name: Z–A</option>
+              <option value="id-asc">Delivery ID: A–Z</option>
+              <option value="id-desc">Delivery ID: Z–A</option>
+            </select>
+          </div>
+          <div class="form-group" style="display:flex;align-items:flex-end;">
+            <button type="button" id="managerDeliveryResetFilters" class="btn btn-secondary" style="width:100%;">Reset Filters</button>
           </div>
         </div>
       </div>
 
       <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;">
-          <h3 style="font-size:1.125rem;font-weight:600;color:#111827;margin:0;">All Deliveries</h3>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:0.75rem;">
+          <div>
+            <h3 style="font-size:1.125rem;font-weight:600;color:#111827;margin:0;">All Deliveries</h3>
+            <span id="managerDeliveryFilterSummary" style="font-size:0.8125rem;color:#6b7280;font-weight:500;"></span>
+          </div>
           <button class="btn btn-accent" id="addManagerDeliveryBtn" style="background:#7c3aed;border-color:#7c3aed;">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="12" y1="5" x2="12" y2="19"></line>
@@ -199,18 +243,40 @@
             Add Delivery
           </button>
         </div>
-        <p style="font-size:0.875rem;color:#6b7280;margin-bottom:1rem;">Use the dropdown and ✓ button to update delivery status.</p>
+        <p style="font-size:0.875rem;color:#6b7280;margin-bottom:1rem;">Select multiple rows to update statuses in bulk, or use a row's dropdown and ✓ button for single updates.</p>
+
+        <!-- Bulk Status Update Action Bar -->
+        <div class="kd-bulk-bar" role="region" aria-label="Bulk delivery status actions">
+          <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+            <span id="managerBulkSelectedCount" style="font-size:0.875rem;font-weight:600;color:#1f2937;">0 selected</span>
+            <button type="button" id="managerBulkClearBtn" class="btn btn-secondary" style="display:none;padding:0.35rem 0.75rem;font-size:0.8125rem;">Clear Selection</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:0.65rem;flex-wrap:wrap;">
+            <label for="managerBulkDeliveryStatus" style="font-size:0.8125rem;font-weight:600;color:#374151;">Set selected status to:</label>
+            <select id="managerBulkDeliveryStatus" class="form-input" style="width:auto;min-width:155px;padding:0.4rem 0.7rem;font-size:0.875rem;">
+              <option value="Pending">Pending</option>
+              <option value="Processing">Processing</option>
+              <option value="In Transit">In Transit</option>
+              <option value="Delivered">Delivered</option>
+            </select>
+            <button type="button" id="managerBulkApplyBtn" class="btn btn-accent" style="background:#7c3aed;border-color:#7c3aed;padding:0.45rem 0.95rem;font-size:0.875rem;" disabled>Apply to Selected</button>
+          </div>
+        </div>
+
         <div class="table-container">
           <table>
             <thead>
               <tr>
+                <th style="width:42px;text-align:center;">
+                  <input type="checkbox" id="managerDeliverySelectAll" title="Select all visible deliveries" aria-label="Select all visible deliveries">
+                </th>
                 <th>Send SMS</th>
                 <th>Delivery ID</th>
                 <th>Customer</th>
                 <th>Contact</th>
                 <th>Address</th>
                 <th>Product</th>
-                <th>Delivery Date</th>
+                <th>Scheduled / Applicable Date</th>
                 <th>Status</th>
                 <th>Update Status</th>
                 <th>Edit</th>
@@ -245,16 +311,43 @@
         </div>
       </div>
 
-      <!-- Charts -->
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:1.5rem;margin-bottom:1.5rem;">
-        <div class="card">
-          <h3 style="font-size:1.125rem;font-weight:600;color:#111827;margin-bottom:1rem;">Revenue</h3>
-          <canvas id="managerRevenueBarChart" style="max-height:300px;"></canvas>
+      <!-- Single Responsive Sales Revenue Line Graph Card -->
+      <div class="card" style="margin-bottom:1.5rem;">
+        <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:1rem;margin-bottom:1rem;">
+          <div>
+            <h3 style="font-size:1.125rem;font-weight:600;color:#111827;margin-bottom:0.25rem;">Sales Revenue Over Time</h3>
+            <p style="font-size:0.8125rem;color:#6b7280;margin:0;">
+              Chronological sales revenue trend aggregated from actual sales records in Philippine pesos (₱). Respects active search, category, and date filters.
+            </p>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center;">
+            <div>
+              <label for="managerSalesChartInterval" style="display:block;font-size:0.75rem;font-weight:600;color:#4b5563;margin-bottom:0.2rem;">Time Interval</label>
+              <select id="managerSalesChartInterval" class="form-input" style="padding:0.4rem 0.65rem;font-size:0.8125rem;min-width:145px;">
+                <option value="auto">Auto (Best Fit)</option>
+                <option value="day">Daily</option>
+                <option value="week">Weekly</option>
+                <option value="month">Monthly</option>
+              </select>
+            </div>
+            <div>
+              <label for="managerSalesChartComparison" style="display:block;font-size:0.75rem;font-weight:600;color:#4b5563;margin-bottom:0.2rem;">Period Comparison</label>
+              <select id="managerSalesChartComparison" class="form-input" style="padding:0.4rem 0.65rem;font-size:0.8125rem;min-width:210px;">
+                <option value="none">Single Trend (No Comparison)</option>
+                <option value="month_over_month">This Month vs. Previous Month</option>
+                <option value="previous_period">Selected Range vs. Prior Period</option>
+              </select>
+            </div>
+          </div>
         </div>
-        <div class="card">
-          <h3 style="font-size:1.125rem;font-weight:600;color:#111827;margin-bottom:1rem;">Monthly Sales Trend</h3>
-          <canvas id="managerSalesLineChart" style="max-height:300px;"></canvas>
+
+        <div id="managerSalesComparisonSummary" style="display:none;margin-bottom:0.85rem;padding:0.6rem 0.9rem;border-radius:0.5rem;font-size:0.8125rem;background:#f8fafc;border:1px solid #e2e8f0;color:#334155;"></div>
+
+        <div style="position:relative;min-height:300px;">
+          <canvas id="managerSalesLineChart" style="max-height:340px;"></canvas>
         </div>
+
+        <div id="managerSalesChartNotice" style="display:none;margin-top:0.75rem;padding:0.65rem 0.9rem;border-radius:0.5rem;font-size:0.8125rem;background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;"></div>
       </div>
 
       <!-- Add Sales Form -->
@@ -295,9 +388,52 @@
         </form>
       </div>
 
+      <!-- Sales Filter & Sort Toolbar -->
+      <div class="card" style="margin-bottom:1.5rem;">
+        <div class="search-toolbar">
+          <div class="form-group">
+            <label class="form-label" for="managerSalesSearch">Search sales</label>
+            <input id="managerSalesSearch" type="text" class="form-input" placeholder="Search customer or product name">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="managerSalesCategoryFilter">Filter by product category</label>
+            <select id="managerSalesCategoryFilter" class="form-input">
+              <option value="all">All Categories</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="managerSalesDateFrom">Sale date from</label>
+            <input id="managerSalesDateFrom" type="date" class="form-input">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="managerSalesDateTo">Sale date to</label>
+            <input id="managerSalesDateTo" type="date" class="form-input">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="managerSalesSort">Sort by</label>
+            <select id="managerSalesSort" class="form-input">
+              <option value="date-desc">Date: Newest First</option>
+              <option value="date-asc">Date: Oldest First</option>
+              <option value="amount-desc">Sale Amount: Highest First</option>
+              <option value="amount-asc">Sale Amount: Lowest First</option>
+              <option value="product-asc">Product Name: A–Z</option>
+              <option value="product-desc">Product Name: Z–A</option>
+              <option value="customer-asc">Customer Name: A–Z</option>
+              <option value="customer-desc">Customer Name: Z–A</option>
+            </select>
+          </div>
+          <div class="form-group" style="display:flex;align-items:flex-end;">
+            <button type="button" id="managerSalesResetFilters" class="btn btn-secondary" style="width:100%;">Reset Filters</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Sales Records Table -->
       <div class="card">
-        <h3 style="font-size:1.125rem;font-weight:600;color:#111827;margin-bottom:1rem;">All Sales Records</h3>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;margin-bottom:1rem;">
+          <h3 style="font-size:1.125rem;font-weight:600;color:#111827;margin:0;">All Sales Records</h3>
+          <span id="managerSalesFilterSummary" style="font-size:0.8125rem;color:#6b7280;font-weight:500;"></span>
+        </div>
         <div class="table-container">
           <table>
             <thead>
@@ -305,6 +441,7 @@
                 <th>Date</th>
                 <th>Customer</th>
                 <th>Product</th>
+                <th>Category</th>
                 <th>Amount</th>
                 <th>Actions</th>
               </tr>
@@ -578,10 +715,19 @@
               </select>
             </div>
           </div>
-          <div class="form-group">
-            <label class="form-label">Delivery Date</label>
-            <input type="date" id="deliveryDate" class="form-input">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="deliveryDate">Delivery Start Date (Scheduled)</label>
+              <input type="date" id="deliveryDate" class="form-input">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="deliveryEndDate">Delivery End Date (Optional Window)</label>
+              <input type="date" id="deliveryEndDate" class="form-input">
+            </div>
           </div>
+          <small style="display:block;margin-top:-0.5rem;margin-bottom:1rem;font-size:0.75rem;color:#6b7280;">
+            Set an optional End Date for multi-day delivery windows (e.g., Oct 6–7). While active within the window, the applicable delivery date automatically reflects the current day.
+          </small>
           <div style="display:flex;gap:0.75rem;">
             <button type="submit" class="btn btn-accent" style="flex:1;background:#7c3aed;border-color:#7c3aed;">Save Delivery</button>
             <button type="button" class="btn btn-secondary" data-close-modal="deliveryModal" style="flex:1;">Cancel</button>

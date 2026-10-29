@@ -8,95 +8,1219 @@ import { API, API_URL, formatCurrency, formatDate } from './core.js';
 import { hideModal, kdConfirm, kdDeleteOptions as del, kdGuard, kdOpenOptions as open, kdWrapBusy, kdWrapLoader, showModal, showToast } from './ui.js';
 import { getInventoryUnitPrice, loadInventoryList, loadManagerInventoryList, loadStaffInventoryList } from './inventory.js';
 
-// Global chart instances
-let revenueBarChartInstance = null;
+// Cached Admin sales & inventory category state for filtering, sorting, and chart reporting
+let adminSalesCache = [];
+let adminInventoryCategoriesLoaded = false;
+const adminInventoryCategoryById = new Map();
+const adminInventoryCategoryByName = new Map();
+const adminKnownCategories = new Set(['Living Room', 'Bedroom', 'Dining', 'Office', 'Storage', 'Outdoor']);
+let adminSalesControlsInitialized = false;
 
-let salesLineChartInstance = null;
+// Cached Manager sales state for filtering, sorting, and chart reporting
+let managerSalesCache = [];
+let managerInventoryCategoriesLoaded = false;
+const managerInventoryCategoryById = new Map();
+const managerInventoryCategoryByName = new Map();
+let managerSalesControlsInitialized = false;
+
+const MONTH_NAMES_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function toLocalDateKey(dateVal) {
+  if (!dateVal) return '';
+  if (typeof dateVal === 'string' && /^\d{4}-\d{2}-\d{2}/.test(dateVal)) {
+    return dateVal.slice(0, 10);
+  }
+  const d = new Date(dateVal);
+  if (Number.isNaN(d.getTime())) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function parseLocalDateKey(dateKey) {
+  if (!dateKey || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return null;
+  const [y, m, d] = dateKey.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function formatReadableDayKey(dateKey) {
+  const d = parseLocalDateKey(dateKey);
+  if (!d) return dateKey;
+  return `${MONTH_NAMES_SHORT[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+}
+
+function getWeekStartKey(dateKey) {
+  const d = parseLocalDateKey(dateKey);
+  if (!d) return dateKey;
+  const dayOfWeek = d.getDay(); // 0=Sun..6=Sat
+  const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  d.setDate(d.getDate() + diffToMonday);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+async function ensureAdminInventoryCategoryMap() {
+  if (adminInventoryCategoriesLoaded) return;
+  try {
+    const invResult = await API.getInventory();
+    if (invResult && invResult.success && Array.isArray(invResult.data)) {
+      invResult.data.forEach(item => {
+        const cat = typeof item.category === 'string' && item.category.trim() ? item.category.trim() : null;
+        if (!cat) return;
+        adminKnownCategories.add(cat);
+        if (item.id != null) adminInventoryCategoryById.set(Number(item.id), cat);
+        if (item.name) adminInventoryCategoryByName.set(String(item.name).trim().toLowerCase(), cat);
+      });
+      adminInventoryCategoriesLoaded = true;
+    }
+  } catch (_) {
+    // Non-fatal: backend GET /sales already enriches category
+  }
+}
+
+function resolveSaleCategory(item) {
+  if (!item) return 'Uncategorized';
+  if (typeof item.category === 'string' && item.category.trim() && item.category.trim() !== 'Uncategorized') {
+    const cat = item.category.trim();
+    adminKnownCategories.add(cat);
+    return cat;
+  }
+  if (item.inventory_id != null && adminInventoryCategoryById.has(Number(item.inventory_id))) {
+    return adminInventoryCategoryById.get(Number(item.inventory_id));
+  }
+  const prodName = typeof item.product_name === 'string' ? item.product_name.trim().toLowerCase() : '';
+  if (prodName && adminInventoryCategoryByName.has(prodName)) {
+    return adminInventoryCategoryByName.get(prodName);
+  }
+  if (typeof item.category === 'string' && item.category.trim()) {
+    return item.category.trim();
+  }
+  return 'Uncategorized';
+}
+
+function populateAdminSalesCategoryDropdown(salesRows) {
+  const select = document.getElementById('adminSalesCategoryFilter');
+  if (!select) return;
+  const previousValue = select.value || 'all';
+  const categories = new Set(adminKnownCategories);
+  let hasUncategorized = false;
+  (salesRows || []).forEach(row => {
+    const cat = resolveSaleCategory(row);
+    if (cat === 'Uncategorized') hasUncategorized = true;
+    else if (cat) categories.add(cat);
+  });
+  const sorted = Array.from(categories).sort((a, b) => a.localeCompare(b));
+  if (hasUncategorized) sorted.push('Uncategorized');
+
+  select.innerHTML = '<option value="all">All Categories</option>' +
+    sorted.map(cat => `<option value="${escapeHtml(cat)}">${escapeHtml(cat)}</option>`).join('');
+
+  if (previousValue === 'all' || sorted.includes(previousValue)) {
+    select.value = previousValue;
+  } else {
+    select.value = 'all';
+  }
+}
+
+function getAdminSalesFilterState() {
+  const searchEl = document.getElementById('adminSalesSearch');
+  const categoryEl = document.getElementById('adminSalesCategoryFilter');
+  const dateFromEl = document.getElementById('adminSalesDateFrom');
+  const dateToEl = document.getElementById('adminSalesDateTo');
+  const sortEl = document.getElementById('adminSalesSort');
+  const intervalEl = document.getElementById('salesChartInterval');
+  const comparisonEl = document.getElementById('salesChartComparison');
+
+  const search = searchEl ? searchEl.value.trim().toLowerCase() : '';
+  const category = categoryEl ? categoryEl.value : 'all';
+  const dateFrom = dateFromEl ? dateFromEl.value : '';
+  const dateTo = dateToEl ? dateToEl.value : '';
+  const sort = sortEl ? sortEl.value : 'date-desc';
+  const interval = intervalEl ? intervalEl.value : 'auto';
+  const comparison = comparisonEl ? comparisonEl.value : 'none';
+
+  const hasActiveFilters = Boolean(search || (category && category !== 'all') || dateFrom || dateTo);
+  return { search, category, dateFrom, dateTo, sort, interval, comparison, hasActiveFilters };
+}
+
+function filterAndSortAdminSales(salesRows, filterState) {
+  const { search, category, dateFrom, dateTo, sort } = filterState;
+
+  const filtered = (salesRows || []).filter(item => {
+    const resolvedCategory = resolveSaleCategory(item);
+    if (category && category !== 'all' && resolvedCategory.toLowerCase() !== category.toLowerCase()) {
+      return false;
+    }
+    const dateKey = toLocalDateKey(item.sale_date);
+    if (dateFrom && (!dateKey || dateKey < dateFrom)) return false;
+    if (dateTo && (!dateKey || dateKey > dateTo)) return false;
+
+    if (search) {
+      const customer = String(item.customer_name || '').toLowerCase();
+      const product = String(item.product_name || '').toLowerCase();
+      const catLower = resolvedCategory.toLowerCase();
+      if (!customer.includes(search) && !product.includes(search) && !catLower.includes(search)) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  const sorted = [...filtered].sort((a, b) => {
+    if (sort === 'date-asc' || sort === 'date-desc') {
+      const da = toLocalDateKey(a.sale_date);
+      const db = toLocalDateKey(b.sale_date);
+      if (da !== db) {
+        return sort === 'date-asc' ? da.localeCompare(db) : db.localeCompare(da);
+      }
+      return sort === 'date-asc' ? (Number(a.id) - Number(b.id)) : (Number(b.id) - Number(a.id));
+    }
+    if (sort === 'amount-desc' || sort === 'amount-asc') {
+      const aa = parseFloat(a.amount) || 0;
+      const ab = parseFloat(b.amount) || 0;
+      if (aa !== ab) return sort === 'amount-asc' ? aa - ab : ab - aa;
+      return Number(b.id) - Number(a.id);
+    }
+    if (sort === 'product-asc' || sort === 'product-desc') {
+      const pa = String(a.product_name || '');
+      const pb = String(b.product_name || '');
+      const cmp = pa.localeCompare(pb, undefined, { sensitivity: 'base' });
+      return sort === 'product-asc' ? cmp : -cmp;
+    }
+    if (sort === 'customer-asc' || sort === 'customer-desc') {
+      const ca = String(a.customer_name || '');
+      const cb = String(b.customer_name || '');
+      const cmp = ca.localeCompare(cb, undefined, { sensitivity: 'base' });
+      return sort === 'customer-asc' ? cmp : -cmp;
+    }
+    return 0;
+  });
+
+  return sorted;
+}
+
+// Configurable performance thresholds for Admin Sales Summary Cards:
+// - Low (Red / .summary-card--low): below mediumMin
+// - Middle Range (Yellow / .summary-card--medium): mediumMin up to highMin - 0.01
+// - High (Green / .summary-card--high): >= highMin
+// When a date filter is applied (#adminSalesDateFrom / #adminSalesDateTo), Total Sales and Total Records
+// thresholds scale proportionally to the selected period length (relative to a 30-day monthly baseline).
+// Average Sale is a per-transaction metric and uses its per-sale furniture price thresholds regardless of period length.
+export const SALES_PERFORMANCE_THRESHOLDS = {
+  totalSalesMonthly: {
+    mediumMin: 15000, // ₱15,000+ = Middle Range (Yellow)
+    highMin: 50000    // ₱50,000+ = High (Green)
+  },
+  totalRecordsMonthly: {
+    mediumMin: 5,     // 5+ sales = Middle Range (Yellow)
+    highMin: 15       // 15+ sales = High (Green)
+  },
+  averageSale: {
+    mediumMin: 3000,  // ₱3,000+ per sale = Middle Range (Yellow)
+    highMin: 10000    // ₱10,000+ per sale = High (Green)
+  }
+};
+
+function classifyPerformanceLevel(value, mediumMin, highMin) {
+  const num = Number(value) || 0;
+  if (num >= highMin) return { level: 'high', label: 'High Performance', cssClass: 'summary-card--high' };
+  if (num >= mediumMin) return { level: 'medium', label: 'Middle Range', cssClass: 'summary-card--medium' };
+  return { level: 'low', label: 'Low Performance', cssClass: 'summary-card--low' };
+}
+
+export function evaluateSalesSummaryPerformance(filteredSales, allSales, filterState = {}) {
+  const { dateFrom, dateTo } = filterState;
+  let periodDays = 30;
+  let isDateScaled = false;
+
+  if (dateFrom || dateTo) {
+    const allDates = ((filteredSales && filteredSales.length ? filteredSales : allSales) || [])
+      .map(s => toLocalDateKey(s.sale_date))
+      .filter(Boolean)
+      .sort();
+    const startKey = dateFrom || (allDates.length ? allDates[0] : toLocalDateKey(new Date()));
+    const endKey = dateTo || (allDates.length ? allDates[allDates.length - 1] : toLocalDateKey(new Date()));
+    const startD = parseLocalDateKey(startKey);
+    const endD = parseLocalDateKey(endKey);
+    if (startD && endD && endD >= startD) {
+      periodDays = Math.max(1, Math.round((endD - startD) / (1000 * 60 * 60 * 24)) + 1);
+      isDateScaled = true;
+    }
+  }
+
+  const scale = isDateScaled ? (periodDays / 30) : 1;
+  const salesMedMin = isDateScaled
+    ? Math.max(500, Math.round(SALES_PERFORMANCE_THRESHOLDS.totalSalesMonthly.mediumMin * scale))
+    : SALES_PERFORMANCE_THRESHOLDS.totalSalesMonthly.mediumMin;
+  const salesHighMin = isDateScaled
+    ? Math.max(salesMedMin + 1000, Math.round(SALES_PERFORMANCE_THRESHOLDS.totalSalesMonthly.highMin * scale))
+    : SALES_PERFORMANCE_THRESHOLDS.totalSalesMonthly.highMin;
+
+  const recordsMedMin = isDateScaled
+    ? Math.max(1, Math.round(SALES_PERFORMANCE_THRESHOLDS.totalRecordsMonthly.mediumMin * scale))
+    : SALES_PERFORMANCE_THRESHOLDS.totalRecordsMonthly.mediumMin;
+  const recordsHighMin = isDateScaled
+    ? Math.max(recordsMedMin + 1, Math.round(SALES_PERFORMANCE_THRESHOLDS.totalRecordsMonthly.highMin * scale))
+    : SALES_PERFORMANCE_THRESHOLDS.totalRecordsMonthly.highMin;
+
+  const avgMedMin = SALES_PERFORMANCE_THRESHOLDS.averageSale.mediumMin;
+  const avgHighMin = SALES_PERFORMANCE_THRESHOLDS.averageSale.highMin;
+
+  const filteredCount = (filteredSales || []).length;
+  const filteredTotal = (filteredSales || []).reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+  const filteredAvg = filteredCount > 0 ? filteredTotal / filteredCount : 0;
+
+  return {
+    periodDays,
+    isDateScaled,
+    totalSales: {
+      value: filteredTotal,
+      mediumMin: salesMedMin,
+      highMin: salesHighMin,
+      ...classifyPerformanceLevel(filteredTotal, salesMedMin, salesHighMin)
+    },
+    totalRecords: {
+      value: filteredCount,
+      mediumMin: recordsMedMin,
+      highMin: recordsHighMin,
+      ...classifyPerformanceLevel(filteredCount, recordsMedMin, recordsHighMin)
+    },
+    averageSale: {
+      value: filteredAvg,
+      mediumMin: avgMedMin,
+      highMin: avgHighMin,
+      ...classifyPerformanceLevel(filteredAvg, avgMedMin, avgHighMin)
+    }
+  };
+}
+
+function applySummaryCardState(valueElId, badgeElId, metricPerf) {
+  const valueEl = document.getElementById(valueElId);
+  const cardEl = valueEl ? valueEl.closest('.summary-card') : null;
+  if (cardEl) {
+    cardEl.classList.remove('summary-card--low', 'summary-card--medium', 'summary-card--high');
+    cardEl.classList.add(metricPerf.cssClass);
+    cardEl.setAttribute('data-performance-level', metricPerf.level);
+  }
+  const badgeEl = document.getElementById(badgeElId);
+  if (badgeEl) {
+    badgeEl.textContent = metricPerf.label;
+    badgeEl.setAttribute('aria-label', `Performance level: ${metricPerf.label}`);
+  }
+}
+
+function updateAdminSalesSummaryCards(filteredSales, allSales, filterState = {}) {
+  const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  const hasActiveFilters = Boolean(filterState && filterState.hasActiveFilters);
+
+  const allCount = (allSales || []).length;
+  const allTotal = (allSales || []).reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+  const allAvg = allCount > 0 ? allTotal / allCount : 0;
+
+  const perf = evaluateSalesSummaryPerformance(filteredSales, allSales, filterState);
+  const filteredCount = perf.totalRecords.value;
+  const filteredTotal = perf.totalSales.value;
+  const filteredAvg = perf.averageSale.value;
+
+  setEl('totalSales', formatCurrency(filteredTotal));
+  setEl('totalRecords', String(filteredCount));
+  setEl('averageSale', formatCurrency(filteredAvg));
+
+  applySummaryCardState('totalSales', 'totalSalesPerfBadge', perf.totalSales);
+  applySummaryCardState('totalRecords', 'totalRecordsPerfBadge', perf.totalRecords);
+  applySummaryCardState('averageSale', 'averageSalePerfBadge', perf.averageSale);
+
+  const periodBasisLabel = perf.isDateScaled ? `${perf.periodDays}-day range` : '30-day benchmark';
+  const salesThresholdNote = `Mid ≥ ${formatCurrency(perf.totalSales.mediumMin)} · High ≥ ${formatCurrency(perf.totalSales.highMin)} (${periodBasisLabel})`;
+  const recordsThresholdNote = `Mid ≥ ${perf.totalRecords.mediumMin} · High ≥ ${perf.totalRecords.highMin} records (${periodBasisLabel})`;
+  const avgThresholdNote = `Mid ≥ ${formatCurrency(perf.averageSale.mediumMin)} · High ≥ ${formatCurrency(perf.averageSale.highMin)} per sale`;
+
+  if (hasActiveFilters) {
+    setEl('totalSalesScope', `Filtered (All-Time: ${formatCurrency(allTotal)}) · ${salesThresholdNote}`);
+    setEl('totalRecordsScope', `Showing ${filteredCount} of ${allCount} records · ${recordsThresholdNote}`);
+    setEl('averageSaleScope', `Filtered Avg (All-Time: ${formatCurrency(allAvg)}) · ${avgThresholdNote}`);
+    setEl('adminSalesFilterSummary', `Showing ${filteredCount} of ${allCount} sales records (filtered)`);
+  } else {
+    setEl('totalSalesScope', `All-Time Total · ${salesThresholdNote}`);
+    setEl('totalRecordsScope', `All Sales Records · ${recordsThresholdNote}`);
+    setEl('averageSaleScope', `Per Transaction Average · ${avgThresholdNote}`);
+    setEl('adminSalesFilterSummary', `Showing all ${allCount} sales record${allCount === 1 ? '' : 's'}`);
+  }
+}
+
+function renderAdminSalesTableRows(filteredSales, allSalesCount) {
+  const tbody = document.getElementById('adminSalesList');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  if (!filteredSales || filteredSales.length === 0) {
+    const emptyMsg = allSalesCount > 0
+      ? 'No sales records match your selected filters.'
+      : 'No sales records found';
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#9ca3af;padding:2rem;">${emptyMsg}</td></tr>`;
+    return;
+  }
+
+  filteredSales.forEach(item => {
+    const category = resolveSaleCategory(item);
+    tbody.innerHTML += `
+      <tr>
+        <td>${formatDate(item.sale_date)}</td>
+        <td>${escapeHtml(item.customer_name)}</td>
+        <td>${formatSaleProduct(item)}</td>
+        <td><span class="status-badge" style="background:#f3f4f6;color:#374151;font-weight:500;">${escapeHtml(category)}</span></td>
+        <td>${formatCurrency(item.amount)}</td>
+        <td>
+          <button class="action-btn edit" onclick="editAdminSalesRecord(${item.id})" title="Edit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
+          <button class="action-btn delete" onclick="deleteSales(${item.id})" title="Delete"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
+        </td>
+      </tr>`;
+  });
+}
+
+function chooseEffectiveSalesInterval(salesRows, requestedInterval) {
+  if (requestedInterval && requestedInterval !== 'auto') return requestedInterval;
+  const dateKeys = (salesRows || []).map(r => toLocalDateKey(r.sale_date)).filter(Boolean).sort();
+  if (dateKeys.length <= 1) return 'day';
+  const first = parseLocalDateKey(dateKeys[0]);
+  const last = parseLocalDateKey(dateKeys[dateKeys.length - 1]);
+  if (!first || !last) return 'day';
+  const spanDays = Math.round((last - first) / (1000 * 60 * 60 * 24));
+  if (spanDays <= 45) return 'day';
+  if (spanDays <= 180) return 'week';
+  return 'month';
+}
+
+function aggregateSalesChronologically(salesRows, interval) {
+  const buckets = new Map();
+  (salesRows || []).forEach(row => {
+    const dateKey = toLocalDateKey(row.sale_date);
+    if (!dateKey) return;
+    let bucketKey = dateKey;
+    let label = '';
+    if (interval === 'month') {
+      bucketKey = dateKey.slice(0, 7); // YYYY-MM
+      const [y, m] = bucketKey.split('-').map(Number);
+      label = `${MONTH_NAMES_SHORT[m - 1]} ${y}`;
+    } else if (interval === 'week') {
+      bucketKey = getWeekStartKey(dateKey);
+      label = `Week of ${formatReadableDayKey(bucketKey)}`;
+    } else {
+      bucketKey = dateKey;
+      label = formatReadableDayKey(dateKey);
+    }
+
+    if (!buckets.has(bucketKey)) {
+      buckets.set(bucketKey, { key: bucketKey, label, total: 0, count: 0 });
+    }
+    const entry = buckets.get(bucketKey);
+    entry.total += parseFloat(row.amount) || 0;
+    entry.count += 1;
+  });
+
+  return Array.from(buckets.values()).sort((a, b) => a.key.localeCompare(b.key));
+}
+
+function buildComparisonSeries(allSales, filteredSales, filterState) {
+  const { comparison, search, category, dateFrom, dateTo } = filterState;
+  if (comparison === 'none') return null;
+
+  // Apply only non-date filters (search & category) when looking up historical comparison window
+  const baseRows = (allSales || []).filter(item => {
+    const resolvedCategory = resolveSaleCategory(item);
+    if (category && category !== 'all' && resolvedCategory.toLowerCase() !== category.toLowerCase()) return false;
+    if (search) {
+      const customer = String(item.customer_name || '').toLowerCase();
+      const product = String(item.product_name || '').toLowerCase();
+      const catLower = resolvedCategory.toLowerCase();
+      if (!customer.includes(search) && !product.includes(search) && !catLower.includes(search)) return false;
+    }
+    return true;
+  });
+
+  if (comparison === 'month_over_month') {
+    const allDates = (filteredSales.length ? filteredSales : baseRows)
+      .map(r => toLocalDateKey(r.sale_date))
+      .filter(Boolean)
+      .sort();
+    const anchorDate = allDates.length ? parseLocalDateKey(allDates[allDates.length - 1]) : new Date();
+    const curYear = anchorDate.getFullYear();
+    const curMonth = anchorDate.getMonth();
+    const prevMonthDate = new Date(curYear, curMonth - 1, 1);
+    const prevYear = prevMonthDate.getFullYear();
+    const prevMonth = prevMonthDate.getMonth();
+
+    const curPrefix = `${curYear}-${String(curMonth + 1).padStart(2, '0')}`;
+    const prevPrefix = `${prevYear}-${String(prevMonth + 1).padStart(2, '0')}`;
+    const curMonthLabel = `${MONTH_NAMES_SHORT[curMonth]} ${curYear}`;
+    const prevMonthLabel = `${MONTH_NAMES_SHORT[prevMonth]} ${prevYear}`;
+
+    const curMap = new Map();
+    const prevMap = new Map();
+    let curTotal = 0;
+    let prevTotal = 0;
+    let curCount = 0;
+    let prevCount = 0;
+
+    baseRows.forEach(row => {
+      const dk = toLocalDateKey(row.sale_date);
+      if (!dk) return;
+      const dayNum = Number(dk.slice(8, 10));
+      const amt = parseFloat(row.amount) || 0;
+      if (dk.startsWith(curPrefix)) {
+        curMap.set(dayNum, (curMap.get(dayNum) || 0) + amt);
+        curTotal += amt;
+        curCount += 1;
+      } else if (dk.startsWith(prevPrefix)) {
+        prevMap.set(dayNum, (prevMap.get(dayNum) || 0) + amt);
+        prevTotal += amt;
+        prevCount += 1;
+      }
+    });
+
+    const activeDays = Array.from(new Set([...curMap.keys(), ...prevMap.keys()])).sort((a, b) => a - b);
+    const labels = activeDays.map(d => `Day ${d}`);
+    const curData = activeDays.map(d => curMap.get(d) || 0);
+    const prevData = activeDays.map(d => prevMap.get(d) || 0);
+
+    return {
+      mode: 'month_over_month',
+      labels,
+      currentLabel: `${curMonthLabel} (₱)`,
+      previousLabel: `${prevMonthLabel} (₱)`,
+      currentData: curData,
+      previousData: prevData,
+      currentTotal: curTotal,
+      previousTotal: prevTotal,
+      currentCount: curCount,
+      previousCount: prevCount,
+      summaryTitle: `${curMonthLabel} vs. ${prevMonthLabel}`
+    };
+  }
+
+  if (comparison === 'previous_period') {
+    const validDates = (filteredSales.length ? filteredSales : baseRows)
+      .map(r => toLocalDateKey(r.sale_date))
+      .filter(Boolean)
+      .sort();
+    const startKey = dateFrom || (validDates.length ? validDates[0] : toLocalDateKey(new Date()));
+    const endKey = dateTo || (validDates.length ? validDates[validDates.length - 1] : startKey);
+    const startDate = parseLocalDateKey(startKey);
+    const endDate = parseLocalDateKey(endKey);
+    if (!startDate || !endDate || endDate < startDate) return null;
+
+    const spanDays = Math.max(1, Math.round((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1);
+    const prevEndDate = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() - 1);
+    const prevStartDate = new Date(prevEndDate.getFullYear(), prevEndDate.getMonth(), prevEndDate.getDate() - (spanDays - 1));
+
+    const prevStartKey = toLocalDateKey(prevStartDate);
+    const prevEndKey = toLocalDateKey(prevEndDate);
+
+    const curRows = baseRows.filter(r => {
+      const dk = toLocalDateKey(r.sale_date);
+      return dk >= startKey && dk <= endKey;
+    });
+    const prevRows = baseRows.filter(r => {
+      const dk = toLocalDateKey(r.sale_date);
+      return dk >= prevStartKey && dk <= prevEndKey;
+    });
+
+    const curAgg = aggregateSalesChronologically(curRows, 'day');
+    const prevAgg = aggregateSalesChronologically(prevRows, 'day');
+
+    const curTotal = curRows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+    const prevTotal = prevRows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+
+    const maxPoints = Math.max(curAgg.length, prevAgg.length, 1);
+    const labels = [];
+    const curData = [];
+    const prevData = [];
+    for (let i = 0; i < maxPoints; i++) {
+      const cItem = curAgg[i];
+      const pItem = prevAgg[i];
+      if (cItem && pItem) labels.push(`${cItem.label} vs ${pItem.label}`);
+      else if (cItem) labels.push(cItem.label);
+      else if (pItem) labels.push(`Prior: ${pItem.label}`);
+      else labels.push(`Period ${i + 1}`);
+      curData.push(cItem ? cItem.total : 0);
+      prevData.push(pItem ? pItem.total : 0);
+    }
+
+    return {
+      mode: 'previous_period',
+      labels,
+      currentLabel: `Selected Period (${formatReadableDayKey(startKey)} – ${formatReadableDayKey(endKey)})`,
+      previousLabel: `Prior Period (${formatReadableDayKey(prevStartKey)} – ${formatReadableDayKey(prevEndKey)})`,
+      currentData: curData,
+      previousData: prevData,
+      currentTotal: curTotal,
+      previousTotal: prevTotal,
+      currentCount: curRows.length,
+      previousCount: prevRows.length,
+      summaryTitle: `${formatReadableDayKey(startKey)} – ${formatReadableDayKey(endKey)} vs. Prior ${spanDays} Day(s)`
+    };
+  }
+
+  return null;
+}
+
+function renderAdminSalesLineChart(filteredSales, allSales, filterState) {
+  const ctx = document.getElementById('salesLineChart');
+  if (!ctx) return;
+
+  const noticeEl = document.getElementById('salesChartNotice');
+  const compSummaryEl = document.getElementById('salesComparisonSummary');
+  const setNotice = (msg, isWarning = false) => {
+    if (!noticeEl) return;
+    if (!msg) {
+      noticeEl.style.display = 'none';
+      noticeEl.textContent = '';
+      return;
+    }
+    noticeEl.style.display = 'block';
+    noticeEl.style.background = isWarning ? '#fffbeb' : '#eff6ff';
+    noticeEl.style.color = isWarning ? '#92400e' : '#1e40af';
+    noticeEl.style.borderColor = isWarning ? '#fde68a' : '#bfdbfe';
+    noticeEl.innerHTML = msg;
+  };
+
+  if (window.salesLineChartInstance) {
+    window.salesLineChartInstance.destroy();
+    window.salesLineChartInstance = null;
+  }
+
+  const compSeries = buildComparisonSeries(allSales, filteredSales, filterState);
+  if (compSeries) {
+    if (compSummaryEl) {
+      const diff = compSeries.currentTotal - compSeries.previousTotal;
+      const pctText = compSeries.previousTotal > 0
+        ? `${diff >= 0 ? '+' : ''}${((diff / compSeries.previousTotal) * 100).toFixed(1)}%`
+        : (compSeries.currentTotal > 0 ? 'No sales recorded in prior period' : '0.0%');
+      compSummaryEl.style.display = 'block';
+      compSummaryEl.innerHTML = `
+        <strong>${escapeHtml(compSeries.summaryTitle)}:</strong>
+        Current Period: <strong>${formatCurrency(compSeries.currentTotal)}</strong> (${compSeries.currentCount} sale${compSeries.currentCount === 1 ? '' : 's'})
+        &nbsp;|&nbsp;
+        Prior Period: <strong>${formatCurrency(compSeries.previousTotal)}</strong> (${compSeries.previousCount} sale${compSeries.previousCount === 1 ? '' : 's'})
+        &nbsp;|&nbsp;
+        Difference: <strong style="color:${diff >= 0 ? '#059669' : '#d97706'};">${diff >= 0 ? '+' : ''}${formatCurrency(diff)} (${escapeHtml(pctText)})</strong>
+      `;
+    }
+
+    if (compSeries.previousCount === 0) {
+      setNotice('Note: The database has no recorded sales in the preceding comparison period. Only real recorded transactions are plotted (no sample points are fabricated).');
+    } else {
+      setNotice('');
+    }
+
+    window.salesLineChartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: compSeries.labels.length ? compSeries.labels : ['No Data'],
+        datasets: [
+          {
+            label: compSeries.currentLabel,
+            data: compSeries.currentData.length ? compSeries.currentData : [0],
+            borderColor: '#2563eb',
+            backgroundColor: 'rgba(37, 99, 235, 0.12)',
+            borderWidth: 3,
+            fill: true,
+            tension: 0.35,
+            pointBackgroundColor: '#2563eb',
+            pointBorderColor: '#ffffff',
+            pointBorderWidth: 2,
+            pointRadius: 5,
+            pointHoverRadius: 7
+          },
+          {
+            label: compSeries.previousLabel,
+            data: compSeries.previousData.length ? compSeries.previousData : [0],
+            borderColor: '#64748b',
+            backgroundColor: 'rgba(100, 116, 139, 0.06)',
+            borderWidth: 2,
+            borderDash: [6, 4],
+            fill: false,
+            tension: 0.35,
+            pointBackgroundColor: '#64748b',
+            pointBorderColor: '#ffffff',
+            pointBorderWidth: 2,
+            pointRadius: 4,
+            pointHoverRadius: 6
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: true, position: 'top' },
+          tooltip: {
+            callbacks: {
+              label: context => `${context.dataset.label}: ${formatCurrency(context.parsed.y)}`
+            }
+          }
+        },
+        scales: {
+          x: { title: { display: true, text: 'Comparison Period Timeline', color: '#4b5563', font: { weight: '600' } } },
+          y: {
+            beginAtZero: true,
+            title: { display: true, text: 'Sales Revenue (₱)', color: '#4b5563', font: { weight: '600' } },
+            ticks: { callback: val => '₱' + Number(val).toLocaleString('en-US') }
+          }
+        }
+      }
+    });
+    return;
+  }
+
+  if (compSummaryEl) {
+    compSummaryEl.style.display = 'none';
+    compSummaryEl.innerHTML = '';
+  }
+
+  if (!filteredSales || filteredSales.length === 0) {
+    setNotice('No sales records match the current selection. Adjust your filters or add sales records to view the revenue line graph.', true);
+    window.salesLineChartInstance = new Chart(ctx, {
+      type: 'line',
+      data: { labels: ['No matching records'], datasets: [{ label: 'Sales Revenue (₱)', data: [0], borderColor: '#9ca3af', backgroundColor: 'rgba(156,163,175,0.1)', borderWidth: 2 }] },
+      options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { callback: val => '₱' + Number(val).toLocaleString('en-US') } } } }
+    });
+    return;
+  }
+
+  const effectiveInterval = chooseEffectiveSalesInterval(filteredSales, filterState.interval);
+  const aggregated = aggregateSalesChronologically(filteredSales, effectiveInterval);
+  const distinctDays = new Set(filteredSales.map(s => toLocalDateKey(s.sale_date)).filter(Boolean)).size;
+
+  const intervalLabelMap = { day: 'Daily', week: 'Weekly', month: 'Monthly' };
+  const intervalTitle = intervalLabelMap[effectiveInterval] || 'Chronological';
+
+  if (aggregated.length === 1) {
+    if (effectiveInterval === 'month' && distinctDays > 1) {
+      setNotice(`All ${filteredSales.length} displayed sales records occurred within <strong>${escapeHtml(aggregated[0].label)}</strong> across ${distinctDays} dates. Switch <strong>Time Interval</strong> to <strong>Daily</strong> or <strong>Auto</strong> to inspect day-by-day revenue movement.`);
+    } else {
+      setNotice(`Showing actual recorded sales data for <strong>${escapeHtml(aggregated[0].label)}</strong> (${filteredSales.length} transaction${filteredSales.length === 1 ? '' : 's'}). A multi-point historical trend line requires sales records across multiple ${effectiveInterval === 'day' ? 'dates' : effectiveInterval + 's'}.`);
+    }
+  } else if (filterState.interval === 'auto') {
+    setNotice(`Automatically grouped by <strong>${intervalTitle}</strong> interval (${aggregated.length} chronological data points across ${filteredSales.length} sales records).`);
+  } else {
+    setNotice('');
+  }
+
+  const labels = aggregated.map(b => b.label);
+  const amounts = aggregated.map(b => Math.round(b.total * 100) / 100);
+  const counts = aggregated.map(b => b.count);
+
+  window.salesLineChartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: `${intervalTitle} Sales Revenue (₱)`,
+          data: amounts,
+          borderColor: '#2563eb',
+          backgroundColor: 'rgba(37, 99, 235, 0.12)',
+          borderWidth: 3,
+          fill: true,
+          tension: 0.35,
+          pointBackgroundColor: '#2563eb',
+          pointBorderColor: '#ffffff',
+          pointBorderWidth: 2,
+          pointRadius: 5,
+          pointHoverRadius: 7
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: true, position: 'top' },
+        tooltip: {
+          callbacks: {
+            label: context => {
+              const idx = context.dataIndex;
+              const txCount = counts[idx] || 0;
+              return `Revenue: ${formatCurrency(context.parsed.y)} (${txCount} sale${txCount === 1 ? '' : 's'})`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          title: { display: true, text: `Timeline (${intervalTitle})`, color: '#4b5563', font: { weight: '600' } }
+        },
+        y: {
+          beginAtZero: true,
+          title: { display: true, text: 'Sales Revenue (₱)', color: '#4b5563', font: { weight: '600' } },
+          ticks: { callback: val => '₱' + Number(val).toLocaleString('en-US') }
+        }
+      }
+    }
+  });
+}
+
+function applyAdminSalesView() {
+  const filterState = getAdminSalesFilterState();
+  const filteredSales = filterAndSortAdminSales(adminSalesCache, filterState);
+  renderAdminSalesTableRows(filteredSales, adminSalesCache.length);
+  updateAdminSalesSummaryCards(filteredSales, adminSalesCache, filterState);
+  renderAdminSalesLineChart(filteredSales, adminSalesCache, filterState);
+}
+
+export function initAdminSalesControls() {
+  if (adminSalesControlsInitialized) return;
+  const searchEl = document.getElementById('adminSalesSearch');
+  if (!searchEl) return;
+  adminSalesControlsInitialized = true;
+
+  const bindChange = (id, evt = 'change') => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener(evt, () => applyAdminSalesView());
+  };
+
+  bindChange('adminSalesSearch', 'input');
+  bindChange('adminSalesCategoryFilter', 'change');
+  bindChange('adminSalesDateFrom', 'change');
+  bindChange('adminSalesDateTo', 'change');
+  bindChange('adminSalesSort', 'change');
+  bindChange('salesChartInterval', 'change');
+  bindChange('salesChartComparison', 'change');
+
+  const resetBtn = document.getElementById('adminSalesResetFilters');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+      const s = document.getElementById('adminSalesSearch');
+      const c = document.getElementById('adminSalesCategoryFilter');
+      const df = document.getElementById('adminSalesDateFrom');
+      const dt = document.getElementById('adminSalesDateTo');
+      const sort = document.getElementById('adminSalesSort');
+      const interval = document.getElementById('salesChartInterval');
+      const comp = document.getElementById('salesChartComparison');
+      if (s) s.value = '';
+      if (c) c.value = 'all';
+      if (df) df.value = '';
+      if (dt) dt.value = '';
+      if (sort) sort.value = 'date-desc';
+      if (interval) interval.value = 'auto';
+      if (comp) comp.value = 'none';
+      applyAdminSalesView();
+    });
+  }
+}
+
+// =============================================================================
+// MANAGER SALES — FILTER / CHART PIPELINE
+// Mirrors the Admin pipeline but targets manager-specific element IDs.
+// =============================================================================
+
+async function ensureManagerInventoryCategoryMap() {
+  if (managerInventoryCategoriesLoaded) return;
+  try {
+    const result = await API.getInventory();
+    if (!result || !result.success || !Array.isArray(result.data)) return;
+    result.data.forEach(item => {
+      if (item.category) {
+        const cat = String(item.category).trim();
+        if (cat) {
+          managerInventoryCategoryById.set(String(item.id), cat);
+          managerInventoryCategoryByName.set(String(item.name || '').toLowerCase(), cat);
+        }
+      }
+    });
+    managerInventoryCategoriesLoaded = true;
+  } catch { /* non-critical */ }
+}
+
+function populateManagerSalesCategoryDropdown(salesRows) {
+  const select = document.getElementById('managerSalesCategoryFilter');
+  if (!select) return;
+  const cats = new Set();
+  (salesRows || []).forEach(s => {
+    const c = resolveSaleCategory(s);
+    if (c && c !== 'Uncategorized') cats.add(c);
+  });
+  const current = select.value;
+  select.innerHTML = '<option value="all">All Categories</option>';
+  [...cats].sort().forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c;
+    opt.textContent = c;
+    if (c === current) opt.selected = true;
+    select.appendChild(opt);
+  });
+  if (!cats.has(current) && current !== 'all') select.value = 'all';
+}
+
+function getManagerSalesFilterState() {
+  const searchEl = document.getElementById('managerSalesSearch');
+  const categoryEl = document.getElementById('managerSalesCategoryFilter');
+  const dateFromEl = document.getElementById('managerSalesDateFrom');
+  const dateToEl = document.getElementById('managerSalesDateTo');
+  const sortEl = document.getElementById('managerSalesSort');
+  const intervalEl = document.getElementById('managerSalesChartInterval');
+  const comparisonEl = document.getElementById('managerSalesChartComparison');
+
+  const search = searchEl ? searchEl.value.trim().toLowerCase() : '';
+  const category = categoryEl ? categoryEl.value : 'all';
+  const dateFrom = dateFromEl ? dateFromEl.value : '';
+  const dateTo = dateToEl ? dateToEl.value : '';
+  const sort = sortEl ? sortEl.value : 'date-desc';
+  const interval = intervalEl ? intervalEl.value : 'auto';
+  const comparison = comparisonEl ? comparisonEl.value : 'none';
+
+  const hasActiveFilters = Boolean(search || (category && category !== 'all') || dateFrom || dateTo);
+  return { search, category, dateFrom, dateTo, sort, interval, comparison, hasActiveFilters };
+}
+
+function filterAndSortManagerSales(salesRows, filterState) {
+  const { search, category, dateFrom, dateTo, sort } = filterState;
+
+  const filtered = (salesRows || []).filter(item => {
+    const resolvedCategory = resolveSaleCategory(item);
+    if (category && category !== 'all' && resolvedCategory.toLowerCase() !== category.toLowerCase()) return false;
+    const dateKey = toLocalDateKey(item.sale_date);
+    if (dateFrom && (!dateKey || dateKey < dateFrom)) return false;
+    if (dateTo && (!dateKey || dateKey > dateTo)) return false;
+    if (search) {
+      const customer = String(item.customer_name || '').toLowerCase();
+      const product = String(item.product_name || '').toLowerCase();
+      const catLower = resolvedCategory.toLowerCase();
+      if (!customer.includes(search) && !product.includes(search) && !catLower.includes(search)) return false;
+    }
+    return true;
+  });
+
+  return [...filtered].sort((a, b) => {
+    if (sort === 'date-asc' || sort === 'date-desc') {
+      const da = toLocalDateKey(a.sale_date);
+      const db = toLocalDateKey(b.sale_date);
+      if (da !== db) return sort === 'date-asc' ? da.localeCompare(db) : db.localeCompare(da);
+      return sort === 'date-asc' ? (Number(a.id) - Number(b.id)) : (Number(b.id) - Number(a.id));
+    }
+    if (sort === 'amount-desc' || sort === 'amount-asc') {
+      const aa = parseFloat(a.amount) || 0;
+      const ab = parseFloat(b.amount) || 0;
+      if (aa !== ab) return sort === 'amount-asc' ? aa - ab : ab - aa;
+      return Number(b.id) - Number(a.id);
+    }
+    if (sort === 'product-asc' || sort === 'product-desc') {
+      const pa = String(a.product_name || '');
+      const pb = String(b.product_name || '');
+      const cmp = pa.localeCompare(pb, undefined, { sensitivity: 'base' });
+      return sort === 'product-asc' ? cmp : -cmp;
+    }
+    if (sort === 'customer-asc' || sort === 'customer-desc') {
+      const ca = String(a.customer_name || '');
+      const cb = String(b.customer_name || '');
+      const cmp = ca.localeCompare(cb, undefined, { sensitivity: 'base' });
+      return sort === 'customer-asc' ? cmp : -cmp;
+    }
+    // default: date desc
+    const da2 = toLocalDateKey(a.sale_date);
+    const db2 = toLocalDateKey(b.sale_date);
+    return db2.localeCompare(da2);
+  });
+}
+
+function renderManagerSalesTableRows(filteredSales, allSalesCount) {
+  const tbody = document.getElementById('managerSalesList');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  if (!filteredSales || filteredSales.length === 0) {
+    const emptyMsg = allSalesCount > 0
+      ? 'No sales records match your selected filters.'
+      : 'No sales records found';
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#9ca3af;padding:2rem;">${emptyMsg}</td></tr>`;
+    return;
+  }
+
+  filteredSales.forEach(item => {
+    const category = resolveSaleCategory(item);
+    tbody.innerHTML += `
+      <tr>
+        <td>${formatDate(item.sale_date)}</td>
+        <td>${escapeHtml(item.customer_name)}</td>
+        <td>${formatSaleProduct(item)}</td>
+        <td><span class="status-badge" style="background:#f3f4f6;color:#374151;font-weight:500;">${escapeHtml(category)}</span></td>
+        <td>${formatCurrency(item.amount)}</td>
+        <td><button class="action-btn edit" onclick="editManagerSalesRecord(${item.id})" title="Edit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Edit</button></td>
+      </tr>`;
+  });
+}
+
+function updateManagerSalesSummaryCards(filteredSales, allSales, filterState = {}) {
+  const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  const hasActiveFilters = Boolean(filterState && filterState.hasActiveFilters);
+
+  const allCount = (allSales || []).length;
+  const allTotal = (allSales || []).reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+  const allAvg = allCount > 0 ? allTotal / allCount : 0;
+
+  const filteredCount = (filteredSales || []).length;
+  const filteredTotal = (filteredSales || []).reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+  const filteredAvg = filteredCount > 0 ? filteredTotal / filteredCount : 0;
+
+  setEl('managerTotalSales', formatCurrency(filteredTotal));
+  setEl('managerTotalRecords', String(filteredCount));
+  setEl('managerAverageSale', formatCurrency(filteredAvg));
+
+  if (hasActiveFilters) {
+    setEl('managerSalesFilterSummary', `Showing ${filteredCount} of ${allCount} sales records (filtered)`);
+  } else {
+    setEl('managerSalesFilterSummary', `Showing all ${allCount} sales record${allCount === 1 ? '' : 's'}`);
+  }
+}
+
+function renderManagerSalesLineChart(filteredSales, allSales, filterState) {
+  const ctx = document.getElementById('managerSalesLineChart');
+  if (!ctx) return;
+
+  const noticeEl = document.getElementById('managerSalesChartNotice');
+  const compSummaryEl = document.getElementById('managerSalesComparisonSummary');
+  const setNotice = (msg, isWarning = false) => {
+    if (!noticeEl) return;
+    if (!msg) { noticeEl.style.display = 'none'; noticeEl.textContent = ''; return; }
+    noticeEl.style.display = 'block';
+    noticeEl.style.background = isWarning ? '#fffbeb' : '#eff6ff';
+    noticeEl.style.color = isWarning ? '#92400e' : '#1e40af';
+    noticeEl.style.borderColor = isWarning ? '#fde68a' : '#bfdbfe';
+    noticeEl.innerHTML = msg;
+  };
+
+  if (window.managerSalesLineChartInstance) {
+    window.managerSalesLineChartInstance.destroy();
+    window.managerSalesLineChartInstance = null;
+  }
+
+  const compSeries = buildComparisonSeries(allSales, filteredSales, filterState);
+  if (compSeries) {
+    if (compSummaryEl) {
+      const diff = compSeries.currentTotal - compSeries.previousTotal;
+      const pctText = compSeries.previousTotal > 0
+        ? `${diff >= 0 ? '+' : ''}${((diff / compSeries.previousTotal) * 100).toFixed(1)}%`
+        : (compSeries.currentTotal > 0 ? 'No sales recorded in prior period' : '0.0%');
+      compSummaryEl.style.display = 'block';
+      compSummaryEl.innerHTML = `
+        <strong>${escapeHtml(compSeries.summaryTitle)}:</strong>
+        Current Period: <strong>${formatCurrency(compSeries.currentTotal)}</strong> (${compSeries.currentCount} sale${compSeries.currentCount === 1 ? '' : 's'})
+        &nbsp;|&nbsp;
+        Prior Period: <strong>${formatCurrency(compSeries.previousTotal)}</strong> (${compSeries.previousCount} sale${compSeries.previousCount === 1 ? '' : 's'})
+        &nbsp;|&nbsp;
+        Difference: <strong style="color:${diff >= 0 ? '#059669' : '#d97706'};">${diff >= 0 ? '+' : ''}${formatCurrency(diff)} (${escapeHtml(pctText)})</strong>
+      `;
+    }
+    if (compSeries.previousCount === 0) {
+      setNotice('Note: The database has no recorded sales in the preceding comparison period. Only real recorded transactions are plotted (no sample points are fabricated).');
+    } else {
+      setNotice('');
+    }
+    window.managerSalesLineChartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: compSeries.labels.length ? compSeries.labels : ['No Data'],
+        datasets: [
+          {
+            label: compSeries.currentLabel,
+            data: compSeries.currentData.length ? compSeries.currentData : [0],
+            borderColor: '#7c3aed', backgroundColor: 'rgba(124,58,237,0.12)',
+            borderWidth: 3, fill: true, tension: 0.35,
+            pointBackgroundColor: '#7c3aed', pointBorderColor: '#ffffff',
+            pointBorderWidth: 2, pointRadius: 5, pointHoverRadius: 7
+          },
+          {
+            label: compSeries.previousLabel,
+            data: compSeries.previousData.length ? compSeries.previousData : [0],
+            borderColor: '#64748b', backgroundColor: 'rgba(100,116,139,0.06)',
+            borderWidth: 2, borderDash: [6, 4], fill: false, tension: 0.35,
+            pointBackgroundColor: '#64748b', pointBorderColor: '#ffffff',
+            pointBorderWidth: 2, pointRadius: 4, pointHoverRadius: 6
+          }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: true, position: 'top' },
+          tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${formatCurrency(ctx.parsed.y)}` } }
+        },
+        scales: {
+          x: { title: { display: true, text: 'Comparison Period Timeline', color: '#4b5563', font: { weight: '600' } } },
+          y: { beginAtZero: true, title: { display: true, text: 'Sales Revenue (₱)', color: '#4b5563', font: { weight: '600' } }, ticks: { callback: val => '₱' + Number(val).toLocaleString('en-US') } }
+        }
+      }
+    });
+    return;
+  }
+
+  if (compSummaryEl) { compSummaryEl.style.display = 'none'; compSummaryEl.innerHTML = ''; }
+
+  if (!filteredSales || filteredSales.length === 0) {
+    setNotice('No sales records match the current selection. Adjust your filters or add sales records to view the revenue line graph.', true);
+    window.managerSalesLineChartInstance = new Chart(ctx, {
+      type: 'line',
+      data: { labels: ['No matching records'], datasets: [{ label: 'Sales Revenue (₱)', data: [0], borderColor: '#9ca3af', backgroundColor: 'rgba(156,163,175,0.1)', borderWidth: 2 }] },
+      options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { callback: val => '₱' + Number(val).toLocaleString('en-US') } } } }
+    });
+    return;
+  }
+
+  const effectiveInterval = chooseEffectiveSalesInterval(filteredSales, filterState.interval);
+  const aggregated = aggregateSalesChronologically(filteredSales, effectiveInterval);
+  const distinctDays = new Set(filteredSales.map(s => toLocalDateKey(s.sale_date)).filter(Boolean)).size;
+
+  const intervalLabelMap = { day: 'Daily', week: 'Weekly', month: 'Monthly' };
+  const intervalTitle = intervalLabelMap[effectiveInterval] || 'Chronological';
+
+  if (aggregated.length === 1) {
+    if (effectiveInterval === 'month' && distinctDays > 1) {
+      setNotice(`All ${filteredSales.length} displayed sales records occurred within <strong>${escapeHtml(aggregated[0].label)}</strong> across ${distinctDays} dates. Switch <strong>Time Interval</strong> to <strong>Daily</strong> or <strong>Auto</strong> to inspect day-by-day revenue movement.`);
+    } else {
+      setNotice(`Showing actual recorded sales data for <strong>${escapeHtml(aggregated[0].label)}</strong> (${filteredSales.length} transaction${filteredSales.length === 1 ? '' : 's'}). A multi-point historical trend line requires sales records across multiple ${effectiveInterval === 'day' ? 'dates' : effectiveInterval + 's'}.`);
+    }
+  } else if (filterState.interval === 'auto') {
+    setNotice(`Automatically grouped by <strong>${intervalTitle}</strong> interval (${aggregated.length} chronological data points across ${filteredSales.length} sales records).`);
+  } else {
+    setNotice('');
+  }
+
+  const labels = aggregated.map(b => b.label);
+  const amounts = aggregated.map(b => Math.round(b.total * 100) / 100);
+  const counts = aggregated.map(b => b.count);
+
+  window.managerSalesLineChartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: `${intervalTitle} Sales Revenue (₱)`,
+        data: amounts,
+        borderColor: '#7c3aed', backgroundColor: 'rgba(124,58,237,0.12)',
+        borderWidth: 3, fill: true, tension: 0.35,
+        pointBackgroundColor: '#7c3aed', pointBorderColor: '#ffffff',
+        pointBorderWidth: 2, pointRadius: 5, pointHoverRadius: 7
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: true, position: 'top' },
+        tooltip: {
+          callbacks: {
+            label: context => {
+              const idx = context.dataIndex;
+              const txCount = counts[idx] || 0;
+              return `Revenue: ${formatCurrency(context.parsed.y)} (${txCount} sale${txCount === 1 ? '' : 's'})`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { title: { display: true, text: `Timeline (${intervalTitle})`, color: '#4b5563', font: { weight: '600' } } },
+        y: { beginAtZero: true, title: { display: true, text: 'Sales Revenue (₱)', color: '#4b5563', font: { weight: '600' } }, ticks: { callback: val => '₱' + Number(val).toLocaleString('en-US') } }
+      }
+    }
+  });
+}
+
+function applyManagerSalesView() {
+  const filterState = getManagerSalesFilterState();
+  const filteredSales = filterAndSortManagerSales(managerSalesCache, filterState);
+  renderManagerSalesTableRows(filteredSales, managerSalesCache.length);
+  updateManagerSalesSummaryCards(filteredSales, managerSalesCache, filterState);
+  renderManagerSalesLineChart(filteredSales, managerSalesCache, filterState);
+}
+
+export function initManagerSalesControls() {
+  if (managerSalesControlsInitialized) return;
+  const searchEl = document.getElementById('managerSalesSearch');
+  if (!searchEl) return;
+  managerSalesControlsInitialized = true;
+
+  const bindChange = (id, evt = 'change') => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener(evt, () => applyManagerSalesView());
+  };
+
+  bindChange('managerSalesSearch', 'input');
+  bindChange('managerSalesCategoryFilter', 'change');
+  bindChange('managerSalesDateFrom', 'change');
+  bindChange('managerSalesDateTo', 'change');
+  bindChange('managerSalesSort', 'change');
+  bindChange('managerSalesChartInterval', 'change');
+  bindChange('managerSalesChartComparison', 'change');
+
+  const resetBtn = document.getElementById('managerSalesResetFilters');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+      const s = document.getElementById('managerSalesSearch');
+      const c = document.getElementById('managerSalesCategoryFilter');
+      const df = document.getElementById('managerSalesDateFrom');
+      const dt = document.getElementById('managerSalesDateTo');
+      const sort = document.getElementById('managerSalesSort');
+      const interval = document.getElementById('managerSalesChartInterval');
+      const comp = document.getElementById('managerSalesChartComparison');
+      if (s) s.value = '';
+      if (c) c.value = 'all';
+      if (df) df.value = '';
+      if (dt) dt.value = '';
+      if (sort) sort.value = 'date-desc';
+      if (interval) interval.value = 'auto';
+      if (comp) comp.value = 'none';
+      applyManagerSalesView();
+    });
+  }
+}
 
 // =============================================================================
 // SALES RECORDS
 // =============================================================================
 export async function loadSalesList() {
   try {
+    initAdminSalesControls();
+    await ensureAdminInventoryCategoryMap();
     const result = await API.getSales();
     if (result.success) {
-      const tbody = document.getElementById('adminSalesList');
-      if (!tbody) return;
-      tbody.innerHTML = '';
-      if (result.data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#9ca3af;">No sales records found</td></tr>';
-        ['totalSales', 'totalRecords', 'averageSale'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = id === 'totalRecords' ? '0' : '₱0.00'; });
-        return;
-      }
-      result.data.forEach(item => {
-        tbody.innerHTML += `
-          <tr>
-            <td>${formatDate(item.sale_date)}</td>
-            <td>${item.customer_name}</td>
-            <td>${formatSaleProduct(item)}</td>
-            <td>${formatCurrency(item.amount)}</td>
-            <td>
-              <button class="action-btn edit" onclick="editAdminSalesRecord(${item.id})" title="Edit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
-              <button class="action-btn delete" onclick="deleteSales(${item.id})" title="Delete"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
-            </td>
-          </tr>`;
-      });
-      loadSalesAnalytics();
+      adminSalesCache = Array.isArray(result.data) ? result.data : [];
+      populateAdminSalesCategoryDropdown(adminSalesCache);
+      applyAdminSalesView();
     }
-  } catch (error) { showToast('❌ Failed to load sales records', 'error'); }
+  } catch (error) {
+    showToast('❌ Failed to load sales records', 'error');
+  }
 }
 
 export async function loadSalesAnalytics() {
   try {
+    initAdminSalesControls();
+    await ensureAdminInventoryCategoryMap();
     const result = await API.getSales();
-    if (result.success && result.data.length > 0) {
-      const salesData = result.data;
-      const totalRecords = salesData.length;
-      const totalSales = salesData.reduce((sum, s) => sum + parseFloat(s.amount), 0);
-      const averageSale = totalSales / totalRecords;
-      const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-      setEl('totalSales', formatCurrency(totalSales));
-      setEl('totalRecords', totalRecords.toString());
-      setEl('averageSale', formatCurrency(averageSale));
-      await loadMonthlySalesCharts();
+    if (result.success) {
+      adminSalesCache = Array.isArray(result.data) ? result.data : [];
+      populateAdminSalesCategoryDropdown(adminSalesCache);
+      applyAdminSalesView();
     }
-  } catch (error) { console.error('Load sales analytics error:', error); }
-}
-
-async function loadMonthlySalesCharts() {
-  try {
-    const response = await fetch(`${API_URL}/sales/monthly`);
-    const monthlyData = await response.json();
-    if (monthlyData && monthlyData.length > 0) {
-      const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      const labels = monthlyData.map(item => `${monthNames[item.month - 1]} ${item.year}`);
-      const amounts = monthlyData.map(item => parseFloat(item.total));
-      renderRevenueBarChart(labels, amounts);
-      renderSalesLineChart(labels, amounts);
-    }
-  } catch (error) { console.error('Load monthly sales error:', error); }
-}
-
-function renderRevenueBarChart(labels, data) {
-  const ctx = document.getElementById('revenueBarChart');
-  if (!ctx) return;
-  if (window.revenueBarChartInstance) window.revenueBarChartInstance.destroy();
-  window.revenueBarChartInstance = new Chart(ctx, {
-    type: 'bar',
-    data: { labels, datasets: [{ label: 'Monthly Revenue (₱)', data, backgroundColor: 'rgba(220,20,60,0.7)', borderColor: '#DC143C', borderWidth: 2, borderRadius: 6 }] },
-    options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => 'Revenue: ₱' + ctx.parsed.y.toLocaleString('en-US', { minimumFractionDigits: 2 }) } } }, scales: { y: { beginAtZero: true, ticks: { callback: val => '₱' + val.toLocaleString('en-US') } } } }
-  });
-}
-
-function renderSalesLineChart(labels, data) {
-  const ctx = document.getElementById('salesLineChart');
-  if (!ctx) return;
-  if (window.salesLineChartInstance) window.salesLineChartInstance.destroy();
-  window.salesLineChartInstance = new Chart(ctx, {
-    type: 'line',
-    data: { labels, datasets: [{ label: 'Sales Trend (₱)', data, backgroundColor: 'rgba(220,20,60,0.1)', borderColor: '#DC143C', borderWidth: 3, fill: true, tension: 0.4, pointBackgroundColor: '#DC143C', pointBorderColor: '#fff', pointBorderWidth: 2, pointRadius: 5, pointHoverRadius: 7 }] },
-    options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => 'Sales: ₱' + ctx.parsed.y.toLocaleString('en-US', { minimumFractionDigits: 2 }) } } }, scales: { y: { beginAtZero: true, ticks: { callback: val => '₱' + val.toLocaleString('en-US') } } } }
-  });
+  } catch (error) {
+    console.error('Load sales analytics error:', error);
+  }
 }
 
 export async function loadStaffSalesList() {
@@ -123,22 +1247,13 @@ export async function loadStaffSalesList() {
 
 export async function loadManagerSalesList() {
   try {
+    initManagerSalesControls();
+    await ensureManagerInventoryCategoryMap();
     const result = await API.getSales();
     if (result.success) {
-      const tbody = document.getElementById('managerSalesList');
-      if (!tbody) return;
-      tbody.innerHTML = '';
-      if (result.data.length === 0) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#9ca3af;">No sales records found</td></tr>'; return; }
-      result.data.forEach(item => {
-        tbody.innerHTML += `
-          <tr>
-            <td>${formatDate(item.sale_date)}</td>
-            <td>${item.customer_name}</td>
-            <td>${formatSaleProduct(item)}</td>
-            <td>${formatCurrency(item.amount)}</td>
-            <td><button class="action-btn edit" onclick="editManagerSalesRecord(${item.id})" title="Edit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Edit</button></td>
-          </tr>`;
-      });
+      managerSalesCache = Array.isArray(result.data) ? result.data : [];
+      populateManagerSalesCategoryDropdown(managerSalesCache);
+      applyManagerSalesView();
     }
   } catch (error) { showToast('❌ Failed to load sales records', 'error'); }
 }
@@ -186,22 +1301,13 @@ export async function loadStaffSalesAnalytics() {
 
 export async function loadManagerSalesAnalytics() {
   try {
+    initManagerSalesControls();
+    await ensureManagerInventoryCategoryMap();
     const result = await API.getSales();
-    if (result.success && result.data.length > 0) {
-      const salesData = result.data;
-      const totalRecords = salesData.length;
-      const totalSales = salesData.reduce((sum, s) => sum + parseFloat(s.amount), 0);
-      const averageSale = totalSales / totalRecords;
-      const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-      setEl('managerTotalSales', formatCurrency(totalSales));
-      setEl('managerTotalRecords', totalRecords.toString());
-      setEl('managerAverageSale', formatCurrency(averageSale));
-      await loadManagerMonthlySalesCharts();
-    } else {
-      const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-      setEl('managerTotalSales', '₱0.00');
-      setEl('managerTotalRecords', '0');
-      setEl('managerAverageSale', '₱0.00');
+    if (result.success) {
+      managerSalesCache = Array.isArray(result.data) ? result.data : [];
+      populateManagerSalesCategoryDropdown(managerSalesCache);
+      applyManagerSalesView();
     }
   } catch (error) { console.error('Load manager sales analytics error:', error); }
 }
@@ -221,17 +1327,8 @@ async function loadStaffMonthlySalesCharts() {
 }
 
 async function loadManagerMonthlySalesCharts() {
-  try {
-    const response = await fetch(`${API_URL}/sales/monthly`);
-    const monthlyData = await response.json();
-    if (monthlyData && monthlyData.length > 0) {
-      const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      const labels = monthlyData.map(item => `${monthNames[item.month - 1]} ${item.year}`);
-      const amounts = monthlyData.map(item => parseFloat(item.total));
-      renderManagerRevenueBarChart(labels, amounts);
-      renderManagerSalesLineChart(labels, amounts);
-    }
-  } catch (error) { console.error('Load manager monthly sales error:', error); }
+  // This function is kept for compatibility but is no longer called.
+  // The manager sales chart is now handled by renderManagerSalesLineChart via applyManagerSalesView().
 }
 
 function renderStaffRevenueBarChart(labels, data) {
@@ -250,28 +1347,6 @@ function renderStaffSalesLineChart(labels, data) {
   if (!ctx) return;
   if (window.staffSalesLineChartInstance) window.staffSalesLineChartInstance.destroy();
   window.staffSalesLineChartInstance = new Chart(ctx, {
-    type: 'line',
-    data: { labels, datasets: [{ label: 'Sales Trend (₱)', data, backgroundColor: 'rgba(220,20,60,0.1)', borderColor: '#DC143C', borderWidth: 3, fill: true, tension: 0.4, pointBackgroundColor: '#DC143C', pointBorderColor: '#fff', pointBorderWidth: 2, pointRadius: 5, pointHoverRadius: 7 }] },
-    options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { callback: val => '₱' + val.toLocaleString('en-US') } } } }
-  });
-}
-
-function renderManagerRevenueBarChart(labels, data) {
-  const ctx = document.getElementById('managerRevenueBarChart');
-  if (!ctx) return;
-  if (window.managerRevenueBarChartInstance) window.managerRevenueBarChartInstance.destroy();
-  window.managerRevenueBarChartInstance = new Chart(ctx, {
-    type: 'bar',
-    data: { labels, datasets: [{ label: 'Monthly Revenue (₱)', data, backgroundColor: 'rgba(220,20,60,0.7)', borderColor: '#DC143C', borderWidth: 2, borderRadius: 6 }] },
-    options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { callback: val => '₱' + val.toLocaleString('en-US') } } } }
-  });
-}
-
-function renderManagerSalesLineChart(labels, data) {
-  const ctx = document.getElementById('managerSalesLineChart');
-  if (!ctx) return;
-  if (window.managerSalesLineChartInstance) window.managerSalesLineChartInstance.destroy();
-  window.managerSalesLineChartInstance = new Chart(ctx, {
     type: 'line',
     data: { labels, datasets: [{ label: 'Sales Trend (₱)', data, backgroundColor: 'rgba(220,20,60,0.1)', borderColor: '#DC143C', borderWidth: 3, fill: true, tension: 0.4, pointBackgroundColor: '#DC143C', pointBorderColor: '#fff', pointBorderWidth: 2, pointRadius: 5, pointHoverRadius: 7 }] },
     options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { callback: val => '₱' + val.toLocaleString('en-US') } } } }
@@ -653,6 +1728,6 @@ openSalesEditForm = kdGuard(openSalesEditForm, open('sales'));
 loadSalesList = kdWrapLoader(loadSalesList, { target: 'adminSalesList', loading: 'Loading sales records...', empty: 'No sales records found', error: 'Unable to load sales records.' });
 loadStaffSalesList = kdWrapLoader(loadStaffSalesList, { target: 'staffSalesList', loading: 'Loading sales records...', empty: 'No sales records found', error: 'Unable to load sales records.' });
 loadManagerSalesList = kdWrapLoader(loadManagerSalesList, { target: 'managerSalesList', loading: 'Loading sales records...', empty: 'No sales records found', error: 'Unable to load sales records.' });
-loadSalesAnalytics = kdWrapBusy(loadSalesAnalytics, '#totalSales, #totalRecords, #averageSale, #revenueBarChart, #salesLineChart');
+loadSalesAnalytics = kdWrapBusy(loadSalesAnalytics, '#totalSales, #totalRecords, #averageSale, #salesLineChart');
 loadStaffSalesAnalytics = kdWrapBusy(loadStaffSalesAnalytics, '#staffTotalSales, #staffTotalRecords, #staffAverageSale');
-loadManagerSalesAnalytics = kdWrapBusy(loadManagerSalesAnalytics, '#managerTotalSales, #managerTotalRecords, #managerAverageSale');
+loadManagerSalesAnalytics = kdWrapBusy(loadManagerSalesAnalytics, '#managerTotalSales, #managerTotalRecords, #managerAverageSale, #managerSalesLineChart');

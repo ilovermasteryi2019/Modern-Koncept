@@ -50,6 +50,41 @@
     .furniture-preview-card img { width: 100%; height: 220px; object-fit: cover; }
     .furniture-preview-info { padding: 1rem 1.25rem; background: white; }
 
+    /* Selected furniture list (multiple items) */
+    .viz-selected-count { font-size: 0.8rem; font-weight: 600; color: #6b7280; margin-bottom: 0.5rem; }
+    .viz-selected-list { display: flex; flex-direction: column; gap: 0.6rem; }
+    .viz-selected-item {
+      display: flex; align-items: center; gap: 0.75rem; padding: 0.6rem;
+      background: #fff; border: 2px solid #DC143C; border-radius: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    .viz-selected-item img { width: 72px; height: 72px; object-fit: cover; border-radius: 0.5rem; flex-shrink: 0; background: #f3f4f6; }
+    .viz-selected-info { flex: 1 1 auto; min-width: 0; }
+    .viz-selected-info p { margin: 0; }
+    .viz-selected-cat { font-size: 0.7rem; font-weight: 600; color: #DC143C; text-transform: uppercase; letter-spacing: 0.05em; }
+    .viz-selected-name { font-size: 0.95rem; font-weight: 700; color: #111827; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .viz-selected-size { font-size: 0.75rem; color: #4b5563; }
+    .viz-selected-price { font-size: 0.9rem; font-weight: 700; color: #DC143C; }
+    .viz-remove-btn {
+      flex-shrink: 0; width: 2rem; height: 2rem; border-radius: 50%; border: 1px solid #e5e7eb;
+      background: #fff; color: #6b7280; font-size: 1.2rem; line-height: 1; cursor: pointer;
+    }
+    .viz-remove-btn:hover { border-color: #DC143C; color: #DC143C; background: #fef2f2; }
+    .viz-remove-btn:focus-visible { outline: 3px solid rgba(220,20,60,0.35); outline-offset: 2px; }
+
+    /* Predefined placement prompts */
+    .viz-preset-hint { font-size: 0.8rem; color: #4b5563; margin-bottom: 0.5rem; }
+    .viz-preset-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.5rem; margin-bottom: 1rem; }
+    .viz-preset {
+      text-align: left; padding: 0.6rem 0.75rem; border: 2px solid #e5e7eb; border-radius: 0.5rem;
+      background: #fff; color: #374151; font-size: 0.82rem; font-weight: 500; line-height: 1.35; cursor: pointer;
+      transition: all 0.2s;
+    }
+    .viz-preset:hover { border-color: #DC143C; color: #DC143C; }
+    .viz-preset.selected { border-color: #DC143C; background: #DC143C; color: #fff; }
+    .viz-preset:focus-visible { outline: 3px solid rgba(220,20,60,0.35); outline-offset: 2px; }
+    .viz-notes-label { display: block; font-size: 0.85rem; font-weight: 600; color: #374151; margin-bottom: 0.4rem; }
+
     /* Style Options */
     .style-grid {
       display: grid;
@@ -535,7 +570,7 @@
     <div class="viz-panel" id="vizPanel1" aria-labelledby="vizHeading1">
       <div class="viz-panel-head">
         <h2 id="vizHeading1" tabindex="-1">Pick Furniture</h2>
-        <p>Choose the piece you would like to see in your room.</p>
+        <p>Choose one piece, or up to 3 pieces to see together in your room.</p>
       </div>
 
       <!-- Shown when you arrived from the furniture list -->
@@ -576,21 +611,15 @@
                 </svg>
               </div>
               <p style="font-weight: 600; color: #374151; margin-bottom: 0.5rem;">No furniture selected</p>
-              <p style="font-size: 0.875rem; color: #9ca3af;">Click a product in the list to select it.</p>
+              <p style="font-size: 0.875rem; color: #9ca3af;">Click products in the list to select them (up to 3 items).</p>
             </div>
           </div>
 
           <!-- Furniture selected state -->
           <div id="furnitureSelectedState" data-furniture-id="" style="display: none;">
-            <div class="furniture-preview-card">
-              <img id="vizFurnitureImg" src="" alt="Selected Furniture" onerror="this.src='placeholder-furniture.jpg'">
-              <div class="furniture-preview-info">
-                <p id="vizFurnitureCategory" style="font-size: 0.75rem; font-weight: 600; color: #DC143C; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.25rem;"></p>
-                <h3 id="vizFurnitureName" style="font-size: 1.1rem; font-weight: 700; color: #111827; margin-bottom: 0.25rem;"></h3>
-                <p id="vizFurnitureSize" style="font-size: 0.8rem; color: #4b5563; margin-bottom: 0.25rem;"></p>
-                <p id="vizFurniturePrice" style="font-size: 1.2rem; font-weight: 700; color: #DC143C;"></p>
-              </div>
-            </div>
+            <!-- Selected items (filled by ai-visualization.js). Click a product again or press × to remove it. -->
+            <p id="vizSelectedCount" class="viz-selected-count" aria-live="polite"></p>
+            <div id="vizSelectedList" class="viz-selected-list" role="list" aria-label="Selected furniture items"></div>
 
             <!-- Style Selector -->
             <div class="card" style="margin-top: 1rem;">
@@ -672,19 +701,24 @@
               <line x1="15" y1="12" x2="3" y2="12"></line>
               <line x1="17" y1="18" x2="3" y2="18"></line>
             </svg>
-            <label for="placementInstructions" style="font-size: 0.875rem; font-weight: 600; color: #374151;">
-              Placement Instructions <span class="viz-required" aria-hidden="true">*</span>
-            </label>
+            <span style="font-size: 0.875rem; font-weight: 600; color: #374151;">
+              Placement <span class="viz-required" aria-hidden="true">*</span>
+            </span>
           </div>
+          <!-- Predefined placement prompts (rendered by ai-visualization.js) -->
+          <p class="viz-preset-hint" id="vizPresetHint">Choose a placement option:</p>
+          <div id="vizPresetGrid" class="viz-preset-grid" role="group" aria-labelledby="vizPresetHint"></div>
+          <label for="placementInstructions" class="viz-notes-label">Additional instructions <span style="font-weight: 400; color: #9ca3af;">(optional if you chose an option above)</span></label>
           <textarea
             id="placementInstructions"
             name="placement_instructions"
             class="placement-textarea"
             rows="4"
+            maxlength="500"
             placeholder="Describe where to place the furniture, for example:&#10;• Place the sofa beside the window.&#10;• Put the cabinet against the left wall.&#10;• Center the dining table.&#10;• Rotate the chair toward the TV."
           ></textarea>
           <p style="font-size: 0.78rem; color: #9ca3af; margin-top: 0.5rem;">
-            These instructions will guide the AI on how to position the furniture in your room.
+            These instructions guide the AI on where to position the selected furniture. This tool only places furniture; requests for other images or room changes are not accepted.
           </p>
           <p class="viz-field-error" id="placementError" role="alert"></p>
         </div>
