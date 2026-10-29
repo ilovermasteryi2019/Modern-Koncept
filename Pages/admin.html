@@ -870,7 +870,6 @@
               <option value="Pending">Pending</option>
               <option value="Processing">Processing</option>
               <option value="In Transit">In Transit</option>
-              <option value="Delivered">Delivered</option>
             </select>
             <button type="button" id="adminBulkApplyBtn" class="btn btn-accent" style="padding: 0.45rem 0.95rem; font-size: 0.875rem;" disabled>Apply to Selected</button>
           </div>
@@ -889,9 +888,10 @@
                 <th>Contact Number</th>
                 <th>Address</th>
                 <th>Product</th>
-                <th>Status</th>
-                <th>Type</th>
+                <th>Assigned Driver</th>
                 <th>Scheduled / Applicable Date</th>
+                <th>Status</th>
+                <th>Update Status</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -1060,6 +1060,17 @@
     <div id="staffModule" class="dashboard-module">
       <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Staff Account Management</h2>
       
+      <div style="margin-bottom:1.5rem;display:flex;gap:0.75rem;flex-wrap:wrap;">
+        <button class="btn btn-accent" id="addStaffAccountBtn" onclick="openAddStaffModal()">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          Create New Account (Staff / Manager / Driver)
+        </button>
+        <button class="btn btn-secondary" id="editMyAccountBtn" onclick="openMyAccountModal()">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+          Edit My Account
+        </button>
+      </div>
+
       <div class="card">
         <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">
           All Staff Accounts
@@ -1396,8 +1407,8 @@
                 <option value="Pending">Pending</option>
                 <option value="Processing">Processing</option>
                 <option value="In Transit">In Transit</option>
-                <option value="Delivered">Delivered</option>
               </select>
+              <small style="display:block;margin-top:0.25rem;font-size:0.75rem;color:#6b7280;">Admin/Manager can update up to In Transit. Only a Delivery Driver marks completion (Delivered).</small>
             </div>
             
             <div class="form-group">
@@ -1407,6 +1418,14 @@
                 <option value="Inbound">Inbound (Returns/Restock)</option>
               </select>
             </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="deliveryDriverSelect">Assigned Driver</label>
+            <select id="deliveryDriverSelect" class="form-input">
+              <option value="">Unassigned</option>
+            </select>
+            <small style="display:block;margin-top:0.25rem;font-size:0.75rem;color:#6b7280;">Select a Delivery Driver who will transport and mark this order as Delivered.</small>
           </div>
           
           <div class="form-row">

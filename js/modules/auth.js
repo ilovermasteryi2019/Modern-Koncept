@@ -25,9 +25,24 @@ const KEEPALIVE_MS = 4 * 60 * 1000;
      // tell the server the user is still active (only while active)
 let sessionEnding = false;
 
+export function isDriverRole(role) {
+  const r = String(role || '').toLowerCase().trim().replace(/[\s-]+/g, '_');
+  return r === 'delivery_driver' || r === 'delivery' || r === 'driver';
+}
+
+export function normalizeRole(role) {
+  const r = String(role || '').toLowerCase().trim().replace(/[\s-]+/g, '_');
+  if (r === 'admin') return 'admin';
+  if (r === 'manager') return 'manager';
+  if (isDriverRole(r)) return 'delivery_driver';
+  return 'staff';
+}
+
 const DASHBOARD_ROLE = (() => {
   const page = (window.location.pathname.split('/').pop() || '').toLowerCase().replace(/\.html$/, '');
-  return ['admin', 'manager', 'staff'].includes(page) ? page : null;
+  if (['admin', 'manager', 'staff'].includes(page)) return page;
+  if (page === 'driver' || page === 'delivery' || page === 'delivery-driver') return 'delivery_driver';
+  return null;
 })();
 
 function readLocalSession() {
@@ -35,7 +50,7 @@ function readLocalSession() {
     const token = sessionStorage.getItem('authToken');
     const user = JSON.parse(sessionStorage.getItem('currentUser') || 'null');
     if (!token || !user || typeof user !== 'object') return null;
-    return { token, user: { ...user, role: user.role || 'staff' } };
+    return { token, user: { ...user, role: normalizeRole(user.role) } };
   } catch (e) { return null; }
 }
 
@@ -44,8 +59,12 @@ function clearLocalSession() {
   sessionStorage.removeItem('authToken');
 }
 
-function dashboardPageFor(role) {
-  return role === 'admin' ? 'admin.html' : (role === 'manager' ? 'manager.html' : 'staff.html');
+export function dashboardPageFor(role) {
+  const r = normalizeRole(role);
+  if (r === 'admin') return 'admin.html';
+  if (r === 'manager') return 'manager.html';
+  if (r === 'delivery_driver') return 'driver.html';
+  return 'staff.html';
 }
 
 function goToLogin(reason) {
@@ -64,7 +83,14 @@ function handleSessionExpired(reason) {
 if (DASHBOARD_ROLE) {
   const local = readLocalSession();
   if (!local) { sessionEnding = true; goToLogin('required'); }
-  else if (local.user.role !== DASHBOARD_ROLE) { sessionEnding = true; document.documentElement.style.visibility = 'hidden'; window.location.replace(dashboardPageFor(local.user.role)); }
+  else {
+    const userRole = normalizeRole(local.user.role);
+    if (userRole !== DASHBOARD_ROLE) {
+      sessionEnding = true;
+      document.documentElement.style.visibility = 'hidden';
+      window.location.replace(dashboardPageFor(userRole));
+    }
+  }
 }
 
 // Back/forward cache: a dashboard shown again after logout must re-check
@@ -147,7 +173,7 @@ export async function initDashboardSession() {
       handleSessionExpired(result && result.code === 'ACCOUNT_DEACTIVATED' ? 'deactivated' : 'expired');
       return;
     }
-    const role = result.user.role || 'staff';
+    const role = normalizeRole(result.user.role);
     sessionStorage.setItem('currentUser', JSON.stringify({ id: result.user.id, name: result.user.name, email: result.user.email, role }));
     if (role !== DASHBOARD_ROLE) {
       sessionEnding = true;
@@ -181,10 +207,12 @@ export async function handleSignup(event) {
 
 // Handle Login - validates the email and password on the server, then opens the dashboard for the user's role.
 function completeLogin(result) {
-  sessionStorage.setItem('currentUser', JSON.stringify(result.user));
+  const role = normalizeRole(result.user && result.user.role);
+  const user = { ...result.user, role };
+  sessionStorage.setItem('currentUser', JSON.stringify(user));
   sessionStorage.setItem('authToken', result.token || '');
   showToast('Login successful!', 'success');
-  setTimeout(() => { window.location.href = dashboardPageFor(result.user.role); }, 1500);
+  setTimeout(() => { window.location.href = dashboardPageFor(role); }, 1200);
 }
 
 // =============================================================================

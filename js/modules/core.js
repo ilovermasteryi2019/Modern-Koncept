@@ -6,7 +6,9 @@
 
 
 
-export const API_URL = 'https://modern-koncept.onrender.com';
+export const API_URL = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.startsWith('192.168.'))
+  ? `${window.location.protocol}//${window.location.host}`
+  : 'https://modern-koncept.onrender.com';
 
 // -----------------------------------------------------------------------------
 // Idempotency keys for create requests
@@ -117,7 +119,8 @@ export const API = {
   createInventory: async (data) => (await fetch(`${API_URL}/inventory`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
   updateInventory: async (id, data) => (await fetch(`${API_URL}/inventory/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })).json(),
   deleteInventory: async (id) => (await fetch(`${API_URL}/inventory/${id}`, { method: 'DELETE' })).json(),
-  getDeliveries: async () => (await fetch(`${API_URL}/deliveries`)).json(),
+  getDeliveries: async () => (await fetch(`${API_URL}/deliveries`, { headers: authHeaders() })).json(),
+  getDrivers: async () => (await fetch(`${API_URL}/drivers`, { headers: authHeaders() })).json(),
   trackDelivery: async (refCode) => (await fetch(`${API_URL}/deliveries/track/${refCode}`)).json(),
   createDelivery: async (data) => (await fetch(`${API_URL}/deliveries`, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(data) })).json(),
   updateDelivery: async (id, data) => (await fetch(`${API_URL}/deliveries/${id}`, { method: 'PUT', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(data) })).json(),

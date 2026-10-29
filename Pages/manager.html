@@ -257,7 +257,6 @@
               <option value="Pending">Pending</option>
               <option value="Processing">Processing</option>
               <option value="In Transit">In Transit</option>
-              <option value="Delivered">Delivered</option>
             </select>
             <button type="button" id="managerBulkApplyBtn" class="btn btn-accent" style="background:#7c3aed;border-color:#7c3aed;padding:0.45rem 0.95rem;font-size:0.875rem;" disabled>Apply to Selected</button>
           </div>
@@ -276,6 +275,7 @@
                 <th>Contact</th>
                 <th>Address</th>
                 <th>Product</th>
+                <th>Assigned Driver</th>
                 <th>Scheduled / Applicable Date</th>
                 <th>Status</th>
                 <th>Update Status</th>
@@ -705,8 +705,8 @@
                 <option value="Pending">Pending</option>
                 <option value="Processing">Processing</option>
                 <option value="In Transit">In Transit</option>
-                <option value="Delivered">Delivered</option>
               </select>
+              <small style="display:block;margin-top:0.25rem;font-size:0.75rem;color:#6b7280;">Admin/Manager can update up to In Transit. Only a Delivery Driver marks completion (Delivered).</small>
             </div>
             <div class="form-group">
               <label class="form-label">Delivery Type</label>
@@ -714,6 +714,13 @@
                 <option value="Outbound">Outbound</option>
               </select>
             </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="deliveryDriverSelect">Assigned Driver</label>
+            <select id="deliveryDriverSelect" class="form-input">
+              <option value="">Unassigned</option>
+            </select>
+            <small style="display:block;margin-top:0.25rem;font-size:0.75rem;color:#6b7280;">Select a Delivery Driver who will transport and mark this order as Delivered.</small>
           </div>
           <div class="form-row">
             <div class="form-group">

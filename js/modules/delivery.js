@@ -693,13 +693,18 @@ function renderAdminDeliveryTableRows(filteredDeliveries, allDeliveriesCount) {
     const emptyMsg = allDeliveriesCount > 0
       ? 'No deliveries match your selected filters.'
       : 'No deliveries found';
-    tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;color:#9ca3af;padding:2rem;">${emptyMsg}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;color:#9ca3af;padding:2rem;">${emptyMsg}</td></tr>`;
     syncBulkSelectionUi('admin');
     return;
   }
 
   filteredDeliveries.forEach(item => {
     const isChecked = selectedAdminDeliveryIds.has(Number(item.id));
+    const normStatus = normalizeDeliveryStatus(item.status);
+    const driverDisplay = item.assigned_driver_name
+      ? `<span style="font-weight:600;color:#1e40af;">${escapeDeliveryHtml(item.assigned_driver_name)}</span>`
+      : '<span style="color:#9ca3af;font-size:0.8rem;">Unassigned</span>';
+
     tbody.innerHTML += `
       <tr class="${isChecked ? 'kd-row-selected' : ''}">
         <td style="text-align:center;">
@@ -711,9 +716,20 @@ function renderAdminDeliveryTableRows(filteredDeliveries, allDeliveriesCount) {
         <td>${escapeDeliveryHtml(item.contact_number || 'N/A')}</td>
         <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeDeliveryHtml(item.address)}">${escapeDeliveryHtml(item.address)}</td>
         <td>${escapeDeliveryHtml(item.product || 'N/A')}</td>
-        <td>${getStatusBadge(item.status, item)}</td>
-        <td>${getTypeBadge(item.delivery_type)}</td>
+        <td>${driverDisplay}</td>
         <td>${renderDeliveryDateCell(item)}</td>
+        <td>${getStatusBadge(item.status, item)}</td>
+        <td>
+          <select class="status-select" data-delivery-id="${item.id}" style="padding:0.375rem 0.65rem;border:2px solid #e5e7eb;border-radius:0.375rem;font-size:0.875rem;cursor:pointer;">
+            <option value="Pending" ${normStatus === 'Pending' ? 'selected' : ''}>Pending</option>
+            <option value="Processing" ${normStatus === 'Processing' ? 'selected' : ''}>Processing</option>
+            <option value="In Transit" ${normStatus === 'In Transit' ? 'selected' : ''}>In Transit</option>
+            ${normStatus === 'Delivered' ? '<option value="Delivered" selected disabled>Delivered (Locked)</option>' : ''}
+          </select>
+          <button class="action-btn edit" onclick="updateDeliveryStatus(${item.id})" style="margin-left:0.4rem;" title="Update Status" ${normStatus === 'Delivered' ? 'disabled style="opacity:0.4;cursor:not-allowed;"' : ''}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </button>
+        </td>
         <td>
           <button class="action-btn edit" onclick="editDelivery(${item.id})" title="Edit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
           <button class="action-btn delete" onclick="deleteDelivery(${item.id})" title="Delete"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
@@ -1203,6 +1219,7 @@ function renderDeliveryTableForRole(deliveries, tbodyId, searchTerm) {
       <td>${escapeDeliveryHtml(delivery.contact_number || 'N/A')}</td>
       <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeDeliveryHtml(delivery.address)}">${escapeDeliveryHtml(delivery.address)}</td>
       <td>${escapeDeliveryHtml(delivery.product || 'N/A')}</td>
+      <td>${delivery.assigned_driver_name ? `<span style="font-weight:600;color:#1e40af;">${escapeDeliveryHtml(delivery.assigned_driver_name)}</span>` : '<span style="color:#9ca3af;font-size:0.8rem;">Unassigned</span>'}</td>
       <td>${renderDeliveryDateCell(delivery)}</td>
       <td>${getStatusBadge(delivery.status, delivery)}</td>
       <td>
@@ -1210,9 +1227,9 @@ function renderDeliveryTableForRole(deliveries, tbodyId, searchTerm) {
           <option value="Pending" ${normStatus === 'Pending' ? 'selected' : ''}>Pending</option>
           <option value="Processing" ${normStatus === 'Processing' ? 'selected' : ''}>Processing</option>
           <option value="In Transit" ${normStatus === 'In Transit' ? 'selected' : ''}>In Transit</option>
-          <option value="Delivered" ${normStatus === 'Delivered' ? 'selected' : ''}>Delivered</option>
+          ${normStatus === 'Delivered' ? '<option value="Delivered" selected disabled>Delivered (Locked)</option>' : ''}
         </select>
-        <button class="action-btn edit" onclick="updateDeliveryStatus(${delivery.id})" style="margin-left:0.5rem;" title="Update Status">
+        <button class="action-btn edit" onclick="updateDeliveryStatus(${delivery.id})" style="margin-left:0.5rem;" title="Update Status" ${normStatus === 'Delivered' ? 'disabled style="opacity:0.4;cursor:not-allowed;"' : ''}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
         </button>
       </td>
@@ -1266,12 +1283,31 @@ function getTypeBadge(type) {
   return `<span style="color:#4b5563;font-size:0.875rem;font-weight:500;">${escapeDeliveryHtml(t)}</span>`;
 }
 
+export async function populateDriverDropdown(selectEl, selectedId) {
+  if (!selectEl) return;
+  selectEl.innerHTML = '<option value="">Unassigned</option>';
+  try {
+    const res = await API.getDrivers();
+    if (res && res.success && Array.isArray(res.data)) {
+      res.data.forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d.id;
+        opt.textContent = `${d.name} (${d.email})`;
+        if (selectedId && String(selectedId) === String(d.id)) opt.selected = true;
+        selectEl.appendChild(opt);
+      });
+    }
+  } catch (e) { /* non-critical */ }
+}
+
 export function openAddDeliveryModal() {
   editingDeliveryId = null;
   document.getElementById('deliveryModalTitle').textContent = 'Add New Delivery';
   document.getElementById('deliveryForm').reset();
   const endEl = document.getElementById('deliveryEndDate');
   if (endEl) { endEl.value = ''; endEl.min = ''; }
+  const driverSelect = document.getElementById('deliveryDriverSelect');
+  if (driverSelect) populateDriverDropdown(driverSelect, '');
   showModal('deliveryModal');
 }
 
@@ -1292,6 +1328,16 @@ export async function handleDeliverySubmit(event) {
 
   const normalizedEnd = startDate && endDate && endDate > startDate ? endDate : null;
   const statusVal = document.getElementById('deliveryStatus').value;
+  if (statusVal === 'Delivered') {
+    showToast('New deliveries cannot be created with Delivered status. Only Delivery Drivers mark completion.', 'warning');
+    return;
+  }
+
+  const driverSelect = document.getElementById('deliveryDriverSelect');
+  const assignedDriverId = driverSelect && driverSelect.value ? driverSelect.value : null;
+  const assignedDriverName = driverSelect && driverSelect.value && driverSelect.selectedIndex >= 0
+    ? driverSelect.options[driverSelect.selectedIndex].text.split(' (')[0].trim()
+    : null;
 
   const data = {
     customer_name: document.getElementById('deliveryCustomer').value,
@@ -1301,7 +1347,9 @@ export async function handleDeliverySubmit(event) {
     status: statusVal,
     delivery_type: document.getElementById('deliveryType').value,
     delivery_date: startDate,
-    delivery_end_date: normalizedEnd
+    delivery_end_date: normalizedEnd,
+    assigned_driver_id: assignedDriverId,
+    assigned_driver_name: assignedDriverName
   };
   try {
     const result = editingDeliveryId ? await API.updateDelivery(editingDeliveryId, data) : await kdCreateOnce('delivery-create', data, API.createDelivery);
@@ -1311,8 +1359,10 @@ export async function handleDeliverySubmit(event) {
       writeLocalDeliveryWindow(targetId, result.ref_code, {
         delivery_date: startDate,
         delivery_end_date: normalizedEnd,
-        delivered_at: statusVal === 'Delivered' ? nowIso : null,
-        status_updated_at: nowIso
+        delivered_at: null,
+        status_updated_at: nowIso,
+        assigned_driver_id: assignedDriverId,
+        assigned_driver_name: assignedDriverName
       });
       showToast('✅ ' + result.message + (result.ref_code ? ` Reference Code: ${result.ref_code}` : ''), 'success');
       hideModal('deliveryModal');
@@ -1348,6 +1398,8 @@ export async function editDelivery(id) {
         endEl.min = startVal || '';
         endEl.value = endVal && endVal > startVal ? endVal : '';
       }
+      const driverSelect = document.getElementById('deliveryDriverSelect');
+      if (driverSelect) await populateDriverDropdown(driverSelect, item.assigned_driver_id);
       showModal('deliveryModal');
     } else {
       showToast('❌ ' + (result.message || 'Failed to load delivery details'), 'error');
@@ -1374,13 +1426,17 @@ export async function updateDeliveryStatus(deliveryId) {
   const selectElement = document.querySelector(`.status-select[data-delivery-id="${deliveryId}"]`);
   if (!selectElement) { showToast('Error: Could not find status selector', 'error'); return; }
   const newStatus = selectElement.value;
+  if (newStatus === 'Delivered') {
+    showToast('Only delivery drivers can mark a delivery as Delivered.', 'warning');
+    return;
+  }
   try {
     const result = await API.updateDeliveryStatus(deliveryId, newStatus);
     if (result.success) {
       const rec = (cachedDeliveries || []).find(d => Number(d.id) === Number(deliveryId));
       const nowIso = new Date().toISOString();
       writeLocalDeliveryWindow(deliveryId, rec && rec.ref_code, {
-        delivered_at: newStatus === 'Delivered' ? nowIso : null,
+        delivered_at: null,
         status_updated_at: nowIso
       });
       showToast('✓ Delivery status updated successfully', 'success');
@@ -1388,6 +1444,233 @@ export async function updateDeliveryStatus(deliveryId) {
       else { loadDeliveryList(); loadDeliveryStats(); }
     } else showToast('❌ ' + result.message, 'error');
   } catch (error) { showToast('❌ Failed to update status', 'error'); }
+}
+
+// =============================================================================
+// DELIVERY DRIVER DASHBOARD LOGIC
+// Dedicated workflow for delivery drivers: view assigned deliveries & mark as Delivered
+// =============================================================================
+let driverDeliveriesCache = [];
+let driverDeliveryControlsInitialized = false;
+
+export function getDriverDeliveryFilterState() {
+  const s = document.getElementById('driverDeliverySearch');
+  const sf = document.getElementById('driverDeliveryStatusFilter');
+  const df = document.getElementById('driverDeliveryDateFrom');
+  const dt = document.getElementById('driverDeliveryDateTo');
+  const sort = document.getElementById('driverDeliverySort');
+
+  const search = s ? s.value.trim().toLowerCase() : '';
+  const statusFilter = sf ? sf.value : 'In Transit';
+  const dateFrom = df ? df.value : '';
+  const dateTo = dt ? dt.value : '';
+  const sortBy = sort ? sort.value : 'date-desc';
+  const hasActiveFilters = Boolean(search || (statusFilter && statusFilter !== 'all') || dateFrom || dateTo);
+
+  return { search, statusFilter, dateFrom, dateTo, sortBy, hasActiveFilters };
+}
+
+export function filterAndSortDriverDeliveries(deliveries, filterState) {
+  const { search, statusFilter, dateFrom, dateTo, sortBy } = filterState;
+
+  const filtered = (deliveries || []).filter(item => {
+    const norm = normalizeDeliveryStatus(item.status);
+    if (statusFilter && statusFilter !== 'all') {
+      if (norm.toLowerCase() !== statusFilter.toLowerCase()) return false;
+    }
+    const appDate = getApplicableDeliveryDate(item);
+    const dateKey = toDeliveryDateKey(appDate || item.delivery_date || item.created_at);
+    if (dateFrom && (!dateKey || dateKey < dateFrom)) return false;
+    if (dateTo && (!dateKey || dateKey > dateTo)) return false;
+    if (search) {
+      const ref = String(item.ref_code || '').toLowerCase();
+      const cust = String(item.customer_name || '').toLowerCase();
+      const prod = String(item.product || '').toLowerCase();
+      const addr = String(item.address || '').toLowerCase();
+      if (!ref.includes(search) && !cust.includes(search) && !prod.includes(search) && !addr.includes(search)) return false;
+    }
+    return true;
+  });
+
+  return [...filtered].sort((a, b) => {
+    if (sortBy === 'date-asc' || sortBy === 'date-desc') {
+      const da = toDeliveryDateKey(getApplicableDeliveryDate(a) || a.delivery_date || a.created_at);
+      const db = toDeliveryDateKey(getApplicableDeliveryDate(b) || b.delivery_date || b.created_at);
+      if (da !== db) return sortBy === 'date-asc' ? da.localeCompare(db) : db.localeCompare(da);
+      return sortBy === 'date-asc' ? (Number(a.id) - Number(b.id)) : (Number(b.id) - Number(a.id));
+    }
+    if (sortBy === 'customer-asc' || sortBy === 'customer-desc') {
+      const ca = String(a.customer_name || '');
+      const cb = String(b.customer_name || '');
+      const cmp = ca.localeCompare(cb, undefined, { sensitivity: 'base' });
+      return sortBy === 'customer-asc' ? cmp : -cmp;
+    }
+    if (sortBy === 'status-asc') {
+      const priority = { 'In Transit': 1, 'Processing': 2, 'Pending': 3, 'Delivered': 4 };
+      const pa = priority[normalizeDeliveryStatus(a.status)] || 9;
+      const pb = priority[normalizeDeliveryStatus(b.status)] || 9;
+      return pa - pb;
+    }
+    return Number(b.id) - Number(a.id);
+  });
+}
+
+export function updateDriverDeliveryMetrics(allDeliveries) {
+  const setEl = (id, count) => { const el = document.getElementById(id); if (el) el.textContent = String(count); };
+  const all = allDeliveries || [];
+  const total = all.length;
+  let inTransit = 0;
+  let pendingProcessing = 0;
+  let delivered = 0;
+
+  all.forEach(d => {
+    const s = normalizeDeliveryStatus(d.status);
+    if (s === 'In Transit') inTransit++;
+    else if (s === 'Delivered') delivered++;
+    else pendingProcessing++;
+  });
+
+  setEl('driverTotalCount', total);
+  setEl('driverInTransitCount', inTransit);
+  setEl('driverPendingCount', pendingProcessing);
+  setEl('driverDeliveredCount', delivered);
+}
+
+export function renderDriverDeliveryTableRows(filtered, allCount) {
+  const tbody = document.getElementById('driverDeliveryList');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  const summaryEl = document.getElementById('driverDeliveryFilterSummary');
+  if (summaryEl) {
+    summaryEl.textContent = `Showing ${filtered.length} of ${allCount} assigned orders`;
+  }
+
+  if (!filtered || filtered.length === 0) {
+    const msg = allCount > 0 ? 'No assigned deliveries match your filter.' : 'No deliveries currently assigned to your account.';
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#6b7280;padding:2rem;">${msg}</td></tr>`;
+    return;
+  }
+
+  filtered.forEach(item => {
+    const norm = normalizeDeliveryStatus(item.status);
+    const phoneDisplay = item.contact_number
+      ? `<a href="tel:${escapeDeliveryHtml(item.contact_number)}" style="color:#2563eb;text-decoration:underline;font-weight:500;">${escapeDeliveryHtml(item.contact_number)}</a>`
+      : '<span style="color:#9ca3af;">N/A</span>';
+
+    let actionHtml = '';
+    if (norm === 'In Transit') {
+      actionHtml = `
+        <button type="button" class="action-btn deliver-btn" onclick="markDeliveryAsDelivered(${item.id})" title="Mark as Delivered">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          Mark as Delivered
+        </button>
+      `;
+    } else if (norm === 'Delivered') {
+      actionHtml = `<span style="color:#059669;font-weight:600;font-size:0.875rem;display:inline-flex;align-items:center;gap:0.3rem;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg> Delivered</span>`;
+    } else {
+      actionHtml = `<span style="color:#6b7280;font-size:0.8125rem;">Awaiting Transit</span>`;
+    }
+
+    tbody.innerHTML += `
+      <tr>
+        <td><strong>${escapeDeliveryHtml(item.ref_code)}</strong></td>
+        <td>${escapeDeliveryHtml(item.customer_name)}</td>
+        <td>${phoneDisplay}</td>
+        <td style="max-width:220px;white-space:normal;font-size:0.8125rem;">${escapeDeliveryHtml(item.address)}</td>
+        <td>${escapeDeliveryHtml(item.product || 'N/A')}</td>
+        <td>${renderDeliveryDateCell(item)}</td>
+        <td>${getStatusBadge(item.status, item)}</td>
+        <td style="text-align:center;">${actionHtml}</td>
+      </tr>
+    `;
+  });
+}
+
+export function applyDriverDeliveryView() {
+  const filterState = getDriverDeliveryFilterState();
+  const filtered = filterAndSortDriverDeliveries(driverDeliveriesCache, filterState);
+  updateDriverDeliveryMetrics(driverDeliveriesCache);
+  renderDriverDeliveryTableRows(filtered, driverDeliveriesCache.length);
+}
+
+export function initDriverDeliveryControls() {
+  if (driverDeliveryControlsInitialized) return;
+  const searchEl = document.getElementById('driverDeliverySearch');
+  if (!searchEl) return;
+  driverDeliveryControlsInitialized = true;
+
+  const bind = (id, evt = 'change') => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener(evt, () => applyDriverDeliveryView());
+  };
+
+  bind('driverDeliverySearch', 'input');
+  bind('driverDeliveryStatusFilter', 'change');
+  bind('driverDeliveryDateFrom', 'change');
+  bind('driverDeliveryDateTo', 'change');
+  bind('driverDeliverySort', 'change');
+
+  const resetBtn = document.getElementById('driverDeliveryResetFilters');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+      const s = document.getElementById('driverDeliverySearch');
+      const sf = document.getElementById('driverDeliveryStatusFilter');
+      const df = document.getElementById('driverDeliveryDateFrom');
+      const dt = document.getElementById('driverDeliveryDateTo');
+      const sort = document.getElementById('driverDeliverySort');
+      if (s) s.value = '';
+      if (sf) sf.value = 'all';
+      if (df) df.value = '';
+      if (dt) dt.value = '';
+      if (sort) sort.value = 'date-desc';
+      applyDriverDeliveryView();
+    });
+  }
+}
+
+export async function loadDriverDeliveryList() {
+  try {
+    initDriverDeliveryControls();
+    const result = await API.getDeliveries();
+    if (result && result.success) {
+      driverDeliveriesCache = (Array.isArray(result.data) ? result.data : []).map(mergeLocalDeliveryWindow);
+      applyDriverDeliveryView();
+    } else {
+      showToast('❌ ' + ((result && result.message) || 'Failed to load assigned deliveries'), 'error');
+    }
+  } catch (e) {
+    showToast('❌ Failed to load assigned deliveries', 'error');
+  }
+}
+
+export async function markDeliveryAsDelivered(id) {
+  const rec = (driverDeliveriesCache || []).find(d => Number(d.id) === Number(id));
+  const ref = rec ? rec.ref_code : `#${id}`;
+  const customer = rec ? ` for ${rec.customer_name}` : '';
+
+  const confirmed = await kdConfirm(
+    `Mark delivery ${ref}${customer} as Delivered?\n\nThis confirms that the furniture was successfully handed over to the customer.`,
+    { title: 'Confirm Delivery Completion', confirmText: 'Confirm Delivered' }
+  );
+  if (!confirmed) return;
+
+  try {
+    const result = await API.updateDeliveryStatus(id, 'Delivered');
+    if (result && result.success) {
+      showToast('✓ Delivery marked as Delivered successfully!', 'success');
+      const nowIso = new Date().toISOString();
+      writeLocalDeliveryWindow(id, rec && rec.ref_code, {
+        delivered_at: nowIso,
+        status_updated_at: nowIso
+      });
+      await loadDriverDeliveryList();
+    } else {
+      showToast('❌ ' + ((result && result.message) || 'Failed to update delivery status'), 'error');
+    }
+  } catch (error) {
+    showToast('❌ Failed to mark delivery as Delivered', 'error');
+  }
 }
 
 
@@ -1407,3 +1690,13 @@ loadDeliveryList = kdWrapLoader(loadDeliveryList, { target: 'adminDeliveryList',
 loadStaffDeliveryList = kdWrapLoader(loadStaffDeliveryList, { target: 'staffDeliveryList', loading: 'Loading deliveries...', empty: 'No deliveries found', error: 'Unable to load deliveries.' });
 loadManagerDeliveryList = kdWrapLoader(loadManagerDeliveryList, { target: 'managerDeliveryList', loading: 'Loading deliveries...', empty: 'No deliveries found', error: 'Unable to load deliveries.' });
 loadDeliveryStats = kdWrapBusy(loadDeliveryStats, '[id$="PendingCount"], [id$="ProcessingCount"], [id$="InTransitCount"], [id$="DeliveredCount"]');
+markDeliveryAsDelivered = kdGuard(markDeliveryAsDelivered, {
+  key: (id) => 'markDelivered:' + id,
+  progress: 'Marking as Delivered...'
+});
+loadDriverDeliveryList = kdWrapLoader(loadDriverDeliveryList, {
+  target: 'driverDeliveryList',
+  loading: 'Loading assigned deliveries...',
+  empty: 'No assigned deliveries found',
+  error: 'Unable to load assigned deliveries.'
+});

@@ -352,6 +352,19 @@ function isAccountActive(row) {
   return true;
 }
 
+function isDriverRole(role) {
+  const r = String(role || '').toLowerCase().trim().replace(/[\s-]+/g, '_');
+  return r === 'delivery_driver' || r === 'delivery' || r === 'driver';
+}
+
+function normalizeRole(role) {
+  const r = String(role || '').toLowerCase().trim().replace(/[\s-]+/g, '_');
+  if (r === 'admin') return 'admin';
+  if (r === 'manager') return 'manager';
+  if (isDriverRole(r)) return 'delivery_driver';
+  return 'staff';
+}
+
 // Allows the request only if the token is valid, the account is currently active, AND the user's CURRENT role
 // in the users table is one of the allowed roles (so the frontend role or status can never be trusted alone).
 function requireRole(...allowedRoles) {
@@ -372,8 +385,11 @@ function requireRole(...allowedRoles) {
       revokeUserSessions(user.id);
       return res.status(401).json({ success: false, code: 'ACCOUNT_DEACTIVATED', message: 'This account is deactivated. Please contact your administrator.' });
     }
-    const role = user.role || 'staff';
-    if (!allowedRoles.includes(role)) return res.status(403).json({ success: false, message: 'You do not have permission to perform this action.' });
+    const rawRole = user.role || 'staff';
+    const role = normalizeRole(rawRole);
+    if (!allowedRoles.includes(role) && !allowedRoles.includes(rawRole)) {
+      return res.status(403).json({ success: false, message: 'You do not have permission to perform this action.' });
+    }
     session.lastSeen = Date.now();
     req.authUser = { id: user.id, name: user.name, email: user.email, role };
     next();
@@ -506,9 +522,9 @@ app.post('/login', async (req, res) => {
 });
 
 // Checks the current session (used by the dashboards when they open and as a keep-alive while the user is active)
-app.get('/session', requireRole('admin', 'manager', 'staff'), (req, res) => {
+app.get('/session', requireRole('admin', 'manager', 'staff', 'delivery_driver'), (req, res) => {
   const { id, name, email, role } = req.authUser;
-  res.json({ success: true, user: { id, name, email, role }, idleTimeoutMs: SESSION_IDLE_MS });
+  res.json({ success: true, user: { id, name, email, role: normalizeRole(role) }, idleTimeoutMs: SESSION_IDLE_MS });
 });
 
 // Logout: ends the server-side session so the token can no longer be used. Always answers success.
@@ -757,7 +773,8 @@ app.post('/login/mfa/verify', async (req, res) => {
     revokeUserSessions(user.id);
     return mfaFail(res, 403, 'ACCOUNT_DEACTIVATED', 'This account is deactivated. Please contact your administrator.');
   }
-  const loggedInUser = { id: user.id, name: user.name, email: user.email, role: user.role || 'staff' }; // role comes from the database, never from the browser
+  const userRole = normalizeRole(user.role);
+  const loggedInUser = { id: user.id, name: user.name, email: user.email, role: userRole }; // role comes from the database, never from the browser
   res.json({ success: true, message: 'Login successful', user: loggedInUser, token: createSession(loggedInUser) });
 });
 
@@ -933,10 +950,11 @@ const DELIVERY_STATUSES = ['Pending', 'Processing', 'In Transit', 'Delivered'];
 const DELIVERY_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const BULK_DELIVERY_LIMIT = 200;
 
-// Optional columns added by deliveries-date-range-migration.sql (delivery window end, actual completion time,
-// last status-change time). They are detected at runtime so the server keeps working exactly as before
-// until the migration has been run in Supabase. Re-checked every minute so no restart is needed afterwards.
-const DELIVERY_OPTIONAL_COLUMNS = ['delivery_end_date', 'delivered_at', 'status_updated_at'];
+// Optional columns added by deliveries-date-range-migration.sql and delivery-driver-migration.sql
+// (delivery window end, actual completion time, last status-change time, driver assignment).
+// They are detected at runtime so the server keeps working exactly as before until migrations have been
+// run in Supabase. Re-checked every minute so no restart is needed afterwards.
+const DELIVERY_OPTIONAL_COLUMNS = ['delivery_end_date', 'delivered_at', 'status_updated_at', 'assigned_driver_id', 'assigned_driver_name'];
 let deliveryColumnCache = { at: 0, cols: null };
 async function getDeliveryOptionalColumns() {
   if (deliveryColumnCache.cols && Date.now() - deliveryColumnCache.at < 60 * 1000) return deliveryColumnCache.cols;
@@ -981,9 +999,9 @@ function deliveryStatusChangeFields(cols, previousStatus, nextStatus) {
   return fields;
 }
 
-// Runtime fallback cache for optional delivery window/timestamp fields before deliveries-date-range-migration.sql
-// is run in Supabase. Once the SQL migration is applied, PostgreSQL stores these columns directly.
-const fallbackDeliveryMeta = new Map(); // id (number) -> { delivery_end_date, delivered_at, status_updated_at }
+// Runtime fallback cache for optional delivery fields before SQL migrations are applied in Supabase.
+// Once migrations are run, PostgreSQL stores these columns directly.
+const fallbackDeliveryMeta = new Map(); // id (number) -> { delivery_end_date, delivered_at, status_updated_at, assigned_driver_id, assigned_driver_name }
 
 function mergeDeliveryFallbackMeta(row) {
   if (!row || row.id == null) return row;
@@ -993,14 +1011,51 @@ function mergeDeliveryFallbackMeta(row) {
     ...row,
     delivery_end_date: row.delivery_end_date !== undefined ? row.delivery_end_date : (meta.delivery_end_date || null),
     delivered_at: row.delivered_at !== undefined ? row.delivered_at : (meta.delivered_at || null),
-    status_updated_at: row.status_updated_at !== undefined ? row.status_updated_at : (meta.status_updated_at || null)
+    status_updated_at: row.status_updated_at !== undefined ? row.status_updated_at : (meta.status_updated_at || null),
+    assigned_driver_id: row.assigned_driver_id !== undefined ? row.assigned_driver_id : (meta.assigned_driver_id || null),
+    assigned_driver_name: row.assigned_driver_name !== undefined ? row.assigned_driver_name : (meta.assigned_driver_name || null)
   };
 }
 
+// List active Delivery Driver accounts (Admin & Manager use this to assign deliveries)
+app.get('/drivers', requireRole('admin', 'manager'), async (req, res) => {
+  const { data, error } = await db.from('users').select('*').order('name', { ascending: true });
+  if (error) return res.status(500).json({ success: false, message: 'Failed to fetch drivers' });
+  const activeDrivers = (data || []).filter(isAccountActive).filter(u => isDriverRole(u.role)).map(u => ({
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    phone: u.phone || u.contact_number || null,
+    role: 'delivery_driver'
+  }));
+  res.json({ success: true, data: activeDrivers });
+});
+
 app.get('/deliveries', async (req, res) => {
+  // If authorization token is provided, verify caller identity for driver-specific scoping
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  const decoded = verifyToken(token);
+  let callerRole = null;
+  let callerUserId = null;
+  if (decoded && decoded.id) {
+    const { data: u } = await db.from('users').select('id, role').eq('id', decoded.id).maybeSingle();
+    if (u) {
+      callerRole = u.role;
+      callerUserId = u.id;
+    }
+  }
+
   const { data, error } = await db.from('deliveries').select('*').order('created_at', { ascending: false });
   if (error) return res.status(500).json({ success: false, message: 'Failed to fetch deliveries' });
-  res.json({ success: true, data: (data || []).map(mergeDeliveryFallbackMeta) });
+  let rows = (data || []).map(mergeDeliveryFallbackMeta);
+
+  // Delivery drivers can ONLY view deliveries assigned to their account
+  if (isDriverRole(callerRole)) {
+    rows = rows.filter(d => String(d.assigned_driver_id || '') === String(callerUserId));
+  }
+
+  res.json({ success: true, data: rows });
 });
 
 app.get('/deliveries/track/:refCode', async (req, res) => {
@@ -1025,9 +1080,10 @@ app.get('/deliveries/stats', async (req, res) => {
 });
 
 app.post('/deliveries', requireRole('admin', 'manager', 'staff'), withIdempotency('deliveries', async (req, res) => {
-  const { customer_name, contact_number, address, product, status, delivery_type, delivery_date, delivery_end_date } = req.body;
+  const { customer_name, contact_number, address, product, status, delivery_type, delivery_date, delivery_end_date, assigned_driver_id, assigned_driver_name } = req.body;
   if (!customer_name || !address) return res.status(400).json({ success: false, message: 'Customer name and address are required' });
   if (status && !DELIVERY_STATUSES.includes(status)) return res.status(400).json({ success: false, message: 'Invalid status' });
+  if (status === 'Delivered') return res.status(403).json({ success: false, message: 'New deliveries cannot be initially created with Delivered status. Only delivery drivers may mark a delivery as Delivered.' });
   const start = parseDeliveryDateInput(delivery_date);
   const end = parseDeliveryDateInput(delivery_end_date);
   const windowError = validateDeliveryWindow(start, end);
@@ -1038,27 +1094,33 @@ app.post('/deliveries', requireRole('admin', 'manager', 'staff'), withIdempotenc
   const normalizedEnd = end && end !== start ? end : null;
   const row = { ref_code, customer_name, contact_number: contact_number || null, address, product: product || 'N/A', status: finalStatus, delivery_type: delivery_type || 'Outbound', delivery_date: start || null };
   if (cols.delivery_end_date) row.delivery_end_date = normalizedEnd;
+  if (cols.assigned_driver_id) row.assigned_driver_id = assigned_driver_id ? String(assigned_driver_id) : null;
+  if (cols.assigned_driver_name) row.assigned_driver_name = assigned_driver_name ? String(assigned_driver_name) : null;
   Object.assign(row, deliveryStatusChangeFields(cols, null, finalStatus));
   const { data, error } = await db.from('deliveries').insert(row).select().single();
   if (error) return res.status(500).json({ success: false, message: 'Failed to create delivery' });
-  if (!cols.delivery_end_date || !cols.delivered_at || !cols.status_updated_at) {
-    const nowIso = new Date().toISOString();
-    fallbackDeliveryMeta.set(Number(data.id), {
-      delivery_end_date: normalizedEnd,
-      delivered_at: finalStatus === 'Delivered' ? nowIso : null,
-      status_updated_at: nowIso
-    });
-  }
+  const nowIso = new Date().toISOString();
+  fallbackDeliveryMeta.set(Number(data.id), {
+    delivery_end_date: normalizedEnd,
+    delivered_at: finalStatus === 'Delivered' ? nowIso : null,
+    status_updated_at: nowIso,
+    assigned_driver_id: assigned_driver_id ? String(assigned_driver_id) : null,
+    assigned_driver_name: assigned_driver_name ? String(assigned_driver_name) : null
+  });
   res.status(201).json({ success: true, message: 'Delivery created successfully', id: data.id, ref_code, delivery_end_date: normalizedEnd });
 }));
 
 app.put('/deliveries/:id', requireRole('admin', 'manager'), async (req, res) => {
-  const { customer_name, contact_number, address, product, status, delivery_type, delivery_date, delivery_end_date } = req.body || {};
+  const { customer_name, contact_number, address, product, status, delivery_type, delivery_date, delivery_end_date, assigned_driver_id, assigned_driver_name } = req.body || {};
   if (!customer_name || !String(customer_name).trim() || !address || !String(address).trim()) {
     return res.status(400).json({ success: false, message: 'Customer name and address are required' });
   }
   if (status !== undefined && !DELIVERY_STATUSES.includes(status)) {
     return res.status(400).json({ success: false, message: 'Invalid status' });
+  }
+  // Admin and Manager can only set status up to In Transit; they cannot mark a delivery as Delivered
+  if (status === 'Delivered') {
+    return res.status(403).json({ success: false, message: 'Only delivery drivers can mark a delivery as Delivered.' });
   }
   const { data: existing, error: fetchError } = await db.from('deliveries').select('*').eq('id', req.params.id).maybeSingle();
   if (fetchError) return res.status(500).json({ success: false, message: 'Failed to update delivery' });
@@ -1076,29 +1138,34 @@ app.put('/deliveries/:id', requireRole('admin', 'manager'), async (req, res) => 
   if (windowError) return res.status(400).json({ success: false, message: windowError });
 
   const normalizedEnd = end && end !== start ? end : null;
-  const update = { customer_name, contact_number, address, product, status, delivery_type, delivery_date };
+  const update = { customer_name, contact_number, address, product, delivery_type, delivery_date };
+  if (status !== undefined) update.status = status;
   if (cols.delivery_end_date && endInput !== undefined) update.delivery_end_date = normalizedEnd;
+  if (cols.assigned_driver_id && assigned_driver_id !== undefined) update.assigned_driver_id = assigned_driver_id ? String(assigned_driver_id) : null;
+  if (cols.assigned_driver_name && assigned_driver_name !== undefined) update.assigned_driver_name = assigned_driver_name ? String(assigned_driver_name) : null;
   Object.assign(update, deliveryStatusChangeFields(cols, existing.status, status));
   const { error } = await db.from('deliveries').update(update).eq('id', req.params.id);
   if (error) return res.status(500).json({ success: false, message: 'Failed to update delivery' });
-  if (!cols.delivery_end_date || !cols.delivered_at || !cols.status_updated_at) {
-    const statusChanged = status && status !== existing.status;
-    const nowIso = new Date().toISOString();
-    fallbackDeliveryMeta.set(Number(existing.id), {
-      delivery_end_date: normalizedEnd,
-      delivered_at: statusChanged ? (status === 'Delivered' ? nowIso : null) : (prevMeta.delivered_at || null),
-      status_updated_at: statusChanged ? nowIso : (prevMeta.status_updated_at || null)
-    });
-  }
+  const statusChanged = status && status !== existing.status;
+  const nowIso = new Date().toISOString();
+  fallbackDeliveryMeta.set(Number(existing.id), {
+    delivery_end_date: normalizedEnd,
+    delivered_at: statusChanged ? (status === 'Delivered' ? nowIso : null) : (prevMeta.delivered_at || null),
+    status_updated_at: statusChanged ? nowIso : (prevMeta.status_updated_at || null),
+    assigned_driver_id: assigned_driver_id !== undefined ? (assigned_driver_id ? String(assigned_driver_id) : null) : (existing.assigned_driver_id || prevMeta.assigned_driver_id || null),
+    assigned_driver_name: assigned_driver_name !== undefined ? (assigned_driver_name ? String(assigned_driver_name) : null) : (existing.assigned_driver_name || prevMeta.assigned_driver_name || null)
+  });
   res.json({ success: true, message: 'Delivery updated successfully', delivery_end_date: normalizedEnd });
 });
 
 // Bulk status update (Admin + Manager). Only the status (and, when the migration exists, the status/completion
-// timestamps) change; every other field is left untouched. Same allowed statuses as the single-record route,
-// which also permits direct changes between any of them. Reports exactly which records succeeded or failed.
+// timestamps) change; every other field is left untouched. Reports exactly which records succeeded or failed.
 app.patch('/deliveries/bulk-status', requireRole('admin', 'manager'), async (req, res) => {
   const { ids, status } = req.body || {};
   if (!DELIVERY_STATUSES.includes(status)) return res.status(400).json({ success: false, message: 'Invalid status' });
+  if (status === 'Delivered') {
+    return res.status(403).json({ success: false, message: 'Only delivery drivers can mark deliveries as Delivered.' });
+  }
   if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ success: false, message: 'Select at least one delivery record.' });
   const parsedIds = ids.map(toPositiveInt);
   if (parsedIds.some(id => !id)) return res.status(400).json({ success: false, message: 'One or more selected delivery IDs are invalid.' });
@@ -1141,18 +1208,54 @@ app.patch('/deliveries/bulk-status', requireRole('admin', 'manager'), async (req
   res.status(failed.some(f => f.reason === 'Database update failed') ? 500 : 404).json({ success: false, ...body, message: 'No delivery statuses were updated.' });
 });
 
-app.patch('/deliveries/:id/status', requireRole('admin', 'manager'), async (req, res) => {
-  const { status } = req.body;
+// Single delivery status update with strict role and transition enforcement
+app.patch('/deliveries/:id/status', requireRole('admin', 'manager', 'delivery_driver'), async (req, res) => {
+  const { status } = req.body || {};
   if (!DELIVERY_STATUSES.includes(status)) return res.status(400).json({ success: false, message: 'Invalid status' });
+
+  const { data: existing, error: fetchErr } = await db.from('deliveries').select('*').eq('id', req.params.id).maybeSingle();
+  if (fetchErr) return res.status(500).json({ success: false, message: 'Failed to find delivery' });
+  if (!existing) return res.status(404).json({ success: false, message: 'Delivery not found' });
+  const mergedExisting = mergeDeliveryFallbackMeta(existing);
+
+  const userRole = req.authUser.role;
+  if (isDriverRole(userRole)) {
+    if (status !== 'Delivered') {
+      return res.status(403).json({ success: false, message: 'Delivery drivers can only mark deliveries as Delivered.' });
+    }
+    // Check driver assignment: driver can only update deliveries assigned to their account
+    if (mergedExisting.assigned_driver_id && String(mergedExisting.assigned_driver_id) !== String(req.authUser.id)) {
+      return res.status(403).json({ success: false, message: 'You are not assigned to this delivery.' });
+    }
+    // Check workflow transition: only In Transit deliveries can be completed to Delivered
+    if (mergedExisting.status !== 'In Transit') {
+      return res.status(400).json({ success: false, message: `Cannot mark as Delivered: delivery is currently "${mergedExisting.status}". Only In Transit deliveries can be marked as Delivered.` });
+    }
+  } else if (['admin', 'manager'].includes(normalizeRole(userRole))) {
+    if (status === 'Delivered') {
+      return res.status(403).json({ success: false, message: 'Only delivery drivers can mark a delivery as Delivered.' });
+    }
+  } else {
+    return res.status(403).json({ success: false, message: 'You do not have permission to update delivery status.' });
+  }
+
   const cols = await getDeliveryOptionalColumns();
   const update = { status };
+  const nowIso = new Date().toISOString();
   if (cols.status_updated_at || cols.delivered_at) {
-    const { data: existing } = await db.from('deliveries').select('status').eq('id', req.params.id).maybeSingle();
-    Object.assign(update, deliveryStatusChangeFields(cols, existing ? existing.status : null, status));
+    Object.assign(update, deliveryStatusChangeFields(cols, existing.status, status));
   }
   const { error } = await db.from('deliveries').update(update).eq('id', req.params.id);
   if (error) return res.status(500).json({ success: false, message: 'Failed to update delivery status' });
-  res.json({ success: true, message: 'Delivery status updated successfully' });
+
+  const prevMeta = fallbackDeliveryMeta.get(Number(existing.id)) || {};
+  fallbackDeliveryMeta.set(Number(existing.id), {
+    ...prevMeta,
+    delivered_at: status === 'Delivered' ? nowIso : null,
+    status_updated_at: nowIso
+  });
+
+  res.json({ success: true, message: `Delivery status updated to ${status} successfully` });
 });
 
 app.delete('/deliveries/:id', requireRole('admin'), async (req, res) => {
@@ -1633,7 +1736,8 @@ app.post('/staff', requireRole('admin'), withIdempotency('staff', async (req, re
   const phoneCheck = normalizePhPhone(phone);
   if (!phoneCheck.ok) return res.status(400).json({ success: false, message: phoneCheck.message });
   if (typeof password !== 'string' || password.length > 128) return res.status(400).json({ success: false, message: 'Invalid password' });
-  const accountRole = role === 'manager' ? 'manager' : 'staff';
+  const cleanRole = typeof role === 'string' ? role.trim().toLowerCase() : '';
+  const accountRole = cleanRole === 'manager' ? 'manager' : (isDriverRole(cleanRole) ? 'delivery_driver' : 'staff');
   const { data: existing } = await db.from('users').select('id').eq('email', email).single();
   if (existing) return res.status(400).json({ success: false, message: 'Email already exists' });
   const passwordHash = await hashForStorage(password);
@@ -1641,13 +1745,12 @@ app.post('/staff', requireRole('admin'), withIdempotency('staff', async (req, re
   const { data, error } = await db.from('users').insert({ name, email, password: passwordHash, role: accountRole, [USER_PHONE_COLUMN]: phoneCheck.value }).select().single();
   if (error && error.code === '23505') return res.status(400).json({ success: false, message: 'Email already exists' });
   if (error) return res.status(500).json({ success: false, message: 'Failed to create account' });
-  res.status(201).json({ success: true, message: `${accountRole.charAt(0).toUpperCase() + accountRole.slice(1)} account created successfully`, id: data.id });
+  const roleDisplay = accountRole === 'manager' ? 'Manager' : (accountRole === 'delivery_driver' ? 'Delivery Driver' : 'Staff');
+  res.status(201).json({ success: true, message: `${roleDisplay} account created successfully`, id: data.id });
 }));
 
-// Edit a STAFF account (Admin only). Only accounts whose CURRENT role in the database is 'staff'
-// can be edited here; Manager and Admin accounts are always rejected. The role can be changed to
-// the same roles the existing "Create Account" flow can assign (staff / manager) - never admin.
-const STAFF_EDITABLE_ROLES = ['staff', 'manager'];
+// Edit a Staff, Manager, or Delivery Driver account (Admin only). Admin accounts cannot be edited here.
+const STAFF_EDITABLE_ROLES = ['staff', 'manager', 'delivery_driver', 'delivery', 'driver'];
 const STAFF_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 app.put('/staff/:id', requireRole('admin'), async (req, res) => {
@@ -1660,10 +1763,11 @@ app.put('/staff/:id', requireRole('admin'), async (req, res) => {
   const cleanName = typeof name === 'string' ? name.trim() : '';
   const cleanEmail = typeof email === 'string' ? email.trim() : '';
   const newRole = typeof role === 'string' ? role.trim().toLowerCase() : '';
+  const assignedRole = newRole === 'manager' ? 'manager' : (isDriverRole(newRole) ? 'delivery_driver' : 'staff');
   if (!cleanName || cleanName.length > 100) return res.status(400).json({ success: false, message: 'Full name is required (maximum 100 characters).' });
   if (!cleanEmail || cleanEmail.length > 254 || !STAFF_EMAIL_RE.test(cleanEmail)) return res.status(400).json({ success: false, message: 'A valid email is required.' });
   if (newRole === 'admin') return res.status(403).json({ success: false, message: 'You cannot assign the Admin role.' });
-  if (!STAFF_EDITABLE_ROLES.includes(newRole)) return res.status(400).json({ success: false, message: 'Invalid role. Choose Staff or Manager.' });
+  if (!STAFF_EDITABLE_ROLES.includes(newRole)) return res.status(400).json({ success: false, message: 'Invalid role. Choose Staff, Manager, or Delivery Driver.' });
   const changePassword = password !== undefined && password !== null && password !== '';
   if (changePassword && (typeof password !== 'string' || password.length > 128)) {
     return res.status(400).json({ success: false, message: 'Invalid password.' });
@@ -1672,12 +1776,12 @@ app.put('/staff/:id', requireRole('admin'), async (req, res) => {
   const phoneCheck = normalizePhPhone(phone);
   if (!phoneCheck.ok) return res.status(400).json({ success: false, message: phoneCheck.message });
 
-  // ---- the target must currently be a Staff or Manager account (checked in the database, by unique id) ----
+  // ---- the target must currently be a Staff, Manager, or Delivery Driver account ----
   const { data: target, error: targetError } = await db.from('users').select('id,name,email,role').eq('id', targetId).single();
   if (targetError && targetError.code !== 'PGRST116') return res.status(500).json({ success: false, message: 'Failed to load the account.' });
   if (!target) return res.status(404).json({ success: false, message: 'Account not found. Please refresh the list.' });
   if (String(target.id) === String(req.authUser.id)) return res.status(403).json({ success: false, message: 'You cannot edit your own account here.' });
-  if (!STAFF_EDITABLE_ROLES.includes(target.role || 'staff')) return res.status(403).json({ success: false, message: 'Only Staff and Manager accounts can be edited here.' });
+  if (!STAFF_EDITABLE_ROLES.includes(target.role || 'staff') && !isDriverRole(target.role)) return res.status(403).json({ success: false, message: 'Only Staff, Manager, and Delivery Driver accounts can be edited here.' });
 
   // ---- email must not belong to another account ----
   const { data: clash, error: clashError } = await db.from('users').select('id').ilike('email', cleanEmail.replace(/[\\%_]/g, '\\$&')).neq('id', targetId).limit(1);
@@ -1685,7 +1789,7 @@ app.put('/staff/:id', requireRole('admin'), async (req, res) => {
   if (clash && clash.length > 0) return res.status(409).json({ success: false, message: 'Email already exists' });
 
   // ---- update (the role filter makes the write fail if the account stopped being Staff meanwhile) ----
-  const updates = { name: cleanName, email: cleanEmail, role: newRole, [USER_PHONE_COLUMN]: phoneCheck.value };
+  const updates = { name: cleanName, email: cleanEmail, role: assignedRole, [USER_PHONE_COLUMN]: phoneCheck.value };
   if (changePassword) {
     updates.password = await hashForStorage(password); // stored as a hash, same as signup/create
     if (!updates.password) return res.status(500).json({ success: false, message: 'Failed to update account' });
@@ -1700,14 +1804,15 @@ app.put('/staff/:id', requireRole('admin'), async (req, res) => {
     return res.status(500).json({ success: false, message: 'Failed to update account' });
   }
   if (changePassword || updated.role !== target.role) revokeUserSessions(updated.id); // they must log in again with the new details
+  const roleTitle = updated.role === 'manager' ? 'Manager' : (isDriverRole(updated.role) ? 'Delivery Driver' : 'Staff');
   res.json({
     success: true,
-    message: (updated.role === 'manager' ? 'Manager' : 'Staff') + ' account updated successfully',
+    message: `${roleTitle} account updated successfully`,
     data: publicAccount(updated)
   });
 });
 
-// Activate or deactivate a Staff/Manager account (Admin only).
+// Activate or deactivate a Staff/Manager/Delivery Driver account (Admin only).
 // Preserves the account record, ID, role, phone number and historical data.
 async function handleStaffStatusChange(req, res, forcedActive) {
   const rawId = String(req.params.id || '');
@@ -1736,7 +1841,7 @@ async function handleStaffStatusChange(req, res, forcedActive) {
     return res.status(403).json({ success: false, message: 'You cannot change the active status of your own account.' });
   }
   if (!STAFF_EDITABLE_ROLES.includes(target.role || 'staff')) {
-    return res.status(403).json({ success: false, message: 'Only Staff and Manager accounts can be activated or deactivated here.' });
+    return res.status(403).json({ success: false, message: 'Only Staff, Manager, and Delivery Driver accounts can be activated or deactivated here.' });
   }
 
   const { data: updated, error: updateError } = await setAccountActiveInDb(targetId, desiredActive);

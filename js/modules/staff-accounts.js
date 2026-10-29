@@ -6,6 +6,7 @@
 
 import { API, escapeHtmlText, formatDate, formatPhoneForDisplay, kdCreateOnce, normalizePhPhoneClient, validatePhPhoneClient } from './core.js';
 import { hideModal, kdConfirm, kdFormOptions as submit, kdGuard, kdWrapLoader, showToast } from './ui.js';
+import { isDriverRole, normalizeRole } from './auth.js';
 
 let staffAccountsCache = {};
 
@@ -24,15 +25,17 @@ export async function loadStaffAccountsList() {
       result.data.forEach(item => {
         const isActive = item.is_active !== false && String(item.status || '').toLowerCase() !== 'deactivated';
         staffAccountsCache[item.id] = { ...item, is_active: isActive };
-        const editBtn = ['staff', 'manager'].includes(item.role || 'staff')
+        const role = normalizeRole(item.role);
+        const isDriver = isDriverRole(item.role);
+        const editBtn = ['staff', 'manager', 'delivery_driver'].includes(role)
           ? `<button class="action-btn edit" onclick="openEditStaffModal(${item.id})" title="Edit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Edit</button> `
           : '';
         const statusBtn = isActive
           ? `<button class="action-btn delete" onclick="deactivateStaffAccount(${item.id})" title="Deactivate Account"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line></svg> Deactivate Account</button>`
           : `<button class="action-btn activate" onclick="activateStaffAccount(${item.id})" title="Activate Account"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg> Activate Account</button>`;
-        const roleColor = item.role === 'manager' ? '#8b5cf6' : '#065f46';
-        const roleBg = item.role === 'manager' ? '#ede9fe' : '#d1fae5';
-        const roleLabel = item.role === 'manager' ? 'Manager' : 'Staff';
+        const roleColor = role === 'manager' ? '#8b5cf6' : (isDriver ? '#1d4ed8' : '#065f46');
+        const roleBg = role === 'manager' ? '#ede9fe' : (isDriver ? '#dbeafe' : '#d1fae5');
+        const roleLabel = role === 'manager' ? 'Manager' : (isDriver ? 'Delivery Driver' : 'Staff');
         const statusColor = isActive ? '#065f46' : '#991b1b';
         const statusBg = isActive ? '#d1fae5' : '#fee2e2';
         const statusLabel = isActive ? 'Active' : 'Deactivated';
@@ -85,6 +88,7 @@ export function openAddStaffModal() {
               <select id="staffAccountRole" class="form-input" required>
                 <option value="staff">Staff</option>
                 <option value="manager">Manager</option>
+                <option value="delivery_driver">Delivery Driver</option>
               </select>
             </div>
             <div style="display:flex;gap:0.75rem;">
@@ -158,15 +162,17 @@ export function closeEditStaffModal() {
 
 export function openEditStaffModal(id) {
   const account = staffAccountsCache[id];
-  // Staff and Manager accounts are editable here (the backend enforces this again; Admin accounts are not)
+  // Staff, Manager, and Delivery Driver accounts are editable here (the backend enforces this again; Admin accounts are not)
   if (!account) { showToast('Account not found. Please refresh the list.', 'error'); return; }
-  if (!['staff', 'manager'].includes(account.role || 'staff')) { showToast('Only Staff and Manager accounts can be edited here.', 'error'); return; }
+  const currentRole = normalizeRole(account.role);
+  if (!['staff', 'manager', 'delivery_driver'].includes(currentRole)) { showToast('Only Staff, Manager, and Delivery Driver accounts can be edited here.', 'error'); return; }
   closeEditStaffModal();
+  const roleTitle = currentRole === 'manager' ? 'Edit Manager Account' : (currentRole === 'delivery_driver' ? 'Edit Delivery Driver Account' : 'Edit Staff Account');
   const modalHTML = `
     <div id="editStaffAccountModal" class="modal active">
       <div class="modal-content">
         <div class="modal-header">
-          <h3 class="modal-title">${(account.role || 'staff') === 'manager' ? 'Edit Manager Account' : 'Edit Staff Account'}</h3>
+          <h3 class="modal-title">${roleTitle}</h3>
           <button class="modal-close" type="button" onclick="closeEditStaffModal()">×</button>
         </div>
         <div class="modal-body">
@@ -190,6 +196,7 @@ export function openEditStaffModal(id) {
               <select id="editStaffAccountRole" class="form-input" required>
                 <option value="staff">Staff</option>
                 <option value="manager">Manager</option>
+                <option value="delivery_driver">Delivery Driver</option>
               </select>
             </div>
             <div class="form-group">
@@ -210,7 +217,7 @@ export function openEditStaffModal(id) {
   document.getElementById('editStaffAccountName').value = account.name || '';
   document.getElementById('editStaffAccountEmail').value = account.email || '';
   document.getElementById('editStaffAccountPhone').value = account.phone || '';
-  document.getElementById('editStaffAccountRole').value = account.role || 'staff';
+  document.getElementById('editStaffAccountRole').value = currentRole;
   document.getElementById('editStaffAccountForm').addEventListener('submit', handleEditStaffSubmit);
 }
 

@@ -9,7 +9,7 @@ import { handleLogin, handleLogout, handleSignup, initDashboardSession, initMfaU
 import { editFurniture, handleFurnitureSubmit, initAdminFurnitureSearch, initFurnitureListFilters, loadFurnitureDetail, loadFurnitureList, loadPublicFurnitureList, loadSpecialOffers } from './modules/furniture.js';
 import { currentManagerStockImage, deleteInventory, editInventory, handleInventorySubmit, handleManagerAddInventorySubmit, handleManagerAddStockImageUpload, handleManagerEditStockImageUpload, handleStockImageUpload, initAdminInventorySearch, loadInventoryList, loadManagerInventoryList, loadStaffInventoryList, openAddInventoryModal, openAddManagerInventoryModal, openManagerEditInventoryModal, updateManagerStockPreview } from './modules/inventory.js';
 import { deleteSales, editAdminSalesRecord, editManagerSalesRecord, editStaffSalesRecord, handleManagerSalesSubmit, handleSalesSubmit, handleStaffSalesSubmit, initAdminSalesControls, initManagerSalesControls, loadManagerSalesAnalytics, loadManagerSalesList, loadSalesAnalytics, loadSalesList, loadSalesProductOptions, loadStaffSalesAnalytics, loadStaffSalesList, openAddSalesModal, submitSalesEdit } from './modules/sales.js';
-import { confirmSendSms, deleteDelivery, editDelivery, handleDeliverySubmit, handlePublicTrackDelivery, handleStaffDeliverySubmit, initAdminDeliveryControls, initManagerDeliveryControls, loadDeliveryList, loadDeliveryStats, loadManagerDeliveryList, loadStaffDeliveryList, openAddDeliveryModal, openSmsModal, openStaffAddDeliveryModal, toggleDeliverySelection, updateDeliveryStatus } from './modules/delivery.js';
+import { confirmSendSms, deleteDelivery, editDelivery, handleDeliverySubmit, handlePublicTrackDelivery, handleStaffDeliverySubmit, initAdminDeliveryControls, initDriverDeliveryControls, initManagerDeliveryControls, loadDeliveryList, loadDeliveryStats, loadDriverDeliveryList, loadManagerDeliveryList, loadStaffDeliveryList, markDeliveryAsDelivered, openAddDeliveryModal, openSmsModal, openStaffAddDeliveryModal, toggleDeliverySelection, updateDeliveryStatus } from './modules/delivery.js';
 import { handleContactFormSubmit, loadAboutPageContent, loadBusinessInfo, loadContactPageContent } from './modules/business-info.js';
 import { activateStaffAccount, closeEditStaffModal, closeMyAccountModal, deactivateStaffAccount, loadStaffAccountsList, openAddStaffModal, openEditStaffModal, openMyAccountModal } from './modules/staff-accounts.js';
 import { deleteAdminFeedback, deleteAdminInquiry, deleteChatbotItem, editChatbotQA, handleChatbotSubmit, initChatbot, initCustomerSupportPage, loadAdminFeedback, loadAdminInquiries, loadChatbotList, openAddChatbotModal } from './modules/chatbot.js';
@@ -203,6 +203,19 @@ document.addEventListener('DOMContentLoaded', () => {
     initManagerSalesControls();
   }
 
+  // ---- DRIVER PAGE ----
+  if (window.location.pathname.includes('driver')) {
+    const user = JSON.parse(sessionStorage.getItem('currentUser') || '{}');
+    const driverNameEl = document.getElementById('driverName');
+    if (driverNameEl && user.name) driverNameEl.textContent = user.name;
+
+    loadDriverDeliveryList();
+    initDriverDeliveryControls();
+
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn) logoutBtn.addEventListener('click', handleLogout);
+  }
+
   // ---- LOGIN PAGE ----
   if (window.location.pathname.includes('login')) {
     const reasons = {
@@ -352,6 +365,8 @@ Object.assign(window, {
   editManagerSalesRecord,
   editStaffSalesRecord,
   hideModal,
+  loadDriverDeliveryList,
+  markDeliveryAsDelivered,
   openAddStaffModal,
   openEditStaffModal,
   openManagerEditInventoryModal,
