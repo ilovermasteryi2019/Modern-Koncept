@@ -131,6 +131,7 @@ export const API = {
   },
   deleteDelivery: async (id) => (await fetch(`${API_URL}/deliveries/${id}`, { method: 'DELETE', headers: authHeaders() })).json(),
   sendDeliverySms: async (id) => (await fetch(`${API_URL}/deliveries/${id}/send-sms`, { method: 'POST', headers: authHeaders() })).json(),
+  syncDeliveredSales: async () => (await fetch(`${API_URL}/sales/sync-delivered`, { method: 'POST', headers: authHeaders() })).json(),
   getSales: async () => (await fetch(`${API_URL}/sales`)).json(),
   createSales: async (data) => (await fetch(`${API_URL}/sales`, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(data) })).json(),
   updateSales: async (id, data) => (await fetch(`${API_URL}/sales/${id}`, { method: 'PUT', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(data) })).json(),

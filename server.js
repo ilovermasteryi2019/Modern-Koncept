@@ -1555,7 +1555,123 @@ app.post('/deliveries/:id/send-sms', requireRole('admin', 'manager'), async (req
 // =============================================================================
 // SALES
 // =============================================================================
+// Automatically synchronizes any deliveries with status='Delivered' into public.sales
+let lastSyncDeliveredAt = 0;
+async function syncDeliveredDeliveriesToSales() {
+  if (Date.now() - lastSyncDeliveredAt < 3000) return;
+  lastSyncDeliveredAt = Date.now();
+  try {
+    const { data: deliveredList, error: delErr } = await db.from('deliveries').select('*').eq('status', 'Delivered');
+    if (delErr || !Array.isArray(deliveredList) || deliveredList.length === 0) return;
+
+    const salesCols = await getSalesOptionalColumns();
+    const { data: existingSales, error: salesErr } = await db.from('sales').select('*');
+    if (salesErr || !Array.isArray(existingSales)) return;
+
+    const [{ data: invList }, { data: prodList }] = await Promise.all([
+      db.from('inventory').select('id, name, price, quantity'),
+      db.from('products').select('name, price')
+    ]);
+
+    for (const del of deliveredList) {
+      const mergedDel = mergeDeliveryFallbackMeta(del);
+
+      // Check if this delivered delivery is already recorded in sales
+      const alreadyExists = existingSales.some(s => {
+        if (salesCols.delivery_id && s.delivery_id != null && String(s.delivery_id) === String(del.id)) return true;
+        if (mergedDel.sales_record_id != null && Number(s.id) === Number(mergedDel.sales_record_id)) return true;
+
+        const sameCust = String(s.customer_name || '').trim().toLowerCase() === String(del.customer_name || '').trim().toLowerCase();
+        const sameProd = String(s.product_name || '').trim().toLowerCase() === String(del.product || '').trim().toLowerCase();
+        if (sameCust && sameProd) {
+          const delDate = (del.delivery_date || del.delivered_at || del.created_at || '').slice(0, 10);
+          const saleDate = (s.sale_date || '').slice(0, 10);
+          if (delDate && saleDate && delDate === saleDate) return true;
+        }
+        return false;
+      });
+
+      if (!alreadyExists) {
+        const customer = (del.customer_name || 'Customer').trim();
+        const productName = (del.product || 'Delivered Item').trim();
+        const qty = toPositiveInt(del.quantity) || 1;
+        let finalAmount = Number(del.amount);
+        let invId = toPositiveInt(del.inventory_id);
+
+        if ((!invId || !Number.isFinite(finalAmount) || finalAmount <= 0) && productName && productName !== 'N/A') {
+          const normProd = productName.toLowerCase();
+          if (Array.isArray(invList)) {
+            const matched = invList.find(it => it.name && (
+              it.name.trim().toLowerCase() === normProd ||
+              normProd.includes(it.name.trim().toLowerCase()) ||
+              it.name.trim().toLowerCase().includes(normProd)
+            ));
+            if (matched) {
+              if (!invId) invId = matched.id;
+              if (!Number.isFinite(finalAmount) || finalAmount <= 0) {
+                finalAmount = Math.round((Number(matched.price) || 0) * qty * 100) / 100;
+              }
+            }
+          }
+          if (!Number.isFinite(finalAmount) || finalAmount <= 0) {
+            if (Array.isArray(prodList)) {
+              const matchedProd = prodList.find(p => p.name && (
+                p.name.trim().toLowerCase() === normProd ||
+                normProd.includes(p.name.trim().toLowerCase()) ||
+                p.name.trim().toLowerCase().includes(normProd)
+              ));
+              if (matchedProd && Number(matchedProd.price) > 0) {
+                finalAmount = Math.round(Number(matchedProd.price) * qty * 100) / 100;
+              }
+            }
+          }
+        }
+
+        if (!Number.isFinite(finalAmount) || finalAmount <= 0) {
+          finalAmount = 1000;
+        }
+
+        const saleDate = del.delivered_at || del.delivery_date || del.created_at || new Date().toISOString();
+        const saleRow = {
+          customer_name: customer,
+          product_name: productName,
+          amount: finalAmount,
+          sale_date: saleDate
+        };
+        if (salesCols.delivery_id) saleRow.delivery_id = del.id;
+        if (salesCols.inventory_id && invId) saleRow.inventory_id = invId;
+        if (salesCols.quantity) saleRow.quantity = qty;
+
+        const { data: insertedSale, error: insErr } = await db.from('sales').insert(saleRow).select().maybeSingle();
+        if (!insErr && insertedSale) {
+          existingSales.push(insertedSale);
+          fallbackDeliveryMeta.set(Number(del.id), {
+            ...(fallbackDeliveryMeta.get(Number(del.id)) || {}),
+            sales_record_id: insertedSale.id
+          });
+          console.log(`✅ [AutoSync] Generated sales record #${insertedSale.id} for delivered delivery #${del.id} (${customer} - ${productName})`);
+        } else if (insErr) {
+          const minRow = {
+            customer_name: customer,
+            product_name: productName,
+            amount: finalAmount,
+            sale_date: saleDate
+          };
+          const { data: minSale } = await db.from('sales').insert(minRow).select().maybeSingle();
+          if (minSale) {
+            existingSales.push(minSale);
+            console.log(`✅ [AutoSync] Generated minimal sales record #${minSale.id} for delivered delivery #${del.id}`);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Error during syncDeliveredDeliveriesToSales:', err);
+  }
+}
+
 app.get('/sales', async (req, res) => {
+  await syncDeliveredDeliveriesToSales();
   const [salesRes, invRes, prodRes] = await Promise.all([
     db.from('sales').select('*').order('sale_date', { ascending: false }),
     db.from('inventory').select('id, name, category'),
@@ -1627,6 +1743,12 @@ async function computeSaleAmount(inventoryId, quantity) {
   }
   return { ok: true, amount: Math.round(unitPrice * quantity * 100) / 100 };
 }
+
+app.post('/sales/sync-delivered', requireRole('admin', 'manager'), async (req, res) => {
+  lastSyncDeliveredAt = 0;
+  await syncDeliveredDeliveriesToSales();
+  res.json({ success: true, message: 'Delivered deliveries synchronized with sales records successfully' });
+});
 
 app.post('/sales', requireRole('admin', 'manager', 'staff'), async (req, res) => {
   const callerRole = normalizeRole(req.authUser.role);
@@ -1750,6 +1872,7 @@ app.delete('/sales/:id', requireRole('admin'), async (req, res) => {
 });
 
 app.get('/sales/monthly', async (req, res) => {
+  await syncDeliveredDeliveriesToSales();
   const { data, error } = await db.from('sales').select('sale_date, amount');
   if (error) return res.status(500).json({ error: 'Failed to fetch monthly sales data' });
   const grouped = {};

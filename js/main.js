@@ -8,7 +8,7 @@ import { hideModal, initDashboardTabs, initModalCloseButtons, kdEventButton, kdR
 import { handleLogin, handleLogout, handleSignup, initDashboardSession, initMfaUi } from './modules/auth.js';
 import { editFurniture, handleFurnitureSubmit, initAdminFurnitureSearch, initFurnitureListFilters, loadFurnitureDetail, loadFurnitureList, loadPublicFurnitureList, loadSpecialOffers } from './modules/furniture.js';
 import { currentManagerStockImage, deleteInventory, editInventory, handleInventorySubmit, handleManagerAddInventorySubmit, handleManagerAddStockImageUpload, handleManagerEditStockImageUpload, handleStockImageUpload, initAdminInventorySearch, loadInventoryList, loadManagerInventoryList, loadStaffInventoryList, openAddInventoryModal, openAddManagerInventoryModal, openManagerEditInventoryModal, updateManagerStockPreview } from './modules/inventory.js';
-import { deleteSales, editAdminSalesRecord, editManagerSalesRecord, editStaffSalesRecord, handleManagerSalesSubmit, handleSalesSubmit, handleStaffSalesSubmit, initAdminSalesControls, initManagerSalesControls, loadManagerSalesAnalytics, loadManagerSalesList, loadSalesAnalytics, loadSalesList, loadSalesProductOptions, loadStaffSalesAnalytics, loadStaffSalesList, openAddSalesModal, submitSalesEdit } from './modules/sales.js';
+import { deleteSales, editAdminSalesRecord, editManagerSalesRecord, editStaffSalesRecord, handleManagerSalesSubmit, handleSalesSubmit, handleStaffSalesSubmit, initAdminSalesControls, initManagerSalesControls, loadManagerSalesAnalytics, loadManagerSalesList, loadSalesAnalytics, loadSalesList, loadSalesProductOptions, loadStaffSalesAnalytics, loadStaffSalesList, openAddSalesModal, submitSalesEdit, syncDeliveredSalesRecords } from './modules/sales.js';
 import { confirmSendSms, deleteDelivery, editDelivery, handleDeliverySubmit, handlePublicTrackDelivery, handleStaffDeliverySubmit, initAdminDeliveryControls, initDriverDeliveryControls, initManagerDeliveryControls, loadDeliveryList, loadDeliveryStats, loadDriverDeliveryList, loadManagerDeliveryList, loadStaffDeliveryList, markDeliveryAsDelivered, openAddDeliveryModal, openSmsModal, openStaffAddDeliveryModal, toggleDeliverySelection, updateDeliveryStatus } from './modules/delivery.js';
 import { handleContactFormSubmit, loadAboutPageContent, loadBusinessInfo, loadContactPageContent } from './modules/business-info.js';
 import { activateStaffAccount, closeEditStaffModal, closeMyAccountModal, deactivateStaffAccount, loadStaffAccountsList, openAddStaffModal, openEditStaffModal, openMyAccountModal } from './modules/staff-accounts.js';
@@ -374,4 +374,5 @@ Object.assign(window, {
   openSmsModal,
   toggleDeliverySelection,
   updateDeliveryStatus,
+  syncDeliveredSalesRecords,
 });

@@ -1732,6 +1732,24 @@ loadSalesAnalytics = kdWrapBusy(loadSalesAnalytics, '#totalSales, #totalRecords,
 loadStaffSalesAnalytics = kdWrapBusy(loadStaffSalesAnalytics, '#staffTotalSales, #staffTotalRecords, #staffAverageSale');
 loadManagerSalesAnalytics = kdWrapBusy(loadManagerSalesAnalytics, '#managerTotalSales, #managerTotalRecords, #managerAverageSale, #managerSalesLineChart');
 
+export async function syncDeliveredSalesRecords() {
+  try {
+    showToast('Syncing delivered deliveries with sales records...', 'info');
+    const res = await API.syncDeliveredSales();
+    if (res && res.success) {
+      showToast('✅ Sales records synchronized successfully', 'success');
+    }
+    if (document.getElementById('adminSalesList')) {
+      await Promise.all([loadSalesList(), loadSalesAnalytics()]);
+    }
+    if (document.getElementById('managerSalesList')) {
+      await Promise.all([loadManagerSalesList(), loadManagerSalesAnalytics()]);
+    }
+  } catch (e) {
+    showToast('Failed to sync delivered sales', 'error');
+  }
+}
+
 // Synchronize sales table and metrics across browser tabs and on window focus
 if (typeof window !== 'undefined') {
   const refreshActiveSales = () => {
