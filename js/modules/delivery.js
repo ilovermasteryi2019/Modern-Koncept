@@ -1561,7 +1561,7 @@ export function renderDriverDeliveryTableRows(filtered, allCount) {
     let actionHtml = '';
     if (norm === 'In Transit') {
       actionHtml = `
-        <button type="button" class="action-btn deliver-btn" onclick="markDeliveryAsDelivered(${item.id})" title="Mark as Delivered">
+        <button type="button" class="action-btn deliver-btn" onclick="markDeliveryAsDelivered('${item.id}')" title="Mark as Delivered">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
           Mark as Delivered
         </button>
@@ -1645,7 +1645,7 @@ export async function loadDriverDeliveryList() {
 }
 
 export async function markDeliveryAsDelivered(id) {
-  const rec = (driverDeliveriesCache || []).find(d => Number(d.id) === Number(id));
+  const rec = (driverDeliveriesCache || []).find(d => String(d.id) === String(id) || Number(d.id) === Number(id));
   const ref = rec ? rec.ref_code : `#${id}`;
   const customer = rec ? ` for ${rec.customer_name}` : '';
 
