@@ -1731,3 +1731,27 @@ loadManagerSalesList = kdWrapLoader(loadManagerSalesList, { target: 'managerSale
 loadSalesAnalytics = kdWrapBusy(loadSalesAnalytics, '#totalSales, #totalRecords, #averageSale, #salesLineChart');
 loadStaffSalesAnalytics = kdWrapBusy(loadStaffSalesAnalytics, '#staffTotalSales, #staffTotalRecords, #staffAverageSale');
 loadManagerSalesAnalytics = kdWrapBusy(loadManagerSalesAnalytics, '#managerTotalSales, #managerTotalRecords, #managerAverageSale, #managerSalesLineChart');
+
+// Synchronize sales table and metrics across browser tabs and on window focus
+if (typeof window !== 'undefined') {
+  const refreshActiveSales = () => {
+    if (document.getElementById('adminSalesList')) {
+      loadSalesList();
+      loadSalesAnalytics();
+    }
+    if (document.getElementById('managerSalesList')) {
+      loadManagerSalesList();
+      loadManagerSalesAnalytics();
+    }
+  };
+
+  window.addEventListener('storage', (e) => {
+    if (e.key === 'kd_sales_updated') {
+      refreshActiveSales();
+    }
+  });
+
+  window.addEventListener('focus', () => {
+    refreshActiveSales();
+  });
+}

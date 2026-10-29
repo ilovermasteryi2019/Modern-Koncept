@@ -954,7 +954,11 @@ const BULK_DELIVERY_LIMIT = 200;
 // (delivery window end, actual completion time, last status-change time, driver assignment).
 // They are detected at runtime so the server keeps working exactly as before until migrations have been
 // run in Supabase. Re-checked every minute so no restart is needed afterwards.
-const DELIVERY_OPTIONAL_COLUMNS = ['delivery_end_date', 'delivered_at', 'status_updated_at', 'assigned_driver_id', 'assigned_driver_name'];
+const DELIVERY_OPTIONAL_COLUMNS = [
+  'delivery_end_date', 'delivered_at', 'status_updated_at',
+  'assigned_driver_id', 'assigned_driver_name',
+  'inventory_id', 'quantity', 'amount', 'sales_record_id'
+];
 let deliveryColumnCache = { at: 0, cols: null };
 async function getDeliveryOptionalColumns() {
   if (deliveryColumnCache.cols && Date.now() - deliveryColumnCache.at < 60 * 1000) return deliveryColumnCache.cols;
@@ -964,6 +968,19 @@ async function getDeliveryOptionalColumns() {
     cols[col] = !error;
   }
   deliveryColumnCache = { at: Date.now(), cols };
+  return cols;
+}
+
+const SALES_OPTIONAL_COLUMNS = ['delivery_id', 'inventory_id', 'quantity'];
+let salesColumnCache = { at: 0, cols: null };
+async function getSalesOptionalColumns() {
+  if (salesColumnCache.cols && Date.now() - salesColumnCache.at < 60 * 1000) return salesColumnCache.cols;
+  const cols = {};
+  for (const col of SALES_OPTIONAL_COLUMNS) {
+    const { error } = await db.from('sales').select(col).limit(1);
+    cols[col] = !error;
+  }
+  salesColumnCache = { at: Date.now(), cols };
   return cols;
 }
 
@@ -1001,7 +1018,7 @@ function deliveryStatusChangeFields(cols, previousStatus, nextStatus) {
 
 // Runtime fallback cache for optional delivery fields before SQL migrations are applied in Supabase.
 // Once migrations are run, PostgreSQL stores these columns directly.
-const fallbackDeliveryMeta = new Map(); // id (number) -> { delivery_end_date, delivered_at, status_updated_at, assigned_driver_id, assigned_driver_name }
+const fallbackDeliveryMeta = new Map(); // id (number) -> { delivery_end_date, delivered_at, status_updated_at, assigned_driver_id, assigned_driver_name, inventory_id, quantity, amount, sales_record_id }
 
 function mergeDeliveryFallbackMeta(row) {
   if (!row || row.id == null) return row;
@@ -1013,7 +1030,11 @@ function mergeDeliveryFallbackMeta(row) {
     delivered_at: row.delivered_at !== undefined ? row.delivered_at : (meta.delivered_at || null),
     status_updated_at: row.status_updated_at !== undefined ? row.status_updated_at : (meta.status_updated_at || null),
     assigned_driver_id: row.assigned_driver_id !== undefined ? row.assigned_driver_id : (meta.assigned_driver_id || null),
-    assigned_driver_name: row.assigned_driver_name !== undefined ? row.assigned_driver_name : (meta.assigned_driver_name || null)
+    assigned_driver_name: row.assigned_driver_name !== undefined ? row.assigned_driver_name : (meta.assigned_driver_name || null),
+    inventory_id: row.inventory_id !== undefined ? row.inventory_id : (meta.inventory_id || null),
+    quantity: row.quantity !== undefined ? row.quantity : (meta.quantity != null ? meta.quantity : 1),
+    amount: row.amount !== undefined ? row.amount : (meta.amount != null ? meta.amount : null),
+    sales_record_id: row.sales_record_id !== undefined ? row.sales_record_id : (meta.sales_record_id || null)
   };
 }
 
@@ -1080,7 +1101,7 @@ app.get('/deliveries/stats', async (req, res) => {
 });
 
 app.post('/deliveries', requireRole('admin', 'manager', 'staff'), withIdempotency('deliveries', async (req, res) => {
-  const { customer_name, contact_number, address, product, status, delivery_type, delivery_date, delivery_end_date, assigned_driver_id, assigned_driver_name } = req.body;
+  const { customer_name, contact_number, address, product, status, delivery_type, delivery_date, delivery_end_date, assigned_driver_id, assigned_driver_name, inventory_id, quantity } = req.body;
   if (!customer_name || !address) return res.status(400).json({ success: false, message: 'Customer name and address are required' });
   if (status && !DELIVERY_STATUSES.includes(status)) return res.status(400).json({ success: false, message: 'Invalid status' });
   if (status === 'Delivered') return res.status(403).json({ success: false, message: 'New deliveries cannot be initially created with Delivered status. Only delivery drivers may mark a delivery as Delivered.' });
@@ -1088,14 +1109,31 @@ app.post('/deliveries', requireRole('admin', 'manager', 'staff'), withIdempotenc
   const end = parseDeliveryDateInput(delivery_end_date);
   const windowError = validateDeliveryWindow(start, end);
   if (windowError) return res.status(400).json({ success: false, message: windowError });
+
+  let invId = toPositiveInt(inventory_id);
+  let qty = toPositiveInt(quantity) || 1;
+  let validatedAmount = null;
+  let productName = (typeof product === 'string' ? product.trim() : '') || 'N/A';
+
+  if (invId) {
+    const computed = await computeSaleAmount(invId, qty);
+    if (!computed.ok) return res.status(computed.status).json(computed.body);
+    validatedAmount = computed.amount;
+    const { data: invItem } = await db.from('inventory').select('name').eq('id', invId).maybeSingle();
+    if (invItem && invItem.name) productName = invItem.name;
+  }
+
   const cols = await getDeliveryOptionalColumns();
   const finalStatus = status || 'Pending';
   const ref_code = generateRefCode();
   const normalizedEnd = end && end !== start ? end : null;
-  const row = { ref_code, customer_name, contact_number: contact_number || null, address, product: product || 'N/A', status: finalStatus, delivery_type: delivery_type || 'Outbound', delivery_date: start || null };
+  const row = { ref_code, customer_name, contact_number: contact_number || null, address, product: productName, status: finalStatus, delivery_type: delivery_type || 'Outbound', delivery_date: start || null };
   if (cols.delivery_end_date) row.delivery_end_date = normalizedEnd;
   if (cols.assigned_driver_id) row.assigned_driver_id = assigned_driver_id ? String(assigned_driver_id) : null;
   if (cols.assigned_driver_name) row.assigned_driver_name = assigned_driver_name ? String(assigned_driver_name) : null;
+  if (cols.inventory_id) row.inventory_id = invId;
+  if (cols.quantity) row.quantity = qty;
+  if (cols.amount) row.amount = validatedAmount;
   Object.assign(row, deliveryStatusChangeFields(cols, null, finalStatus));
   const { data, error } = await db.from('deliveries').insert(row).select().single();
   if (error) return res.status(500).json({ success: false, message: 'Failed to create delivery' });
@@ -1105,13 +1143,17 @@ app.post('/deliveries', requireRole('admin', 'manager', 'staff'), withIdempotenc
     delivered_at: finalStatus === 'Delivered' ? nowIso : null,
     status_updated_at: nowIso,
     assigned_driver_id: assigned_driver_id ? String(assigned_driver_id) : null,
-    assigned_driver_name: assigned_driver_name ? String(assigned_driver_name) : null
+    assigned_driver_name: assigned_driver_name ? String(assigned_driver_name) : null,
+    inventory_id: invId,
+    quantity: qty,
+    amount: validatedAmount,
+    sales_record_id: null
   });
-  res.status(201).json({ success: true, message: 'Delivery created successfully', id: data.id, ref_code, delivery_end_date: normalizedEnd });
+  res.status(201).json({ success: true, message: 'Delivery created successfully', id: data.id, ref_code, delivery_end_date: normalizedEnd, amount: validatedAmount });
 }));
 
 app.put('/deliveries/:id', requireRole('admin', 'manager'), async (req, res) => {
-  const { customer_name, contact_number, address, product, status, delivery_type, delivery_date, delivery_end_date, assigned_driver_id, assigned_driver_name } = req.body || {};
+  const { customer_name, contact_number, address, product, status, delivery_type, delivery_date, delivery_end_date, assigned_driver_id, assigned_driver_name, inventory_id, quantity } = req.body || {};
   if (!customer_name || !String(customer_name).trim() || !address || !String(address).trim()) {
     return res.status(400).json({ success: false, message: 'Customer name and address are required' });
   }
@@ -1137,12 +1179,28 @@ app.put('/deliveries/:id', requireRole('admin', 'manager'), async (req, res) => 
   const windowError = validateDeliveryWindow(start, end);
   if (windowError) return res.status(400).json({ success: false, message: windowError });
 
+  let invId = inventory_id !== undefined ? toPositiveInt(inventory_id) : (existing.inventory_id || prevMeta.inventory_id || null);
+  let qty = quantity !== undefined ? (toPositiveInt(quantity) || 1) : (existing.quantity || prevMeta.quantity || 1);
+  let validatedAmount = existing.amount || prevMeta.amount || null;
+  let productName = product !== undefined ? product : existing.product;
+
+  if (invId) {
+    const computed = await computeSaleAmount(invId, qty);
+    if (!computed.ok) return res.status(computed.status).json(computed.body);
+    validatedAmount = computed.amount;
+    const { data: invItem } = await db.from('inventory').select('name').eq('id', invId).maybeSingle();
+    if (invItem && invItem.name && (!product || product === 'N/A')) productName = invItem.name;
+  }
+
   const normalizedEnd = end && end !== start ? end : null;
-  const update = { customer_name, contact_number, address, product, delivery_type, delivery_date };
+  const update = { customer_name, contact_number, address, product: productName, delivery_type, delivery_date };
   if (status !== undefined) update.status = status;
   if (cols.delivery_end_date && endInput !== undefined) update.delivery_end_date = normalizedEnd;
   if (cols.assigned_driver_id && assigned_driver_id !== undefined) update.assigned_driver_id = assigned_driver_id ? String(assigned_driver_id) : null;
   if (cols.assigned_driver_name && assigned_driver_name !== undefined) update.assigned_driver_name = assigned_driver_name ? String(assigned_driver_name) : null;
+  if (cols.inventory_id && inventory_id !== undefined) update.inventory_id = invId;
+  if (cols.quantity && quantity !== undefined) update.quantity = qty;
+  if (cols.amount) update.amount = validatedAmount;
   Object.assign(update, deliveryStatusChangeFields(cols, existing.status, status));
   const { error } = await db.from('deliveries').update(update).eq('id', req.params.id);
   if (error) return res.status(500).json({ success: false, message: 'Failed to update delivery' });
@@ -1153,9 +1211,13 @@ app.put('/deliveries/:id', requireRole('admin', 'manager'), async (req, res) => 
     delivered_at: statusChanged ? (status === 'Delivered' ? nowIso : null) : (prevMeta.delivered_at || null),
     status_updated_at: statusChanged ? nowIso : (prevMeta.status_updated_at || null),
     assigned_driver_id: assigned_driver_id !== undefined ? (assigned_driver_id ? String(assigned_driver_id) : null) : (existing.assigned_driver_id || prevMeta.assigned_driver_id || null),
-    assigned_driver_name: assigned_driver_name !== undefined ? (assigned_driver_name ? String(assigned_driver_name) : null) : (existing.assigned_driver_name || prevMeta.assigned_driver_name || null)
+    assigned_driver_name: assigned_driver_name !== undefined ? (assigned_driver_name ? String(assigned_driver_name) : null) : (existing.assigned_driver_name || prevMeta.assigned_driver_name || null),
+    inventory_id: invId,
+    quantity: qty,
+    amount: validatedAmount,
+    sales_record_id: prevMeta.sales_record_id || null
   });
-  res.json({ success: true, message: 'Delivery updated successfully', delivery_end_date: normalizedEnd });
+  res.json({ success: true, message: 'Delivery updated successfully', delivery_end_date: normalizedEnd, amount: validatedAmount });
 });
 
 // Bulk status update (Admin + Manager). Only the status (and, when the migration exists, the status/completion
@@ -1245,6 +1307,153 @@ app.patch('/deliveries/:id/status', requireRole('admin', 'manager', 'delivery_dr
   if (cols.status_updated_at || cols.delivered_at) {
     Object.assign(update, deliveryStatusChangeFields(cols, existing.status, status));
   }
+
+  // Automatic sales record generation when marked as Delivered
+  let autoCreatedSaleId = mergedExisting.sales_record_id || null;
+  let remainingStock = null;
+
+  if (status === 'Delivered' && !autoCreatedSaleId) {
+    try {
+      const salesCols = await getSalesOptionalColumns();
+      let existingSale = null;
+
+      // 1. Check if a sale was already created for this delivery
+      if (salesCols.delivery_id) {
+        const res = await db.from('sales').select('id').eq('delivery_id', existing.id).maybeSingle();
+        if (res && res.data) existingSale = res.data;
+      }
+      if (!existingSale && mergedExisting.sales_record_id) {
+        const res = await db.from('sales').select('id').eq('id', mergedExisting.sales_record_id).maybeSingle();
+        if (res && res.data) existingSale = res.data;
+      }
+
+      if (existingSale && existingSale.id) {
+        autoCreatedSaleId = existingSale.id;
+      } else {
+        const customer = (mergedExisting.customer_name || 'Customer').trim();
+        let productName = (mergedExisting.product || 'Delivered Item').trim();
+        let invId = toPositiveInt(mergedExisting.inventory_id);
+        const qty = toPositiveInt(mergedExisting.quantity) || 1;
+        let finalAmount = Number(mergedExisting.amount);
+
+        // 2. If invId or finalAmount is missing, look up by product name in inventory & products
+        if ((!invId || !Number.isFinite(finalAmount) || finalAmount <= 0) && productName && productName !== 'N/A') {
+          const normProd = productName.toLowerCase();
+          const { data: invList } = await db.from('inventory').select('id, name, price, quantity');
+          if (Array.isArray(invList)) {
+            const matched = invList.find(it => it.name && (
+              it.name.trim().toLowerCase() === normProd ||
+              normProd.includes(it.name.trim().toLowerCase()) ||
+              it.name.trim().toLowerCase().includes(normProd)
+            ));
+            if (matched) {
+              if (!invId) invId = matched.id;
+              if (!Number.isFinite(finalAmount) || finalAmount <= 0) {
+                finalAmount = Math.round((Number(matched.price) || 0) * qty * 100) / 100;
+              }
+            }
+          }
+
+          if (!Number.isFinite(finalAmount) || finalAmount <= 0) {
+            const { data: prodList } = await db.from('products').select('name, price');
+            if (Array.isArray(prodList)) {
+              const matchedProd = prodList.find(p => p.name && (
+                p.name.trim().toLowerCase() === normProd ||
+                normProd.includes(p.name.trim().toLowerCase()) ||
+                p.name.trim().toLowerCase().includes(normProd)
+              ));
+              if (matchedProd && Number(matchedProd.price) > 0) {
+                finalAmount = Math.round(Number(matchedProd.price) * qty * 100) / 100;
+              }
+            }
+          }
+        }
+
+        if (!Number.isFinite(finalAmount) || finalAmount < 0) {
+          finalAmount = 0;
+        }
+
+        // 3. Construct safe sales row (respects existing database columns)
+        const saleRow = {
+          customer_name: customer,
+          product_name: productName,
+          amount: finalAmount,
+          sale_date: nowIso
+        };
+        if (salesCols.delivery_id) saleRow.delivery_id = existing.id;
+        if (salesCols.inventory_id && invId) saleRow.inventory_id = invId;
+        if (salesCols.quantity) saleRow.quantity = qty;
+
+        // 4. If inventory item is identified, attempt stock deduction
+        let stockDeducted = false;
+        if (invId) {
+          try {
+            const deterministicUuid = crypto.createHash('md5').update('delivery-sale-' + existing.id).digest('hex').replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5');
+            const { data: rpcRes, error: rpcErr } = await db.rpc('create_sale_with_inventory', {
+              p_customer_name: customer,
+              p_inventory_id: invId,
+              p_quantity: qty,
+              p_amount: finalAmount,
+              p_sale_date: nowIso,
+              p_request_id: deterministicUuid
+            });
+
+            if (!rpcErr && rpcRes && rpcRes.success) {
+              autoCreatedSaleId = rpcRes.sale_id;
+              remainingStock = rpcRes.remaining;
+              stockDeducted = true;
+              if (salesCols.delivery_id && autoCreatedSaleId) {
+                await db.from('sales').update({ delivery_id: existing.id }).eq('id', autoCreatedSaleId);
+              }
+            }
+          } catch (rpcEx) {
+            console.warn('RPC create_sale_with_inventory failed, proceeding to direct insert:', rpcEx.message);
+          }
+        }
+
+        // 5. If not saved via RPC, perform direct insert into public.sales
+        if (!autoCreatedSaleId) {
+          const { data: directSale, error: insertErr } = await db.from('sales').insert(saleRow).select('id').maybeSingle();
+          if (insertErr) {
+            console.error('Initial sales insert failed:', insertErr.message);
+            // Fallback: minimal insert with guaranteed core columns only
+            const minimalRow = {
+              customer_name: customer,
+              product_name: productName,
+              amount: finalAmount,
+              sale_date: nowIso
+            };
+            const { data: minSale, error: minErr } = await db.from('sales').insert(minimalRow).select('id').maybeSingle();
+            if (minSale) autoCreatedSaleId = minSale.id;
+            else if (minErr) console.error('Minimal sales insert failed:', minErr.message);
+          } else if (directSale) {
+            autoCreatedSaleId = directSale.id;
+          }
+
+          // Direct inventory stock deduction if RPC was not used
+          if (invId && !stockDeducted) {
+            try {
+              const { data: curInv } = await db.from('inventory').select('quantity').eq('id', invId).maybeSingle();
+              if (curInv && curInv.quantity != null) {
+                const updatedQty = Math.max(0, (parseInt(curInv.quantity, 10) || 0) - qty);
+                await db.from('inventory').update({ quantity: updatedQty }).eq('id', invId);
+                remainingStock = updatedQty;
+              }
+            } catch (invErr) {
+              console.warn('Direct inventory stock update warning:', invErr.message);
+            }
+          }
+        }
+      }
+
+      if (autoCreatedSaleId && cols.sales_record_id) {
+        update.sales_record_id = autoCreatedSaleId;
+      }
+    } catch (saleErr) {
+      console.error('Error during automatic sales record creation:', saleErr);
+    }
+  }
+
   const { error } = await db.from('deliveries').update(update).eq('id', req.params.id);
   if (error) return res.status(500).json({ success: false, message: 'Failed to update delivery status' });
 
@@ -1252,10 +1461,16 @@ app.patch('/deliveries/:id/status', requireRole('admin', 'manager', 'delivery_dr
   fallbackDeliveryMeta.set(Number(existing.id), {
     ...prevMeta,
     delivered_at: status === 'Delivered' ? nowIso : null,
-    status_updated_at: nowIso
+    status_updated_at: nowIso,
+    sales_record_id: autoCreatedSaleId || prevMeta.sales_record_id || null
   });
 
-  res.json({ success: true, message: `Delivery status updated to ${status} successfully` });
+  res.json({
+    success: true,
+    message: `Delivery status updated to ${status} successfully` + (autoCreatedSaleId ? ' (Sales record generated)' : ''),
+    sales_record_id: autoCreatedSaleId,
+    remaining: remainingStock
+  });
 });
 
 app.delete('/deliveries/:id', requireRole('admin'), async (req, res) => {
@@ -1414,6 +1629,14 @@ async function computeSaleAmount(inventoryId, quantity) {
 }
 
 app.post('/sales', requireRole('admin', 'manager', 'staff'), async (req, res) => {
+  const callerRole = normalizeRole(req.authUser.role);
+  if (callerRole === 'admin' || callerRole === 'manager') {
+    return res.status(403).json({
+      success: false,
+      message: 'Manual sales record creation is disabled for Admin and Manager. Sales records are generated automatically when deliveries are marked as Delivered.'
+    });
+  }
+
   const { customer_name, product_name, amount, sale_date, inventory_id, quantity, request_id } = req.body;
   const customer = typeof customer_name === 'string' ? customer_name.trim() : '';
   if (!customer) {

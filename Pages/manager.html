@@ -350,42 +350,17 @@
         <div id="managerSalesChartNotice" style="display:none;margin-top:0.75rem;padding:0.65rem 0.9rem;border-radius:0.5rem;font-size:0.8125rem;background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;"></div>
       </div>
 
-      <!-- Add Sales Form -->
-      <div class="card" style="margin-bottom:1.5rem;">
-        <h3 style="font-size:1.125rem;font-weight:600;color:#111827;margin-bottom:1rem;">Add New Sales Record</h3>
-        <form id="managerSalesForm">
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">Customer Name</label>
-              <input type="text" id="managerSalesCustomer" class="form-input" placeholder="Enter customer name" required>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Product</label>
-              <select id="managerSalesProduct" class="form-input" required>
-                <option value="">Loading inventory...</option>
-              </select>
-              <small id="managerSalesProductHint" style="display:block;margin-top:0.25rem;font-size:0.75rem;color:#6b7280;"></small>
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Quantity Sold</label>
-            <input type="number" id="managerSalesQuantity" class="form-input" min="1" step="1" value="1" required>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">Amount (₱)</label>
-              <input type="number" id="managerSalesAmount" class="form-input" min="0" step="0.01" placeholder="Auto-computed" required readonly style="background-color:#f3f4f6;cursor:not-allowed;">
-            </div>
-            <div class="form-group">
-              <label class="form-label">Date</label>
-              <input type="date" id="managerSalesDate" class="form-input" required>
-            </div>
-          </div>
-          <button type="submit" class="btn btn-accent" style="background:#7c3aed;border-color:#7c3aed;">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            Add Sales Record
-          </button>
-        </form>
+      <!-- Automated Sales Notice (Replaces Manual Creation) -->
+      <div class="alert alert-info" style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.75rem; background: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 0.5rem; padding: 1rem; color: #5b21b6;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="16" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+        </svg>
+        <div>
+          <strong style="font-weight: 600; display: block; margin-bottom: 0.25rem;">Automated Sales Record Generation</strong>
+          <span style="font-size: 0.875rem; color: #4c1d95;">Sales records are automatically generated when furniture delivery orders are marked as <strong>Delivered</strong>. To record a sale, create a delivery in the Delivery module.</span>
+        </div>
       </div>
 
       <!-- Sales Filter & Sort Toolbar -->
@@ -695,8 +670,21 @@
             <input type="text" id="deliveryAddress" class="form-input" placeholder="Enter delivery address" required>
           </div>
           <div class="form-group">
-            <label class="form-label">Product</label>
-            <input type="text" id="deliveryProduct" class="form-input" placeholder="Enter product">
+            <label class="form-label">Product *</label>
+            <select id="deliveryProduct" class="form-input" required>
+              <option value="">Select an available inventory item</option>
+            </select>
+            <small id="deliveryProductHint" style="display:block;margin-top:0.25rem;font-size:0.75rem;color:#6b7280;"></small>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Quantity Sold *</label>
+              <input type="number" id="deliveryQuantity" class="form-input" min="1" step="1" value="1" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Amount (₱)</label>
+              <input type="text" id="deliveryAmount" class="form-input" readonly placeholder="Auto-computed" style="background:#f3f4f6;cursor:not-allowed;">
+            </div>
           </div>
           <div class="form-row">
             <div class="form-group">

@@ -980,14 +980,17 @@
         <div id="salesChartNotice" style="display:none; margin-top: 0.75rem; padding: 0.65rem 0.9rem; border-radius: 0.5rem; font-size: 0.8125rem; background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe;"></div>
       </div>
       
-      <div class="card" style="margin-bottom: 1.5rem;">
-        <button class="btn btn-accent" id="addSalesBtn">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="12" y1="5" x2="12" y2="19"></line>
-            <line x1="5" y1="12" x2="19" y2="12"></line>
-          </svg>
-          Add Sales Record
-        </button>
+      <!-- Automated Sales Notice (Replaces Manual Creation) -->
+      <div class="alert alert-info" style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.75rem; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 0.5rem; padding: 1rem; color: #1e40af;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="16" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+        </svg>
+        <div>
+          <strong style="font-weight: 600; display: block; margin-bottom: 0.25rem;">Automated Sales Record Generation</strong>
+          <span style="font-size: 0.875rem; color: #1e3a8a;">Sales records are automatically generated when furniture delivery orders are marked as <strong>Delivered</strong>. To record a sale, create a delivery in the Delivery module.</span>
+        </div>
       </div>
 
       <!-- Sales Filter & Sort Toolbar -->
@@ -1397,7 +1400,21 @@
           
           <div class="form-group">
             <label class="form-label">Product *</label>
-            <input type="text" id="deliveryProduct" class="form-input" placeholder="Enter product name" required>
+            <select id="deliveryProduct" class="form-input" required>
+              <option value="">Select an available inventory item</option>
+            </select>
+            <small id="deliveryProductHint" style="display:block;margin-top:0.25rem;font-size:0.75rem;color:#6b7280;"></small>
+          </div>
+          
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Quantity *</label>
+              <input type="number" id="deliveryQuantity" class="form-input" min="1" step="1" value="1" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Amount (₱)</label>
+              <input type="text" id="deliveryAmount" class="form-input" readonly placeholder="Auto-computed" style="background:#f3f4f6;cursor:not-allowed;">
+            </div>
           </div>
           
           <div class="form-row">
@@ -1494,59 +1511,7 @@
   </div>
   <!-- [END PARTIAL: partials/modals/delivery-modals-admin.html] -->
   <!-- [BEGIN PARTIAL: partials/modals/sales-modals-admin.html] -->
-  <!-- Add/Edit Sales Modal -->
-  <div id="salesModal" class="modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3 class="modal-title" id="salesModalTitle">Add Sales Record</h3>
-        <button class="modal-close" data-close-modal="salesModal">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
-        </button>
-      </div>
-      <div class="modal-body">
-        <form id="salesForm">
-          <input type="hidden" id="salesId">
-          <div class="form-group">
-            <label class="form-label">Customer Name</label>
-            <input type="text" id="salesCustomerName" class="form-input" placeholder="Enter customer name" required>
-          </div>
-          
-          <div class="form-group">
-            <label class="form-label">Product</label>
-            <select id="salesProductName" class="form-input" required>
-              <option value="">Loading inventory...</option>
-            </select>
-            <small id="salesProductNameHint" style="display:block;margin-top:0.25rem;font-size:0.75rem;color:#6b7280;"></small>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">Quantity Sold</label>
-            <input type="number" id="salesQuantity" class="form-input" min="1" step="1" value="1" required>
-          </div>
-          
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">Amount (₱)</label>
-              <input type="number" id="salesAmount" class="form-input" min="0" step="0.01" placeholder="Auto-computed" required readonly style="background-color:#f3f4f6;cursor:not-allowed;">
-            </div>
-            
-            <div class="form-group">
-              <label class="form-label">Date</label>
-              <input type="date" id="salesDateInput" class="form-input" required>
-            </div>
-          </div>
-          
-          <div style="display: flex; gap: 0.75rem;">
-            <button type="submit" class="btn btn-accent" style="flex: 1;">Save Sales Record</button>
-            <button type="button" class="btn btn-secondary" data-close-modal="salesModal" style="flex: 1;">Cancel</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  </div>
+  <!-- Note: Add Sales Record modal removed for Admin; sales are created automatically when deliveries are marked Delivered -->
 
   <!-- Edit Sales Record Modal -->
   <div id="editAdminSalesModal" class="modal">

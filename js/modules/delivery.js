@@ -715,7 +715,7 @@ function renderAdminDeliveryTableRows(filteredDeliveries, allDeliveriesCount) {
         <td>${escapeDeliveryHtml(item.customer_name)}</td>
         <td>${escapeDeliveryHtml(item.contact_number || 'N/A')}</td>
         <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeDeliveryHtml(item.address)}">${escapeDeliveryHtml(item.address)}</td>
-        <td>${escapeDeliveryHtml(item.product || 'N/A')}</td>
+        <td>${escapeDeliveryHtml(item.product || 'N/A')}${item.quantity && item.quantity > 1 ? ` <span style="font-weight:600;color:#6b7280;font-size:0.8125rem;">(×${item.quantity})</span>` : ''}${item.amount ? `<div style="font-size:0.75rem;color:#16a34a;font-weight:600;">₱${Number(item.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>` : ''}</td>
         <td>${driverDisplay}</td>
         <td>${renderDeliveryDateCell(item)}</td>
         <td>${getStatusBadge(item.status, item)}</td>
@@ -1218,7 +1218,7 @@ function renderDeliveryTableForRole(deliveries, tbodyId, searchTerm) {
       <td>${escapeDeliveryHtml(delivery.customer_name)}</td>
       <td>${escapeDeliveryHtml(delivery.contact_number || 'N/A')}</td>
       <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeDeliveryHtml(delivery.address)}">${escapeDeliveryHtml(delivery.address)}</td>
-      <td>${escapeDeliveryHtml(delivery.product || 'N/A')}</td>
+      <td>${escapeDeliveryHtml(delivery.product || 'N/A')}${delivery.quantity && delivery.quantity > 1 ? ` <span style="font-weight:600;color:#6b7280;font-size:0.8125rem;">(×${delivery.quantity})</span>` : ''}${delivery.amount ? `<div style="font-size:0.75rem;color:#16a34a;font-weight:600;">₱${Number(delivery.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>` : ''}</td>
       <td>${delivery.assigned_driver_name ? `<span style="font-weight:600;color:#1e40af;">${escapeDeliveryHtml(delivery.assigned_driver_name)}</span>` : '<span style="color:#9ca3af;font-size:0.8rem;">Unassigned</span>'}</td>
       <td>${renderDeliveryDateCell(delivery)}</td>
       <td>${getStatusBadge(delivery.status, delivery)}</td>
@@ -1300,6 +1300,92 @@ export async function populateDriverDropdown(selectEl, selectedId) {
   } catch (e) { /* non-critical */ }
 }
 
+const deliveryInventoryItems = {};
+
+export async function loadDeliveryProductOptions(selectedId = null, selectedName = null) {
+  const select = document.getElementById('deliveryProduct');
+  const qtyInput = document.getElementById('deliveryQuantity');
+  const amountInput = document.getElementById('deliveryAmount');
+  const hintEl = document.getElementById('deliveryProductHint');
+  if (!select) return;
+
+  function updateDeliveryAmount() {
+    if (!select || !qtyInput || !amountInput) return;
+    const invId = select.value;
+    const item = deliveryInventoryItems[invId];
+    const qty = parseInt(qtyInput.value, 10) || 0;
+    if (!item) {
+      if (amountInput) amountInput.value = '';
+      if (hintEl) hintEl.textContent = '';
+      return;
+    }
+    const unitPrice = parseFloat(item.price) || 0;
+    const total = Math.round(unitPrice * qty * 100) / 100;
+    amountInput.value = total > 0 ? total.toFixed(2) : '0.00';
+    if (hintEl) {
+      const stock = parseInt(item.quantity, 10) || 0;
+      hintEl.textContent = `Unit Price: ₱${unitPrice.toLocaleString('en-US', { minimumFractionDigits: 2 })} | Available Stock: ${stock} unit(s)`;
+      if (qty > stock) {
+        hintEl.style.color = '#dc2626';
+        hintEl.textContent += ' ⚠️ Warning: Quantity exceeds available stock!';
+      } else {
+        hintEl.style.color = '#6b7280';
+      }
+    }
+  }
+
+  if (!select.dataset.deliveryBound) {
+    select.addEventListener('change', updateDeliveryAmount);
+    if (qtyInput) qtyInput.addEventListener('input', updateDeliveryAmount);
+    select.dataset.deliveryBound = '1';
+  }
+
+  select.disabled = true;
+  select.innerHTML = '<option value="">Loading inventory items...</option>';
+
+  try {
+    const result = await API.getInventory();
+    if (!result || !result.success || !Array.isArray(result.data)) throw new Error('Failed to load inventory');
+    const items = result.data.slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    select.innerHTML = '';
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = items.length ? 'Select an available inventory item' : 'No inventory items available';
+    select.appendChild(placeholder);
+
+    items.forEach(item => {
+      deliveryInventoryItems[item.id] = item;
+      const stock = parseInt(item.quantity, 10) || 0;
+      const opt = document.createElement('option');
+      opt.value = String(item.id);
+      opt.dataset.name = item.name;
+      opt.dataset.price = item.price || 0;
+      opt.dataset.stock = stock;
+      opt.textContent = `${item.name}${item.item_code ? ' (' + item.item_code + ')' : ''} — ${stock > 0 ? stock + ' in stock' : 'Out of stock'}`;
+      if (stock <= 0 && (!selectedId || String(selectedId) !== String(item.id))) {
+        opt.disabled = true;
+      }
+      select.appendChild(opt);
+    });
+
+    select.disabled = false;
+    if (selectedId && deliveryInventoryItems[selectedId]) {
+      select.value = String(selectedId);
+    } else if (selectedName) {
+      const found = items.find(it => it.name.trim().toLowerCase() === selectedName.trim().toLowerCase());
+      if (found) select.value = String(found.id);
+      else select.value = '';
+    } else {
+      select.value = '';
+    }
+    updateDeliveryAmount();
+  } catch (err) {
+    console.error('Error loading delivery inventory:', err);
+    select.innerHTML = '<option value="">Unable to load inventory items</option>';
+    select.disabled = false;
+  }
+}
+
 export function openAddDeliveryModal() {
   editingDeliveryId = null;
   document.getElementById('deliveryModalTitle').textContent = 'Add New Delivery';
@@ -1308,6 +1394,11 @@ export function openAddDeliveryModal() {
   if (endEl) { endEl.value = ''; endEl.min = ''; }
   const driverSelect = document.getElementById('deliveryDriverSelect');
   if (driverSelect) populateDriverDropdown(driverSelect, '');
+  const qtyEl = document.getElementById('deliveryQuantity');
+  if (qtyEl) qtyEl.value = 1;
+  const amtEl = document.getElementById('deliveryAmount');
+  if (amtEl) amtEl.value = '';
+  loadDeliveryProductOptions();
   showModal('deliveryModal');
 }
 
@@ -1339,11 +1430,30 @@ export async function handleDeliverySubmit(event) {
     ? driverSelect.options[driverSelect.selectedIndex].text.split(' (')[0].trim()
     : null;
 
+  const productSelect = document.getElementById('deliveryProduct');
+  const inventoryId = productSelect && productSelect.value ? parseInt(productSelect.value, 10) : null;
+  const selectedOption = productSelect && productSelect.selectedIndex >= 0 ? productSelect.options[productSelect.selectedIndex] : null;
+  const productName = selectedOption && selectedOption.dataset.name ? selectedOption.dataset.name : (productSelect ? productSelect.value : '');
+  const quantity = parseInt(document.getElementById('deliveryQuantity').value, 10) || 1;
+  const amountVal = document.getElementById('deliveryAmount') && document.getElementById('deliveryAmount').value ? parseFloat(document.getElementById('deliveryAmount').value) : null;
+
+  if (!productName || !inventoryId) {
+    showToast('Please select an available product from the inventory list.', 'warning');
+    return;
+  }
+  if (!quantity || quantity <= 0) {
+    showToast('Quantity must be a positive number.', 'warning');
+    return;
+  }
+
   const data = {
     customer_name: document.getElementById('deliveryCustomer').value,
     contact_number: document.getElementById('deliveryContactNumber').value,
     address: document.getElementById('deliveryAddress').value,
-    product: document.getElementById('deliveryProduct').value,
+    inventory_id: inventoryId,
+    product: productName,
+    quantity: quantity,
+    amount: amountVal,
     status: statusVal,
     delivery_type: document.getElementById('deliveryType').value,
     delivery_date: startDate,
@@ -1387,9 +1497,14 @@ export async function editDelivery(id) {
       document.getElementById('deliveryCustomer').value = item.customer_name;
       document.getElementById('deliveryContactNumber').value = item.contact_number || '';
       document.getElementById('deliveryAddress').value = item.address;
-      document.getElementById('deliveryProduct').value = item.product || '';
       document.getElementById('deliveryStatus').value = item.status;
       document.getElementById('deliveryType').value = item.delivery_type || 'Outbound';
+      const qtyEl = document.getElementById('deliveryQuantity');
+      if (qtyEl) qtyEl.value = item.quantity || 1;
+      const amtEl = document.getElementById('deliveryAmount');
+      if (amtEl && item.amount) amtEl.value = Number(item.amount).toFixed(2);
+      await loadDeliveryProductOptions(item.inventory_id, item.product);
+
       const startVal = item.delivery_date ? item.delivery_date.split('T')[0] : '';
       const endVal = item.delivery_end_date ? String(item.delivery_end_date).split('T')[0] : '';
       document.getElementById('deliveryDate').value = startVal;
@@ -1658,12 +1773,15 @@ export async function markDeliveryAsDelivered(id) {
   try {
     const result = await API.updateDeliveryStatus(id, 'Delivered');
     if (result && result.success) {
-      showToast('✓ Delivery marked as Delivered successfully!', 'success');
+      showToast('✓ Delivery marked as Delivered successfully! Sales record generated.', 'success');
       const nowIso = new Date().toISOString();
       writeLocalDeliveryWindow(id, rec && rec.ref_code, {
         delivered_at: nowIso,
         status_updated_at: nowIso
       });
+      try {
+        localStorage.setItem('kd_sales_updated', String(Date.now()));
+      } catch (_) {}
       await loadDriverDeliveryList();
     } else {
       showToast('❌ ' + ((result && result.message) || 'Failed to update delivery status'), 'error');
