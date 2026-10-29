@@ -1410,6 +1410,7 @@ body.bs-dashboard .btn-accent {
 
 /* 4. Modals: Bootstrap's .modal-content is display:flex with a border; keep the existing block layout. */
 :where(body.bs-dashboard) .modal-content { display: block; border: 0; }
+body.bs-dashboard .modal.active { display: flex !important; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.5); z-index: 2000; position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
 
 /* 5. Toasts: Bootstrap hides .toast unless it also has .show, but showToast() never adds .show. */
 body.bs-dashboard .toast { display: flex; width: auto; border: 0; }
