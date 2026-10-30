@@ -1153,21 +1153,12 @@ Modern Koncept Furniture Centre · K-Desk System`;
       </div>
     `;
 
-    const sendResult = await sendTransactionalEmail({
+    await sendTransactionalEmail({
       to: recoveryEmail,
       subject: emailSubject,
       text: emailText,
       html: emailHtml
     });
-
-    if (sendResult && sendResult.devMode) {
-      return res.json({
-        ...GENERIC_RESPONSE,
-        devMode: true,
-        devLink: resetUrl,
-        message: `[Dev Mode] No email provider configured in .env. Reset link logged in server terminal: ${resetUrl}`
-      });
-    }
 
     return res.json(GENERIC_RESPONSE);
   } catch (err) {
@@ -1375,20 +1366,10 @@ Modern Koncept Furniture Centre · K-Desk System`;
     html: emailHtml
   });
 
-  let message = `Verification code sent to ${maskEmail(recoveryEmail)}.`;
-  if (sendResult && sendResult.resendRestricted) {
-    message = `[Resend Free Tier] Can only deliver to your registered Resend email without a custom domain. Your code is: ${code}`;
-  } else if (sendResult && sendResult.devMode) {
-    message = `[Dev Mode] No email provider configured in .env. Your verification code is: ${code} (also logged in server terminal).`;
-  }
-
   res.json({
     success: true,
-    message,
-    maskedEmail: maskEmail(recoveryEmail),
-    devMode: Boolean(sendResult && sendResult.devMode),
-    resendRestricted: Boolean(sendResult && sendResult.resendRestricted),
-    devCode: (sendResult && (sendResult.devMode || sendResult.resendRestricted)) ? code : undefined
+    message: `Verification code sent to ${maskEmail(recoveryEmail)}.`,
+    maskedEmail: maskEmail(recoveryEmail)
   });
 });
 
