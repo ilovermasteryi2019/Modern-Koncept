@@ -4,6 +4,7 @@ const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
 const { GoogleGenAI } = require('@google/genai');
 const crypto = require('crypto');
+const tls = require('tls');
 // ---- Shared dimension logic (identical copy of the block at the top of main.js) ----
 /* =============================================================================
    K-Desk: shared furniture dimension utility (browser + Node)
@@ -837,47 +838,173 @@ function maskEmail(email) {
   return `${name[0]}${maskedMiddle}${name[name.length - 1]}@${domain}`;
 }
 
+function sendEmailViaGmailSmtp({ user, pass, from, to, subject, html, text }) {
+  return new Promise((resolve) => {
+    const cleanUser = String(user || '').trim();
+    const cleanPass = String(pass || '').replace(/\s+/g, '').trim();
+    const cleanFrom = from || `Modern Koncept <${cleanUser}>`;
+
+    const socket = tls.connect({
+      host: 'smtp.gmail.com',
+      port: 465,
+      timeout: 12000
+    });
+
+    let step = 0;
+    const commands = [
+      `EHLO localhost\r\n`,
+      `AUTH LOGIN\r\n`,
+      `${Buffer.from(cleanUser).toString('base64')}\r\n`,
+      `${Buffer.from(cleanPass).toString('base64')}\r\n`,
+      `MAIL FROM:<${cleanUser}>\r\n`,
+      `RCPT TO:<${to}>\r\n`,
+      `DATA\r\n`
+    ];
+
+    const messageData = [
+      `From: ${cleanFrom}`,
+      `To: ${to}`,
+      `Subject: ${subject}`,
+      `MIME-Version: 1.0`,
+      `Content-Type: text/html; charset=UTF-8`,
+      ``,
+      html || text,
+      `\r\n.\r\n`
+    ].join('\r\n');
+
+    let buffer = '';
+    let completed = false;
+
+    socket.on('data', (chunk) => {
+      buffer += chunk.toString();
+      const lines = buffer.split('\r\n');
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (!line) continue;
+        if (line.length >= 4 && line.charAt(3) === '-') continue;
+
+        const code = parseInt(line.substring(0, 3), 10);
+        if (code >= 400) {
+          if (!completed) {
+            completed = true;
+            try { socket.end('QUIT\r\n'); } catch (e) {}
+            return resolve({ ok: false, error: line });
+          }
+        }
+
+        if (step < commands.length) {
+          socket.write(commands[step]);
+          step++;
+        } else if (step === commands.length) {
+          socket.write(messageData);
+          step++;
+        } else {
+          if (!completed) {
+            completed = true;
+            try { socket.end('QUIT\r\n'); } catch (e) {}
+            return resolve({ ok: true, id: 'gmail-smtp' });
+          }
+        }
+      }
+    });
+
+    socket.on('error', (err) => {
+      if (!completed) {
+        completed = true;
+        resolve({ ok: false, error: err.message });
+      }
+    });
+
+    socket.on('timeout', () => {
+      if (!completed) {
+        completed = true;
+        try { socket.destroy(); } catch (e) {}
+        resolve({ ok: false, error: 'Gmail SMTP connection timeout' });
+      }
+    });
+  });
+}
+
 async function sendTransactionalEmail({ to, subject, html, text }) {
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.RECOVERY_EMAIL_FROM || 'Modern Koncept <onboarding@resend.dev>';
+  // Option 1: Gmail SMTP (Sends to ANY recipient email address in the world, no custom domain needed)
+  const gmailUser = process.env.GMAIL_USER || process.env.SMTP_USER;
+  const gmailPass = process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASS;
 
-  if (!apiKey) {
-    console.log('\n============================================================');
-    console.log(' [TRANSACTIONAL EMAIL - DEVELOPMENT / FALLBACK LOGGER]');
-    console.log(` To:      ${to}`);
-    console.log(` From:    ${from}`);
-    console.log(` Subject: ${subject}`);
-    console.log('------------------------------------------------------------');
-    console.log(text || html);
-    console.log('============================================================\n');
-    return { ok: true, devMode: true };
-  }
-
-  try {
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        from,
-        to: [to],
+  if (gmailUser && gmailPass) {
+    try {
+      const smtpRes = await sendEmailViaGmailSmtp({
+        user: gmailUser,
+        pass: gmailPass,
+        from: process.env.RECOVERY_EMAIL_FROM || `Modern Koncept <${gmailUser}>`,
+        to,
         subject,
         html,
         text
-      })
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      console.error('Resend API error:', data);
-      return { ok: false, error: data };
+      });
+      if (smtpRes.ok) {
+        console.log(`[EMAIL] Successfully delivered email to ${to} via Gmail SMTP.`);
+        return { ok: true, provider: 'gmail-smtp' };
+      }
+      console.error('[EMAIL] Gmail SMTP error:', smtpRes.error);
+    } catch (err) {
+      console.error('[EMAIL] Failed sending via Gmail SMTP:', err.message);
     }
-    return { ok: true, id: data.id };
-  } catch (err) {
-    console.error('Failed to send email via Resend:', err.message);
-    return { ok: false, error: err.message };
   }
+
+  // Option 2: Resend REST API
+  const resendApiKey = process.env.RESEND_API_KEY;
+  if (resendApiKey) {
+    try {
+      const from = process.env.RECOVERY_EMAIL_FROM || 'Modern Koncept <onboarding@resend.dev>';
+      const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${resendApiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          from,
+          to: [to],
+          subject,
+          html,
+          text
+        })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        console.log(`[EMAIL] Successfully delivered email to ${to} via Resend.`);
+        return { ok: true, id: data.id, provider: 'resend' };
+      }
+
+      console.error('Resend API error:', data);
+
+      // Handle Resend free-tier domain restriction (403: only allows sending to account owner email)
+      if (data && (data.statusCode === 403 || String(data.message || '').includes('only send testing emails'))) {
+        console.warn(`[RECOVERY] Resend free tier restriction: Cannot send to ${to} without a custom domain. Falling back to Dev-Mode logger.`);
+        return {
+          ok: true,
+          devMode: true,
+          resendRestricted: true,
+          message: data.message
+        };
+      }
+
+      return { ok: false, error: data };
+    } catch (err) {
+      console.error('Failed to send email via Resend:', err.message);
+    }
+  }
+
+  // Fallback: Development logger
+  console.log('\n============================================================');
+  console.log(' [TRANSACTIONAL EMAIL - DEVELOPMENT / FALLBACK LOGGER]');
+  console.log(` To:      ${to}`);
+  console.log(` Subject: ${subject}`);
+  console.log('------------------------------------------------------------');
+  console.log(text || html);
+  console.log('============================================================\n');
+  return { ok: true, devMode: true };
 }
 
 // Helper to determine the application base URL for reset links
@@ -1248,14 +1375,20 @@ Modern Koncept Furniture Centre · K-Desk System`;
     html: emailHtml
   });
 
+  let message = `Verification code sent to ${maskEmail(recoveryEmail)}.`;
+  if (sendResult && sendResult.resendRestricted) {
+    message = `[Resend Free Tier] Can only deliver to your registered Resend email without a custom domain. Your code is: ${code}`;
+  } else if (sendResult && sendResult.devMode) {
+    message = `[Dev Mode] No email provider configured in .env. Your verification code is: ${code} (also logged in server terminal).`;
+  }
+
   res.json({
     success: true,
-    message: sendResult && sendResult.devMode
-      ? `[Dev Mode] No email provider configured in .env. Your verification code is: ${code} (also logged in server terminal).`
-      : `Verification code sent to ${maskEmail(recoveryEmail)}.`,
+    message,
     maskedEmail: maskEmail(recoveryEmail),
     devMode: Boolean(sendResult && sendResult.devMode),
-    devCode: sendResult && sendResult.devMode ? code : undefined
+    resendRestricted: Boolean(sendResult && sendResult.resendRestricted),
+    devCode: (sendResult && (sendResult.devMode || sendResult.resendRestricted)) ? code : undefined
   });
 });
 
