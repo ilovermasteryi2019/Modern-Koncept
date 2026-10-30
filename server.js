@@ -804,7 +804,7 @@ app.post('/login/mfa/cancel', (req, res) => {
 
 const RESET_TOKEN_TTL_MS = 15 * 60 * 1000; // 15 minutes
 const RECOVERY_CODE_TTL_MS = 10 * 60 * 1000; // 10 minutes
-const RECOVERY_MAX_REQUESTS_PER_HOUR = 5;
+const RECOVERY_MAX_REQUESTS_PER_HOUR = 25; // generous limit for development/testing
 
 // In-memory rate limiting for recovery requests (key -> { count, resetAt })
 const recoveryRateLimits = new Map();
@@ -1071,14 +1071,32 @@ app.post('/auth/admin/forgot-password', async (req, res) => {
   }
 
   try {
-    // Lookup user by email or name
+    // Lookup user by primary login email, username, or recovery email
     let user = null;
-    const { data: byEmail } = await db.from('users').select('*').ilike('email', rawIdentifier.replace(/[\\%_]/g, '\\$&')).limit(1);
+    const cleanId = rawIdentifier.replace(/[\\%_]/g, '\\$&');
+    const { data: byEmail } = await db.from('users').select('*').ilike('email', cleanId).limit(1);
     if (byEmail && byEmail.length > 0) {
       user = byEmail[0];
     } else {
-      const { data: byName } = await db.from('users').select('*').ilike('name', rawIdentifier.replace(/[\\%_]/g, '\\$&')).limit(1);
-      if (byName && byName.length > 0) user = byName[0];
+      const { data: byName } = await db.from('users').select('*').ilike('name', cleanId).limit(1);
+      if (byName && byName.length > 0) {
+        user = byName[0];
+      } else {
+        try {
+          const { data: byRec } = await db.from('users').select('*').ilike('recovery_email', cleanId).limit(1);
+          if (byRec && byRec.length > 0) user = byRec[0];
+        } catch (e) {}
+      }
+    }
+
+    // Check in-memory store if not found in DB
+    if (!user) {
+      for (const [userId, mem] of adminRecoveryMemoryStore.entries()) {
+        if (mem.recovery_email && mem.recovery_email.toLowerCase() === rawIdentifier.toLowerCase()) {
+          const { data: memUser } = await db.from('users').select('*').eq('id', userId).single();
+          if (memUser) { user = memUser; break; }
+        }
+      }
     }
 
     // STRICT CHECK 1: User must exist
