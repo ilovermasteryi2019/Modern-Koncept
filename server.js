@@ -5,6 +5,7 @@ const { createClient } = require('@supabase/supabase-js');
 const { GoogleGenAI } = require('@google/genai');
 const crypto = require('crypto');
 const tls = require('tls');
+const path = require('path');
 // ---- Shared dimension logic (identical copy of the block at the top of main.js) ----
 /* =============================================================================
    K-Desk: shared furniture dimension utility (browser + Node)
@@ -267,6 +268,17 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json({ limit: '50mb' }));
 app.use(cors());
+app.use(express.static(path.join(__dirname)));
+
+// Auto-redirect /Pages/login.html or other pages on Render to Vercel (or serve locally)
+app.get('/Pages/:page', (req, res, next) => {
+  const targetHost = process.env.APP_URL || 'https://modern-koncept.vercel.app';
+  if (req.get('host') && req.get('host').includes('onrender.com')) {
+    const query = req.url.slice(req.path.length);
+    return res.redirect(`${targetHost.replace(/\/+$/, '')}/Pages/${req.params.page}${query}`);
+  }
+  next();
+});
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const db = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
@@ -1030,9 +1042,25 @@ function getAppBaseUrl(req) {
   if (process.env.APP_URL && process.env.APP_URL.trim() !== '') {
     return process.env.APP_URL.trim().replace(/\/+$/, '');
   }
-  const host = req.get('host') || 'localhost:3000';
+  // If request originated from frontend (e.g. Vercel), use Origin or Referer
+  const origin = req.headers.origin || req.get('origin');
+  if (origin && typeof origin === 'string' && origin.startsWith('http')) {
+    return origin.replace(/\/+$/, '');
+  }
+  const referer = req.headers.referer || req.get('referer');
+  if (referer && typeof referer === 'string' && referer.startsWith('http')) {
+    try {
+      const u = new URL(referer);
+      return `${u.protocol}//${u.host}`;
+    } catch (e) {}
+  }
+  // If running on Render backend, point to Vercel frontend by default
+  const host = req.get('host') || '';
+  if (host.includes('onrender.com')) {
+    return 'https://modern-koncept.vercel.app';
+  }
   const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
-  return `${protocol}://${host}`;
+  return `${protocol}://${host || 'localhost:3000'}`;
 }
 
 // 1. FORGOT PASSWORD (PUBLIC, ADMIN-ONLY)
