@@ -804,20 +804,8 @@ app.post('/login/mfa/cancel', (req, res) => {
 
 const RESET_TOKEN_TTL_MS = 15 * 60 * 1000; // 15 minutes
 const RECOVERY_CODE_TTL_MS = 10 * 60 * 1000; // 10 minutes
-const RECOVERY_MAX_REQUESTS_PER_HOUR = 25; // generous limit for development/testing
-
-// In-memory rate limiting for recovery requests (key -> { count, resetAt })
-const recoveryRateLimits = new Map();
-
-function checkRecoveryRateLimit(key) {
-  const now = Date.now();
-  const entry = recoveryRateLimits.get(key);
-  if (!entry || now > entry.resetAt) {
-    recoveryRateLimits.set(key, { count: 1, resetAt: now + 60 * 60 * 1000 });
-    return true;
-  }
-  if (entry.count >= RECOVERY_MAX_REQUESTS_PER_HOUR) return false;
-  entry.count++;
+// Rate limiting for recovery requests (disabled: unlimited requests)
+function checkRecoveryRateLimit() {
   return true;
 }
 
@@ -1060,14 +1048,6 @@ app.post('/auth/admin/forgot-password', async (req, res) => {
 
   if (!rawIdentifier) {
     return res.status(400).json({ success: false, message: 'Please enter your Admin email or username.' });
-  }
-
-  // Rate limiting (by IP and by identifier)
-  if (!checkRecoveryRateLimit(`ip:${ip}`) || !checkRecoveryRateLimit(`id:${rawIdentifier.toLowerCase()}`)) {
-    return res.status(429).json({
-      success: false,
-      message: 'Too many recovery requests. Please try again in an hour.'
-    });
   }
 
   try {
