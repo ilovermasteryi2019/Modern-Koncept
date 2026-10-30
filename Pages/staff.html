@@ -215,23 +215,113 @@
       padding: 1.5rem;
     }
     
+    .search-toolbar { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1rem; margin-bottom: 0; }
+    .search-toolbar .form-group { margin-bottom: 0; }
+
     .summary-card {
-      background: linear-gradient(135deg, #DC143C 0%, #A80728 100%);
-      color: white;
+      --summary-bg: linear-gradient(135deg, #DC143C 0%, #A80728 100%);
+      --summary-text: #ffffff;
+      --summary-subtext: rgba(255, 255, 255, 0.92);
+      --summary-badge-bg: rgba(255, 255, 255, 0.2);
+      --summary-badge-text: #ffffff;
+      background: var(--summary-bg);
+      color: var(--summary-text);
       padding: 1.5rem;
       border-radius: 0.75rem;
       margin-bottom: 1.5rem;
+      box-shadow: 0 4px 12px rgba(17, 24, 39, 0.08);
+      transition: background 0.3s ease, color 0.3s ease;
     }
-    
+
+    /* Dynamic performance states & color rules for Staff Dashboard:
+       Total Sales: Low -> Green, Middle -> Yellow, High -> Green
+       Total Records: Low -> Red, Middle -> Yellow, High -> Green
+       Average Sale: Low -> Red, Middle -> Yellow, High -> Green */
+    .summary-card.summary-card--low {
+      --summary-bg: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+      --summary-text: #ffffff;
+      --summary-subtext: rgba(255, 255, 255, 0.92);
+      --summary-badge-bg: rgba(255, 255, 255, 0.22);
+      --summary-badge-text: #ffffff;
+    }
+
+    .summary-card.summary-card--medium {
+      --summary-bg: linear-gradient(135deg, #fbbf24 0%, #d97706 100%);
+      --summary-text: #111827;
+      --summary-subtext: #1f2937;
+      --summary-badge-bg: rgba(17, 24, 39, 0.14);
+      --summary-badge-text: #111827;
+    }
+
+    .summary-card.summary-card--high {
+      --summary-bg: linear-gradient(135deg, #10b981 0%, #047857 100%);
+      --summary-text: #ffffff;
+      --summary-subtext: rgba(255, 255, 255, 0.92);
+      --summary-badge-bg: rgba(255, 255, 255, 0.22);
+      --summary-badge-text: #ffffff;
+    }
+
+    /* Explicit color overrides */
+    .summary-card.summary-card--red {
+      --summary-bg: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+      --summary-text: #ffffff;
+      --summary-subtext: rgba(255, 255, 255, 0.92);
+      --summary-badge-bg: rgba(255, 255, 255, 0.22);
+      --summary-badge-text: #ffffff;
+    }
+
+    .summary-card.summary-card--yellow {
+      --summary-bg: linear-gradient(135deg, #fbbf24 0%, #d97706 100%);
+      --summary-text: #111827;
+      --summary-subtext: #1f2937;
+      --summary-badge-bg: rgba(17, 24, 39, 0.14);
+      --summary-badge-text: #111827;
+    }
+
+    .summary-card.summary-card--green,
+    .summary-card.summary-card--low.summary-card--green,
+    .summary-card.summary-card--high.summary-card--green {
+      --summary-bg: linear-gradient(135deg, #10b981 0%, #047857 100%);
+      --summary-text: #ffffff;
+      --summary-subtext: rgba(255, 255, 255, 0.92);
+      --summary-badge-bg: rgba(255, 255, 255, 0.22);
+      --summary-badge-text: #ffffff;
+    }
+
     .summary-value {
       font-size: 2.5rem;
       font-weight: 700;
       margin-bottom: 0.25rem;
+      color: var(--summary-text);
     }
-    
+
     .summary-label {
       font-size: 0.875rem;
-      opacity: 0.9;
+      color: var(--summary-subtext);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+
+    .summary-scope {
+      font-size: 0.78rem;
+      color: var(--summary-subtext);
+      margin-top: 0.35rem;
+      line-height: 1.4;
+    }
+
+    .summary-perf-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.18rem 0.6rem;
+      border-radius: 9999px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      background: var(--summary-badge-bg);
+      color: var(--summary-badge-text);
+      white-space: nowrap;
     }
     /* TOAST NOTIFICATION SYSTEM */
 /* ============================================= */
@@ -413,6 +503,31 @@
     <!-- Staff Inventory Module (Read-Only) -->
     <div id="inventoryModule" class="dashboard-module">
       <h2 style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 1.5rem;">Inventory</h2>
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="search-toolbar">
+          <div class="form-group">
+            <label class="form-label" for="staffInventorySearch">Search inventory</label>
+            <input id="staffInventorySearch" type="text" class="form-input" placeholder="Search by name, item code, category">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="staffInventoryCategoryFilter">Filter by category</label>
+            <select id="staffInventoryCategoryFilter" class="form-input">
+              <option value="all">All Categories</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="staffInventoryStatusFilter">Filter by stock status</label>
+            <select id="staffInventoryStatusFilter" class="form-input">
+              <option value="all">All Statuses</option>
+              <option value="in-stock">In Stock</option>
+              <option value="low-stock">Low Stock</option>
+            </select>
+          </div>
+          <div class="form-group" style="display:flex;align-items:flex-end;">
+            <button type="button" id="staffInventoryResetFilters" class="btn btn-secondary" style="width:100%;">Reset Filters</button>
+          </div>
+        </div>
+      </div>
       <div class="card">
         <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 0.5rem;">Stock Levels</h3>
         <p style="font-size: 0.875rem; color: #6b7280; margin-bottom: 1rem;">View-only. Contact Admin or Manager to make changes.</p>
@@ -507,71 +622,125 @@
       <!-- Sales Overview Cards -->
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
         <!-- Total Sales Card -->
-        <div class="summary-card">
-          <div class="summary-label">Total Sales</div>
+        <div class="summary-card" id="staffTotalSalesCard">
+          <div class="summary-label">
+            <span>Total Sales</span>
+            <span class="summary-perf-badge" id="staffTotalSalesPerfBadge">Baseline</span>
+          </div>
           <div class="summary-value" id="staffTotalSales">₱0.00</div>
+          <div class="summary-scope" id="staffTotalSalesScope">All-Time Total</div>
         </div>
         
         <!-- Total Records Card -->
-        <div class="summary-card">
-          <div class="summary-label">Total Records</div>
+        <div class="summary-card" id="staffTotalRecordsCard">
+          <div class="summary-label">
+            <span>Total Records</span>
+            <span class="summary-perf-badge" id="staffTotalRecordsPerfBadge">Baseline</span>
+          </div>
           <div class="summary-value" id="staffTotalRecords">0</div>
+          <div class="summary-scope" id="staffTotalRecordsScope">All Sales Records</div>
         </div>
         
         <!-- Average Sale Card -->
-        <div class="summary-card">
-          <div class="summary-label">Average Sale</div>
+        <div class="summary-card" id="staffAverageSaleCard">
+          <div class="summary-label">
+            <span>Average Sale</span>
+            <span class="summary-perf-badge" id="staffAverageSalePerfBadge">Baseline</span>
+          </div>
           <div class="summary-value" id="staffAverageSale">₱0.00</div>
+          <div class="summary-scope" id="staffAverageSaleScope">Per Transaction Average</div>
+        </div>
+      </div>
+
+      <!-- Sales Revenue Line Chart Card -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem;margin-bottom:1rem;">
+          <div>
+            <h3 style="font-size:1.125rem;font-weight:600;color:#111827;margin-bottom:0.25rem;">Sales Revenue Over Time</h3>
+            <p style="font-size:0.875rem;color:#6b7280;margin:0;">Chronological sales revenue trend aggregated from actual sales records in Philippine pesos (₱).</p>
+          </div>
+          <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
+            <div>
+              <label for="staffSalesChartInterval" style="display:block;font-size:0.75rem;font-weight:600;color:#4b5563;margin-bottom:0.2rem;">Time Interval</label>
+              <select id="staffSalesChartInterval" class="form-input" style="padding:0.4rem 0.65rem;font-size:0.8125rem;">
+                <option value="auto">Auto (Best Fit)</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </div>
+            <div>
+              <label for="staffSalesChartComparison" style="display:block;font-size:0.75rem;font-weight:600;color:#4b5563;margin-bottom:0.2rem;">Period Comparison</label>
+              <select id="staffSalesChartComparison" class="form-input" style="padding:0.4rem 0.65rem;font-size:0.8125rem;min-width:210px;">
+                <option value="none">Single Trend (No Comparison)</option>
+                <option value="month_over_month">This Month vs. Previous Month</option>
+                <option value="previous_period">Selected Range vs. Prior Period</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div id="staffSalesComparisonSummary" style="display:none;margin-bottom:0.85rem;padding:0.6rem 0.9rem;border-radius:0.5rem;font-size:0.8125rem;background:#f8fafc;border:1px solid #e2e8f0;color:#334155;"></div>
+
+        <div style="position:relative;min-height:300px;">
+          <canvas id="staffSalesLineChart" style="max-height:340px;"></canvas>
+        </div>
+
+        <div id="staffSalesChartNotice" style="display:none;margin-top:0.75rem;padding:0.65rem 0.9rem;border-radius:0.5rem;font-size:0.8125rem;background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;"></div>
+      </div>
+      
+      <!-- Automated Sales Notice (Replaces Manual Creation) -->
+      <div class="alert alert-info" style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.75rem; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 0.5rem; padding: 1rem; color: #9f1239;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="16" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+        </svg>
+        <div>
+          <strong style="font-weight: 600; display: block; margin-bottom: 0.25rem;">Automated Sales Record Generation</strong>
+          <span style="font-size: 0.875rem; color: #881337;">Sales records are automatically generated when furniture delivery orders are marked as <strong>Delivered</strong>. To record a sale, create a delivery in the Delivery module.</span>
         </div>
       </div>
       
+      <!-- Search, Category & Date Filter Toolbar -->
       <div class="card" style="margin-bottom: 1.5rem;">
-        <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">Add New Sales Record</h3>
-        <form id="staffSalesForm">
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">Customer Name</label>
-              <input type="text" id="salesCustomer" class="form-input" placeholder="Enter customer name" required>
-            </div>
-            
-            <div class="form-group">
-              <label class="form-label">Product</label>
-              <select id="salesProduct" class="form-input" required>
-                <option value="">Loading inventory...</option>
-              </select>
-              <small id="salesProductHint" style="display:block;margin-top:0.25rem;font-size:0.75rem;color:#6b7280;"></small>
-            </div>
-          </div>
-
+        <div class="search-toolbar">
           <div class="form-group">
-            <label class="form-label">Quantity Sold</label>
-            <input type="number" id="salesQuantity" class="form-input" min="1" step="1" value="1" required>
+            <label class="form-label" for="staffSalesSearch">Search sales</label>
+            <input id="staffSalesSearch" type="text" class="form-input" placeholder="Search customer or product name">
           </div>
-          
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">Amount (₱)</label>
-              <input type="number" id="salesAmount" class="form-input" min="0" step="0.01" placeholder="Auto-computed" required readonly style="background-color:#f3f4f6;cursor:not-allowed;">
-            </div>
-            
-            <div class="form-group">
-              <label class="form-label">Date</label>
-              <input type="date" id="salesDate" class="form-input" required>
-            </div>
+          <div class="form-group">
+            <label class="form-label" for="staffSalesCategoryFilter">Filter by product category</label>
+            <select id="staffSalesCategoryFilter" class="form-input">
+              <option value="all">All Categories</option>
+            </select>
           </div>
-          
-          <button type="submit" class="btn btn-accent">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="12" y1="5" x2="12" y2="19"></line>
-              <line x1="5" y1="12" x2="19" y2="12"></line>
-            </svg>
-            Add Sales Record
-          </button>
-        </form>
+          <div class="form-group">
+            <label class="form-label" for="staffSalesDateFrom">Sale date from</label>
+            <input type="date" id="staffSalesDateFrom" class="form-input">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="staffSalesDateTo">Sale date to</label>
+            <input type="date" id="staffSalesDateTo" class="form-input">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="staffSalesSort">Sort by</label>
+            <select id="staffSalesSort" class="form-input">
+              <option value="date-desc">Date: Newest First</option>
+              <option value="date-asc">Date: Oldest First</option>
+              <option value="amount-desc">Amount: High to Low</option>
+              <option value="amount-asc">Amount: Low to High</option>
+              <option value="product-asc">Product: A to Z</option>
+            </select>
+          </div>
+          <div class="form-group" style="display:flex;align-items:flex-end;">
+            <button type="button" id="staffSalesResetFilters" class="btn btn-secondary" style="width:100%;">Reset Filters</button>
+          </div>
+        </div>
+        <div id="staffSalesFilterSummary" style="margin-top:0.75rem;font-size:0.8125rem;color:#6b7280;font-weight:500;"></div>
       </div>
       
       <div class="card">
-        <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">Sales Records</h3>
         <p style="font-size: 0.875rem; color: #6b7280; margin-bottom: 1rem;">Note: Staff can add and edit records, but cannot delete them</p>
         <div class="table-container">
           <table>

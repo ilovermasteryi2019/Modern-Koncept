@@ -7,8 +7,8 @@ import { API, API_URL } from './modules/core.js';
 import { hideModal, initDashboardTabs, initModalCloseButtons, kdEventButton, kdRun, showToast } from './modules/ui.js';
 import { handleLogin, handleLogout, handleSignup, initDashboardSession, initMfaUi } from './modules/auth.js';
 import { editFurniture, handleFurnitureSubmit, initAdminFurnitureSearch, initFurnitureListFilters, loadFurnitureDetail, loadFurnitureList, loadPublicFurnitureList, loadSpecialOffers } from './modules/furniture.js';
-import { currentManagerStockImage, deleteInventory, editInventory, handleInventorySubmit, handleManagerAddInventorySubmit, handleManagerAddStockImageUpload, handleManagerEditStockImageUpload, handleStockImageUpload, initAdminInventorySearch, loadInventoryList, loadManagerInventoryList, loadStaffInventoryList, openAddInventoryModal, openAddManagerInventoryModal, openManagerEditInventoryModal, updateManagerStockPreview } from './modules/inventory.js';
-import { deleteSales, editAdminSalesRecord, editManagerSalesRecord, editStaffSalesRecord, handleManagerSalesSubmit, handleSalesSubmit, handleStaffSalesSubmit, initAdminSalesControls, initManagerSalesControls, loadManagerSalesAnalytics, loadManagerSalesList, loadSalesAnalytics, loadSalesList, loadSalesProductOptions, loadStaffSalesAnalytics, loadStaffSalesList, openAddSalesModal, submitSalesEdit, syncDeliveredSalesRecords } from './modules/sales.js';
+import { currentManagerStockImage, deleteInventory, editInventory, handleInventorySubmit, handleManagerAddInventorySubmit, handleManagerAddStockImageUpload, handleManagerEditStockImageUpload, handleStockImageUpload, initAdminInventorySearch, initManagerInventorySearch, initStaffInventorySearch, loadInventoryList, loadManagerInventoryList, loadStaffInventoryList, openAddInventoryModal, openAddManagerInventoryModal, openManagerEditInventoryModal, updateManagerStockPreview } from './modules/inventory.js';
+import { deleteSales, editAdminSalesRecord, editManagerSalesRecord, editStaffSalesRecord, handleManagerSalesSubmit, handleSalesSubmit, handleStaffSalesSubmit, initAdminSalesControls, initManagerSalesControls, initStaffSalesControls, loadManagerSalesAnalytics, loadManagerSalesList, loadSalesAnalytics, loadSalesList, loadSalesProductOptions, loadStaffSalesAnalytics, loadStaffSalesList, openAddSalesModal, submitSalesEdit, syncDeliveredSalesRecords } from './modules/sales.js';
 import { confirmSendSms, deleteDelivery, editDelivery, handleDeliverySubmit, handlePublicTrackDelivery, handleStaffDeliverySubmit, initAdminDeliveryControls, initDriverDeliveryControls, initManagerDeliveryControls, loadDeliveryList, loadDeliveryStats, loadDriverDeliveryList, loadManagerDeliveryList, loadStaffDeliveryList, markDeliveryAsDelivered, openAddDeliveryModal, openSmsModal, openStaffAddDeliveryModal, toggleDeliverySelection, updateDeliveryStatus } from './modules/delivery.js';
 import { handleContactFormSubmit, loadAboutPageContent, loadBusinessInfo, loadContactPageContent } from './modules/business-info.js';
 import { activateStaffAccount, closeEditStaffModal, closeMyAccountModal, deactivateStaffAccount, loadStaffAccountsList, openAddStaffModal, openEditStaffModal, openMyAccountModal } from './modules/staff-accounts.js';
@@ -76,6 +76,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const user = JSON.parse(sessionStorage.getItem('currentUser') || '{}');
     const staffNameEl = document.getElementById('staffName');
     if (staffNameEl && user.name) staffNameEl.textContent = user.name;
+
+    initStaffSalesControls();
+    initStaffInventorySearch();
 
     // Sales Records is now the default Staff tab, so load it on page open
     loadStaffSalesList();
@@ -201,6 +204,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Manager sales controls (search, category filter, date range, sort, chart interval/comparison)
     initManagerSalesControls();
+
+    // Manager inventory controls (search, category filter, stock status filter, reset)
+    initManagerInventorySearch();
   }
 
   // ---- DRIVER PAGE ----

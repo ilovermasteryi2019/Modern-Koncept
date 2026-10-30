@@ -290,7 +290,10 @@
               </div>
 
               <div class="mb-3">
-                <label for="loginPassword" class="form-label">Password</label>
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                  <label for="loginPassword" class="form-label mb-0">Password</label>
+                  <a href="#forgot-password" id="forgotPasswordLink" style="font-size: 0.8125rem; color: #dc2626; text-decoration: none; font-weight: 500;">Forgot Password?</a>
+                </div>
                 <input type="password" id="loginPassword" class="form-control" placeholder="Enter your password" autocomplete="current-password" required>
               </div>
 
@@ -340,6 +343,77 @@
 
               <div class="text-center mt-4">
                 <button type="button" id="mfaCancelBtn" class="mfa-link">&larr; Back to login</button>
+              </div>
+            </div>
+
+            <!-- Admin Account Recovery Panel (Forgot Password) -->
+            <div id="recoveryPanel" hidden>
+              <div class="mb-3">
+                <h2 class="fw-bold mb-1" style="font-size: 1.25rem; color: #111827;">Admin Account Recovery</h2>
+                <p style="color: #4b5563; font-size: 0.875rem; line-height: 1.4;">
+                  Enter your Administrator email or username. If verified, password recovery instructions will be sent to your registered recovery email.
+                </p>
+              </div>
+
+              <div id="recoveryAlert" class="alert alert-info hidden" hidden style="margin-bottom: 1.25rem; font-size: 0.875rem;">
+                <span id="recoveryAlertMsg"></span>
+              </div>
+
+              <form id="recoveryForm">
+                <div class="mb-3">
+                  <label for="recoveryIdentifier" class="form-label">Admin Email or Username</label>
+                  <input type="text" id="recoveryIdentifier" class="form-control" placeholder="admin@admin.com" required autocomplete="username">
+                  <small style="color: #6b7280; font-size: 0.75rem; display: block; margin-top: 4px;">
+                    Account recovery via recovery email is strictly restricted to Admin accounts.
+                  </small>
+                </div>
+
+                <button type="submit" id="recoverySubmitBtn" class="btn btn-accent w-100 justify-content-center mt-2">
+                  Send Recovery Link
+                </button>
+              </form>
+
+              <div class="text-center mt-4">
+                <button type="button" id="recoveryBackBtn" class="mfa-link">&larr; Back to login</button>
+              </div>
+            </div>
+
+            <!-- Reset Admin Password Panel -->
+            <div id="resetPasswordPanel" hidden>
+              <div class="mb-3">
+                <h2 class="fw-bold mb-1" style="font-size: 1.25rem; color: #111827;">Reset Admin Password</h2>
+                <p style="color: #4b5563; font-size: 0.875rem; line-height: 1.4;">
+                  Choose a strong new password for your Administrator account.
+                </p>
+              </div>
+
+              <div id="resetPasswordAlert" class="alert alert-error hidden" hidden style="margin-bottom: 1.25rem; font-size: 0.875rem;">
+                <span id="resetPasswordAlertMsg"></span>
+              </div>
+
+              <form id="resetPasswordForm">
+                <input type="hidden" id="resetPasswordToken" value="">
+
+                <div class="mb-3">
+                  <label for="resetNewPassword" class="form-label">New Password</label>
+                  <input type="password" id="resetNewPassword" class="form-control" placeholder="Enter new password" minlength="8" maxlength="128" required autocomplete="new-password">
+                  <small style="color: #6b7280; font-size: 0.75rem; display: block; margin-top: 4px;">
+                    Must be at least 8 characters long.
+                  </small>
+                </div>
+
+                <div class="mb-3">
+                  <label for="resetConfirmPassword" class="form-label">Confirm New Password</label>
+                  <input type="password" id="resetConfirmPassword" class="form-control" placeholder="Re-enter new password" minlength="8" maxlength="128" required autocomplete="new-password">
+                </div>
+
+                <button type="submit" id="resetPasswordSubmitBtn" class="btn btn-accent w-100 justify-content-center mt-2">
+                  Update Admin Password
+                </button>
+              </form>
+
+              <div class="text-center mt-4">
+                <button type="button" id="resetPasswordBackBtn" class="mfa-link">&larr; Back to login</button>
               </div>
             </div>
           </div>

@@ -321,6 +321,32 @@ function applySummaryCardState(valueElId, badgeElId, metricPerf) {
   }
 }
 
+export function applyManagerSummaryCardState(valueElId, badgeElId, metricPerf, colorMapping) {
+  const valueEl = document.getElementById(valueElId);
+  const cardEl = valueEl ? valueEl.closest('.summary-card') : null;
+  const level = metricPerf.level; // 'low', 'medium', or 'high'
+  const color = (colorMapping && colorMapping[level])
+    ? colorMapping[level]
+    : (level === 'high' ? 'green' : level === 'medium' ? 'yellow' : 'red');
+
+  if (cardEl) {
+    cardEl.classList.remove(
+      'summary-card--low', 'summary-card--medium', 'summary-card--high',
+      'summary-card--green', 'summary-card--yellow', 'summary-card--red'
+    );
+    cardEl.classList.add(`summary-card--${level}`);
+    cardEl.classList.add(`summary-card--${color}`);
+    cardEl.setAttribute('data-performance-level', level);
+    cardEl.setAttribute('data-card-color', color);
+  }
+
+  const badgeEl = document.getElementById(badgeElId);
+  if (badgeEl) {
+    badgeEl.textContent = metricPerf.label;
+    badgeEl.setAttribute('aria-label', `Performance level: ${metricPerf.label} (${color})`);
+  }
+}
+
 function updateAdminSalesSummaryCards(filteredSales, allSales, filterState = {}) {
   const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
   const hasActiveFilters = Boolean(filterState && filterState.hasActiveFilters);
@@ -973,17 +999,56 @@ function updateManagerSalesSummaryCards(filteredSales, allSales, filterState = {
   const allTotal = (allSales || []).reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
   const allAvg = allCount > 0 ? allTotal / allCount : 0;
 
-  const filteredCount = (filteredSales || []).length;
-  const filteredTotal = (filteredSales || []).reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
-  const filteredAvg = filteredCount > 0 ? filteredTotal / filteredCount : 0;
+  const perf = evaluateSalesSummaryPerformance(filteredSales, allSales, filterState);
+  const filteredCount = perf.totalRecords.value;
+  const filteredTotal = perf.totalSales.value;
+  const filteredAvg = perf.averageSale.value;
 
   setEl('managerTotalSales', formatCurrency(filteredTotal));
   setEl('managerTotalRecords', String(filteredCount));
   setEl('managerAverageSale', formatCurrency(filteredAvg));
 
-  if (hasActiveFilters) {
+  // Dynamic summary card colors per user specification for Manager:
+  // Total Sales: Low -> Green, Middle-range -> Yellow, High -> Green
+  // Total Records: Low -> Red, Middle-range -> Yellow, High -> Green
+  // Average Sale: Low (< ₱3,000) -> Red, Middle (₱3,000-₱10,000) -> Yellow, High (>= ₱10,000) -> Green
+  applyManagerSummaryCardState('managerTotalSales', 'managerTotalSalesPerfBadge', perf.totalSales, {
+    low: 'green',
+    medium: 'yellow',
+    high: 'green'
+  });
+
+  applyManagerSummaryCardState('managerTotalRecords', 'managerTotalRecordsPerfBadge', perf.totalRecords, {
+    low: 'red',
+    medium: 'yellow',
+    high: 'green'
+  });
+
+  applyManagerSummaryCardState('managerAverageSale', 'managerAverageSalePerfBadge', perf.averageSale, {
+    low: 'red',
+    medium: 'yellow',
+    high: 'green'
+  });
+
+  const periodBasisLabel = perf.isDateScaled ? `${perf.periodDays}-day range` : '30-day benchmark';
+  const salesThresholdNote = `Mid • ${formatCurrency(perf.totalSales.mediumMin)} • High • ${formatCurrency(perf.totalSales.highMin)} (${periodBasisLabel})`;
+  const recordsThresholdNote = `Mid • ${perf.totalRecords.mediumMin} • High • ${perf.totalRecords.highMin} records (${periodBasisLabel})`;
+  const avgThresholdNote = `Mid • ${formatCurrency(perf.averageSale.mediumMin)} • High • ${formatCurrency(perf.averageSale.highMin)} per sale`;
+
+  if (allCount === 0) {
+    setEl('managerTotalSalesScope', 'No sales records recorded yet');
+    setEl('managerTotalRecordsScope', 'No sales records recorded yet');
+    setEl('managerAverageSaleScope', 'No sales records recorded yet');
+    setEl('managerSalesFilterSummary', 'No sales records found');
+  } else if (hasActiveFilters) {
+    setEl('managerTotalSalesScope', `Filtered (All-Time: ${formatCurrency(allTotal)}) • ${salesThresholdNote}`);
+    setEl('managerTotalRecordsScope', `Showing ${filteredCount} of ${allCount} records • ${recordsThresholdNote}`);
+    setEl('managerAverageSaleScope', `Filtered Avg (All-Time: ${formatCurrency(allAvg)}) • ${avgThresholdNote}`);
     setEl('managerSalesFilterSummary', `Showing ${filteredCount} of ${allCount} sales records (filtered)`);
   } else {
+    setEl('managerTotalSalesScope', `All-Time Total • ${salesThresholdNote}`);
+    setEl('managerTotalRecordsScope', `All Sales Records • ${recordsThresholdNote}`);
+    setEl('managerAverageSaleScope', `Per Transaction Average • ${avgThresholdNote}`);
     setEl('managerSalesFilterSummary', `Showing all ${allCount} sales record${allCount === 1 ? '' : 's'}`);
   }
 }
@@ -1223,24 +1288,402 @@ export async function loadSalesAnalytics() {
   }
 }
 
+// =============================================================================
+// STAFF SALES — FILTER / CHART PIPELINE
+// Mirrors Admin and Manager pipelines with Staff styling and controls.
+// =============================================================================
+let staffSalesCache = [];
+let staffSalesControlsInitialized = false;
+
+function getStaffSalesFilterState() {
+  const searchEl = document.getElementById('staffSalesSearch');
+  const categoryEl = document.getElementById('staffSalesCategoryFilter');
+  const dateFromEl = document.getElementById('staffSalesDateFrom');
+  const dateToEl = document.getElementById('staffSalesDateTo');
+  const sortEl = document.getElementById('staffSalesSort');
+  const intervalEl = document.getElementById('staffSalesChartInterval');
+  const comparisonEl = document.getElementById('staffSalesChartComparison');
+
+  const search = searchEl ? searchEl.value.trim().toLowerCase() : '';
+  const category = categoryEl ? categoryEl.value : 'all';
+  const dateFrom = dateFromEl ? dateFromEl.value : '';
+  const dateTo = dateToEl ? dateToEl.value : '';
+  const sort = sortEl ? sortEl.value : 'date-desc';
+  const interval = intervalEl ? intervalEl.value : 'auto';
+  const comparison = comparisonEl ? comparisonEl.value : 'none';
+
+  const hasActiveFilters = Boolean(search || (category && category !== 'all') || dateFrom || dateTo);
+  return { search, category, dateFrom, dateTo, sort, interval, comparison, hasActiveFilters };
+}
+
+function filterAndSortStaffSales(salesRows, filterState) {
+  const { search, category, dateFrom, dateTo, sort } = filterState;
+
+  const filtered = (salesRows || []).filter(item => {
+    const resolvedCategory = resolveSaleCategory(item);
+    if (category && category !== 'all' && resolvedCategory.toLowerCase() !== category.toLowerCase()) return false;
+    const dateKey = toLocalDateKey(item.sale_date);
+    if (dateFrom && (!dateKey || dateKey < dateFrom)) return false;
+    if (dateTo && (!dateKey || dateKey > dateTo)) return false;
+    if (search) {
+      const customer = String(item.customer_name || '').toLowerCase();
+      const product = String(item.product_name || '').toLowerCase();
+      const catLower = resolvedCategory.toLowerCase();
+      if (!customer.includes(search) && !product.includes(search) && !catLower.includes(search)) return false;
+    }
+    return true;
+  });
+
+  return [...filtered].sort((a, b) => {
+    if (sort === 'date-asc' || sort === 'date-desc') {
+      const da = toLocalDateKey(a.sale_date);
+      const db = toLocalDateKey(b.sale_date);
+      if (da !== db) return sort === 'date-asc' ? da.localeCompare(db) : db.localeCompare(da);
+      return sort === 'date-asc' ? (Number(a.id) - Number(b.id)) : (Number(b.id) - Number(a.id));
+    }
+    if (sort === 'amount-desc' || sort === 'amount-asc') {
+      const aa = parseFloat(a.amount) || 0;
+      const ab = parseFloat(b.amount) || 0;
+      if (aa !== ab) return sort === 'amount-asc' ? aa - ab : ab - aa;
+      return Number(b.id) - Number(a.id);
+    }
+    if (sort === 'product-asc' || sort === 'product-desc') {
+      const pa = String(a.product_name || '');
+      const pb = String(b.product_name || '');
+      const cmp = pa.localeCompare(pb, undefined, { sensitivity: 'base' });
+      return sort === 'product-asc' ? cmp : -cmp;
+    }
+    if (sort === 'customer-asc' || sort === 'customer-desc') {
+      const ca = String(a.customer_name || '');
+      const cb = String(b.customer_name || '');
+      const cmp = ca.localeCompare(cb, undefined, { sensitivity: 'base' });
+      return sort === 'customer-asc' ? cmp : -cmp;
+    }
+    const da2 = toLocalDateKey(a.sale_date);
+    const db2 = toLocalDateKey(b.sale_date);
+    return db2.localeCompare(da2);
+  });
+}
+
+function renderStaffSalesTableRows(filteredSales, allSalesCount) {
+  const tbody = document.getElementById('staffSalesList');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  if (!filteredSales || filteredSales.length === 0) {
+    const emptyMsg = allSalesCount > 0
+      ? 'No sales records match your selected filters.'
+      : 'No sales records found';
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#9ca3af;padding:2rem;">${emptyMsg}</td></tr>`;
+    return;
+  }
+
+  filteredSales.forEach(item => {
+    tbody.innerHTML += `
+      <tr>
+        <td>${formatDate(item.sale_date)}</td>
+        <td>${escapeHtml(item.customer_name)}</td>
+        <td>${formatSaleProduct(item)}</td>
+        <td>${formatCurrency(item.amount)}</td>
+        <td><button class="action-btn edit" onclick="editStaffSalesRecord(${item.id})" title="Edit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Edit</button></td>
+      </tr>`;
+  });
+}
+
+function populateStaffSalesCategoryDropdown(salesRows) {
+  const select = document.getElementById('staffSalesCategoryFilter');
+  if (!select) return;
+  const cats = new Set();
+  (salesRows || []).forEach(s => {
+    const c = resolveSaleCategory(s);
+    if (c && c !== 'Uncategorized') cats.add(c);
+  });
+  const current = select.value;
+  select.innerHTML = '<option value="all">All Categories</option>';
+  [...cats].sort().forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c;
+    opt.textContent = c;
+    if (c === current) opt.selected = true;
+    select.appendChild(opt);
+  });
+  if (!cats.has(current) && current !== 'all') select.value = 'all';
+}
+
+function updateStaffSalesSummaryCards(filteredSales, allSales, filterState = {}) {
+  const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  const hasActiveFilters = Boolean(filterState && filterState.hasActiveFilters);
+
+  const allCount = (allSales || []).length;
+  const allTotal = (allSales || []).reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+  const allAvg = allCount > 0 ? allTotal / allCount : 0;
+
+  const perf = evaluateSalesSummaryPerformance(filteredSales, allSales, filterState);
+  const filteredCount = perf.totalRecords.value;
+  const filteredTotal = perf.totalSales.value;
+  const filteredAvg = perf.averageSale.value;
+
+  setEl('staffTotalSales', formatCurrency(filteredTotal));
+  setEl('staffTotalRecords', String(filteredCount));
+  setEl('staffAverageSale', formatCurrency(filteredAvg));
+
+  // Dynamic summary card colors per user specification for Staff:
+  // Total Sales: Low -> Green, Middle-range -> Yellow, High -> Green
+  // Total Records: Low -> Red, Middle-range -> Yellow, High -> Green
+  // Average Sale: Low (< ₱3,000) -> Red, Middle (₱3,000-₱10,000) -> Yellow, High (>= ₱10,000) -> Green
+  applyManagerSummaryCardState('staffTotalSales', 'staffTotalSalesPerfBadge', perf.totalSales, {
+    low: 'green',
+    medium: 'yellow',
+    high: 'green'
+  });
+
+  applyManagerSummaryCardState('staffTotalRecords', 'staffTotalRecordsPerfBadge', perf.totalRecords, {
+    low: 'red',
+    medium: 'yellow',
+    high: 'green'
+  });
+
+  applyManagerSummaryCardState('staffAverageSale', 'staffAverageSalePerfBadge', perf.averageSale, {
+    low: 'red',
+    medium: 'yellow',
+    high: 'green'
+  });
+
+  const periodBasisLabel = perf.isDateScaled ? `${perf.periodDays}-day range` : '30-day benchmark';
+  const salesThresholdNote = `Mid • ${formatCurrency(perf.totalSales.mediumMin)} • High • ${formatCurrency(perf.totalSales.highMin)} (${periodBasisLabel})`;
+  const recordsThresholdNote = `Mid • ${perf.totalRecords.mediumMin} • High • ${perf.totalRecords.highMin} records (${periodBasisLabel})`;
+  const avgThresholdNote = `Mid • ${formatCurrency(perf.averageSale.mediumMin)} • High • ${formatCurrency(perf.averageSale.highMin)} per sale`;
+
+  if (allCount === 0) {
+    setEl('staffTotalSalesScope', 'No sales records recorded yet');
+    setEl('staffTotalRecordsScope', 'No sales records recorded yet');
+    setEl('staffAverageSaleScope', 'No sales records recorded yet');
+    setEl('staffSalesFilterSummary', 'No sales records found');
+  } else if (hasActiveFilters) {
+    setEl('staffTotalSalesScope', `Filtered (All-Time: ${formatCurrency(allTotal)}) • ${salesThresholdNote}`);
+    setEl('staffTotalRecordsScope', `Showing ${filteredCount} of ${allCount} records • ${recordsThresholdNote}`);
+    setEl('staffAverageSaleScope', `Filtered Avg (All-Time: ${formatCurrency(allAvg)}) • ${avgThresholdNote}`);
+    setEl('staffSalesFilterSummary', `Showing ${filteredCount} of ${allCount} sales records (filtered)`);
+  } else {
+    setEl('staffTotalSalesScope', `All-Time Total • ${salesThresholdNote}`);
+    setEl('staffTotalRecordsScope', `All Sales Records • ${recordsThresholdNote}`);
+    setEl('staffAverageSaleScope', `Per Transaction Average • ${avgThresholdNote}`);
+    setEl('staffSalesFilterSummary', `Showing all ${allCount} sales record${allCount === 1 ? '' : 's'}`);
+  }
+}
+
+function renderStaffSalesLineChart(filteredSales, allSales, filterState) {
+  const ctx = document.getElementById('staffSalesLineChart');
+  if (!ctx) return;
+
+  const noticeEl = document.getElementById('staffSalesChartNotice');
+  const compSummaryEl = document.getElementById('staffSalesComparisonSummary');
+  const setNotice = (msg, isWarning = false) => {
+    if (!noticeEl) return;
+    if (!msg) { noticeEl.style.display = 'none'; noticeEl.textContent = ''; return; }
+    noticeEl.style.display = 'block';
+    noticeEl.style.background = isWarning ? '#fffbeb' : '#eff6ff';
+    noticeEl.style.color = isWarning ? '#92400e' : '#1e40af';
+    noticeEl.style.borderColor = isWarning ? '#fde68a' : '#bfdbfe';
+    noticeEl.innerHTML = msg;
+  };
+
+  if (window.staffSalesLineChartInstance) {
+    window.staffSalesLineChartInstance.destroy();
+    window.staffSalesLineChartInstance = null;
+  }
+
+  const compSeries = buildComparisonSeries(allSales, filteredSales, filterState);
+  if (compSeries) {
+    if (compSummaryEl) {
+      const diff = compSeries.currentTotal - compSeries.previousTotal;
+      const pctText = compSeries.previousTotal > 0
+        ? `${diff >= 0 ? '+' : ''}${((diff / compSeries.previousTotal) * 100).toFixed(1)}%`
+        : (compSeries.currentTotal > 0 ? 'No sales recorded in prior period' : '0.0%');
+      compSummaryEl.style.display = 'block';
+      compSummaryEl.innerHTML = `
+        <strong>${escapeHtml(compSeries.summaryTitle)}:</strong>
+        Current Period: <strong>${formatCurrency(compSeries.currentTotal)}</strong> (${compSeries.currentCount} sale${compSeries.currentCount === 1 ? '' : 's'})
+        &nbsp;|&nbsp;
+        Prior Period: <strong>${formatCurrency(compSeries.previousTotal)}</strong> (${compSeries.previousCount} sale${compSeries.previousCount === 1 ? '' : 's'})
+        &nbsp;|&nbsp;
+        Difference: <strong style="color:${diff >= 0 ? '#059669' : '#d97706'};">${diff >= 0 ? '+' : ''}${formatCurrency(diff)} (${escapeHtml(pctText)})</strong>
+      `;
+    }
+    if (compSeries.previousCount === 0) {
+      setNotice('Note: The database has no recorded sales in the preceding comparison period. Only real recorded transactions are plotted (no sample points are fabricated).');
+    } else {
+      setNotice('');
+    }
+    window.staffSalesLineChartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: compSeries.labels.length ? compSeries.labels : ['No Data'],
+        datasets: [
+          {
+            label: compSeries.currentLabel,
+            data: compSeries.currentData.length ? compSeries.currentData : [0],
+            borderColor: '#DC143C', backgroundColor: 'rgba(220,20,60,0.12)',
+            borderWidth: 3, fill: true, tension: 0.35,
+            pointBackgroundColor: '#DC143C', pointBorderColor: '#ffffff',
+            pointBorderWidth: 2, pointRadius: 5, pointHoverRadius: 7
+          },
+          {
+            label: compSeries.previousLabel,
+            data: compSeries.previousData.length ? compSeries.previousData : [0],
+            borderColor: '#64748b', backgroundColor: 'rgba(100,116,139,0.06)',
+            borderWidth: 2, borderDash: [6, 4], fill: false, tension: 0.35,
+            pointBackgroundColor: '#64748b', pointBorderColor: '#ffffff',
+            pointBorderWidth: 2, pointRadius: 4, pointHoverRadius: 6
+          }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: true, position: 'top' },
+          tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${formatCurrency(ctx.parsed.y)}` } }
+        },
+        scales: {
+          x: { title: { display: true, text: 'Comparison Period Timeline', color: '#4b5563', font: { weight: '600' } } },
+          y: { beginAtZero: true, title: { display: true, text: 'Sales Revenue (₱)', color: '#4b5563', font: { weight: '600' } }, ticks: { callback: val => '₱' + Number(val).toLocaleString('en-US') } }
+        }
+      }
+    });
+    return;
+  }
+
+  if (compSummaryEl) { compSummaryEl.style.display = 'none'; compSummaryEl.innerHTML = ''; }
+
+  if (!filteredSales || filteredSales.length === 0) {
+    setNotice('No sales records match the current selection. Adjust your filters or add sales records to view the revenue line graph.', true);
+    window.staffSalesLineChartInstance = new Chart(ctx, {
+      type: 'line',
+      data: { labels: ['No matching records'], datasets: [{ label: 'Sales Revenue (₱)', data: [0], borderColor: '#9ca3af', backgroundColor: 'rgba(156,163,175,0.1)', borderWidth: 2 }] },
+      options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { callback: val => '₱' + Number(val).toLocaleString('en-US') } } } }
+    });
+    return;
+  }
+
+  const effectiveInterval = chooseEffectiveSalesInterval(filteredSales, filterState.interval);
+  const aggregated = aggregateSalesChronologically(filteredSales, effectiveInterval);
+  const distinctDays = new Set(filteredSales.map(s => toLocalDateKey(s.sale_date)).filter(Boolean)).size;
+
+  const intervalLabelMap = { day: 'Daily', week: 'Weekly', month: 'Monthly' };
+  const intervalTitle = intervalLabelMap[effectiveInterval] || 'Chronological';
+
+  if (aggregated.length === 1) {
+    if (effectiveInterval === 'month' && distinctDays > 1) {
+      setNotice(`All ${filteredSales.length} displayed sales records occurred within <strong>${escapeHtml(aggregated[0].label)}</strong> across ${distinctDays} dates. Switch <strong>Time Interval</strong> to <strong>Daily</strong> or <strong>Auto</strong> to inspect day-by-day revenue movement.`);
+    } else {
+      setNotice(`Showing actual recorded sales data for <strong>${escapeHtml(aggregated[0].label)}</strong> (${filteredSales.length} transaction${filteredSales.length === 1 ? '' : 's'}). A multi-point historical trend line requires sales records across multiple ${effectiveInterval === 'day' ? 'dates' : effectiveInterval + 's'}.`);
+    }
+  } else if (filterState.interval === 'auto') {
+    setNotice(`Automatically grouped by <strong>${intervalTitle}</strong> interval (${aggregated.length} chronological data points across ${filteredSales.length} sales records).`);
+  } else {
+    setNotice('');
+  }
+
+  const labels = aggregated.map(b => b.label);
+  const amounts = aggregated.map(b => Math.round(b.total * 100) / 100);
+  const counts = aggregated.map(b => b.count);
+
+  window.staffSalesLineChartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: `${intervalTitle} Sales Revenue (₱)`,
+        data: amounts,
+        borderColor: '#DC143C', backgroundColor: 'rgba(220,20,60,0.12)',
+        borderWidth: 3, fill: true, tension: 0.35,
+        pointBackgroundColor: '#DC143C', pointBorderColor: '#ffffff',
+        pointBorderWidth: 2, pointRadius: 5, pointHoverRadius: 7
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: true, position: 'top' },
+        tooltip: {
+          callbacks: {
+            label: context => {
+              const idx = context.dataIndex;
+              const txCount = counts[idx] || 0;
+              return `Revenue: ${formatCurrency(context.parsed.y)} (${txCount} sale${txCount === 1 ? '' : 's'})`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { title: { display: true, text: `${intervalTitle} Timeline`, color: '#4b5563', font: { weight: '600' } } },
+        y: { beginAtZero: true, title: { display: true, text: 'Sales Revenue (₱)', color: '#4b5563', font: { weight: '600' } }, ticks: { callback: val => '₱' + Number(val).toLocaleString('en-US') } }
+      }
+    }
+  });
+}
+
+function applyStaffSalesView() {
+  const filterState = getStaffSalesFilterState();
+  const filteredSales = filterAndSortStaffSales(staffSalesCache, filterState);
+  renderStaffSalesTableRows(filteredSales, staffSalesCache.length);
+  updateStaffSalesSummaryCards(filteredSales, staffSalesCache, filterState);
+  renderStaffSalesLineChart(filteredSales, staffSalesCache, filterState);
+}
+
+export function initStaffSalesControls() {
+  if (staffSalesControlsInitialized) return;
+  const searchEl = document.getElementById('staffSalesSearch');
+  const chartEl = document.getElementById('staffSalesLineChart');
+  if (!searchEl && !chartEl) return;
+  staffSalesControlsInitialized = true;
+
+  const bindChange = (id, evt = 'change') => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener(evt, () => applyStaffSalesView());
+  };
+
+  bindChange('staffSalesSearch', 'input');
+  bindChange('staffSalesCategoryFilter', 'change');
+  bindChange('staffSalesDateFrom', 'change');
+  bindChange('staffSalesDateTo', 'change');
+  bindChange('staffSalesSort', 'change');
+  bindChange('staffSalesChartInterval', 'change');
+  bindChange('staffSalesChartComparison', 'change');
+
+  const resetBtn = document.getElementById('staffSalesResetFilters');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+      const s = document.getElementById('staffSalesSearch');
+      const c = document.getElementById('staffSalesCategoryFilter');
+      const df = document.getElementById('staffSalesDateFrom');
+      const dt = document.getElementById('staffSalesDateTo');
+      const sort = document.getElementById('staffSalesSort');
+      const interval = document.getElementById('staffSalesChartInterval');
+      const comp = document.getElementById('staffSalesChartComparison');
+      if (s) s.value = '';
+      if (c) c.value = 'all';
+      if (df) df.value = '';
+      if (dt) dt.value = '';
+      if (sort) sort.value = 'date-desc';
+      if (interval) interval.value = 'auto';
+      if (comp) comp.value = 'none';
+      applyStaffSalesView();
+    });
+  }
+}
+
 export async function loadStaffSalesList() {
   try {
+    initStaffSalesControls();
+    await ensureManagerInventoryCategoryMap();
     const result = await API.getSales();
     if (result.success) {
-      const tbody = document.getElementById('staffSalesList');
-      if (!tbody) return;
-      tbody.innerHTML = '';
-      if (result.data.length === 0) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#9ca3af;">No sales records found</td></tr>'; return; }
-      result.data.forEach(item => {
-        tbody.innerHTML += `
-          <tr>
-            <td>${formatDate(item.sale_date)}</td>
-            <td>${item.customer_name}</td>
-            <td>${formatSaleProduct(item)}</td>
-            <td>${formatCurrency(item.amount)}</td>
-            <td><button class="action-btn edit" onclick="editStaffSalesRecord(${item.id})" title="Edit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Edit</button></td>
-          </tr>`;
-      });
+      staffSalesCache = Array.isArray(result.data) ? result.data : [];
+      populateStaffSalesCategoryDropdown(staffSalesCache);
+      applyStaffSalesView();
     }
   } catch (error) { showToast('❌ Failed to load sales records', 'error'); }
 }
@@ -1284,17 +1727,13 @@ export async function editManagerSalesRecord(id) {
 
 export async function loadStaffSalesAnalytics() {
   try {
+    initStaffSalesControls();
+    await ensureManagerInventoryCategoryMap();
     const result = await API.getSales();
-    if (result.success && result.data.length > 0) {
-      const salesData = result.data;
-      const totalRecords = salesData.length;
-      const totalSales = salesData.reduce((sum, s) => sum + parseFloat(s.amount), 0);
-      const averageSale = totalSales / totalRecords;
-      const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-      setEl('staffTotalSales', formatCurrency(totalSales));
-      setEl('staffTotalRecords', totalRecords.toString());
-      setEl('staffAverageSale', formatCurrency(averageSale));
-      await loadStaffMonthlySalesCharts();
+    if (result.success) {
+      staffSalesCache = Array.isArray(result.data) ? result.data : [];
+      populateStaffSalesCategoryDropdown(staffSalesCache);
+      applyStaffSalesView();
     }
   } catch (error) { console.error('Load staff sales analytics error:', error); }
 }
@@ -1313,17 +1752,8 @@ export async function loadManagerSalesAnalytics() {
 }
 
 async function loadStaffMonthlySalesCharts() {
-  try {
-    const response = await fetch(`${API_URL}/sales/monthly`);
-    const monthlyData = await response.json();
-    if (monthlyData && monthlyData.length > 0) {
-      const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      const labels = monthlyData.map(item => `${monthNames[item.month - 1]} ${item.year}`);
-      const amounts = monthlyData.map(item => parseFloat(item.total));
-      renderStaffRevenueBarChart(labels, amounts);
-      renderStaffSalesLineChart(labels, amounts);
-    }
-  } catch (error) { console.error('Load staff monthly sales error:', error); }
+  // This function is kept for compatibility but is no longer called.
+  // The staff sales chart is now handled by renderStaffSalesLineChart via applyStaffSalesView().
 }
 
 async function loadManagerMonthlySalesCharts() {
@@ -1338,17 +1768,6 @@ function renderStaffRevenueBarChart(labels, data) {
   window.staffRevenueBarChartInstance = new Chart(ctx, {
     type: 'bar',
     data: { labels, datasets: [{ label: 'Monthly Revenue (₱)', data, backgroundColor: 'rgba(220,20,60,0.7)', borderColor: '#DC143C', borderWidth: 2, borderRadius: 6 }] },
-    options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { callback: val => '₱' + val.toLocaleString('en-US') } } } }
-  });
-}
-
-function renderStaffSalesLineChart(labels, data) {
-  const ctx = document.getElementById('staffSalesLineChart');
-  if (!ctx) return;
-  if (window.staffSalesLineChartInstance) window.staffSalesLineChartInstance.destroy();
-  window.staffSalesLineChartInstance = new Chart(ctx, {
-    type: 'line',
-    data: { labels, datasets: [{ label: 'Sales Trend (₱)', data, backgroundColor: 'rgba(220,20,60,0.1)', borderColor: '#DC143C', borderWidth: 3, fill: true, tension: 0.4, pointBackgroundColor: '#DC143C', pointBorderColor: '#fff', pointBorderWidth: 2, pointRadius: 5, pointHoverRadius: 7 }] },
     options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { callback: val => '₱' + val.toLocaleString('en-US') } } } }
   });
 }
@@ -1729,7 +2148,7 @@ loadSalesList = kdWrapLoader(loadSalesList, { target: 'adminSalesList', loading:
 loadStaffSalesList = kdWrapLoader(loadStaffSalesList, { target: 'staffSalesList', loading: 'Loading sales records...', empty: 'No sales records found', error: 'Unable to load sales records.' });
 loadManagerSalesList = kdWrapLoader(loadManagerSalesList, { target: 'managerSalesList', loading: 'Loading sales records...', empty: 'No sales records found', error: 'Unable to load sales records.' });
 loadSalesAnalytics = kdWrapBusy(loadSalesAnalytics, '#totalSales, #totalRecords, #averageSale, #salesLineChart');
-loadStaffSalesAnalytics = kdWrapBusy(loadStaffSalesAnalytics, '#staffTotalSales, #staffTotalRecords, #staffAverageSale');
+loadStaffSalesAnalytics = kdWrapBusy(loadStaffSalesAnalytics, '#staffTotalSales, #staffTotalRecords, #staffAverageSale, #staffSalesLineChart');
 loadManagerSalesAnalytics = kdWrapBusy(loadManagerSalesAnalytics, '#managerTotalSales, #managerTotalRecords, #managerAverageSale, #managerSalesLineChart');
 
 export async function syncDeliveredSalesRecords() {
@@ -1744,6 +2163,9 @@ export async function syncDeliveredSalesRecords() {
     }
     if (document.getElementById('managerSalesList')) {
       await Promise.all([loadManagerSalesList(), loadManagerSalesAnalytics()]);
+    }
+    if (document.getElementById('staffSalesList')) {
+      await Promise.all([loadStaffSalesList(), loadStaffSalesAnalytics()]);
     }
   } catch (e) {
     showToast('Failed to sync delivered sales', 'error');
@@ -1760,6 +2182,10 @@ if (typeof window !== 'undefined') {
     if (document.getElementById('managerSalesList')) {
       loadManagerSalesList();
       loadManagerSalesAnalytics();
+    }
+    if (document.getElementById('staffSalesList')) {
+      loadStaffSalesList();
+      loadStaffSalesAnalytics();
     }
   };
 

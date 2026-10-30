@@ -69,9 +69,111 @@
     .modal-close { width: 32px; height: 32px; border-radius: 0.375rem; border: none; background: #f3f4f6; color: #4b5563; cursor: pointer; transition: all 0.2s; }
     .modal-close:hover { background: #e5e7eb; }
     .modal-body { padding: 1.5rem; }
-    .summary-card { background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%); color: white; padding: 1.5rem; border-radius: 0.75rem; margin-bottom: 1.5rem; }
-    .summary-value { font-size: 2.5rem; font-weight: 700; margin-bottom: 0.25rem; }
-    .summary-label { font-size: 0.875rem; opacity: 0.9; }
+    .summary-card {
+      --summary-bg: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%);
+      --summary-text: #ffffff;
+      --summary-subtext: rgba(255, 255, 255, 0.92);
+      --summary-badge-bg: rgba(255, 255, 255, 0.2);
+      --summary-badge-text: #ffffff;
+      background: var(--summary-bg);
+      color: var(--summary-text);
+      padding: 1.5rem;
+      border-radius: 0.75rem;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 4px 12px rgba(17, 24, 39, 0.08);
+      transition: background 0.3s ease, color 0.3s ease;
+    }
+
+    /* Dynamic performance states & color rules for Manager Dashboard:
+       Total Sales: Low -> Green, Middle -> Yellow, High -> Green
+       Total Records: Low -> Red, Middle -> Yellow, High -> Green
+       Average Sale: Low -> Red, Middle -> Yellow, High -> Green */
+    .summary-card.summary-card--low {
+      --summary-bg: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+      --summary-text: #ffffff;
+      --summary-subtext: rgba(255, 255, 255, 0.92);
+      --summary-badge-bg: rgba(255, 255, 255, 0.22);
+      --summary-badge-text: #ffffff;
+    }
+
+    .summary-card.summary-card--medium {
+      --summary-bg: linear-gradient(135deg, #fbbf24 0%, #d97706 100%);
+      --summary-text: #111827;
+      --summary-subtext: #1f2937;
+      --summary-badge-bg: rgba(17, 24, 39, 0.14);
+      --summary-badge-text: #111827;
+    }
+
+    .summary-card.summary-card--high {
+      --summary-bg: linear-gradient(135deg, #10b981 0%, #047857 100%);
+      --summary-text: #ffffff;
+      --summary-subtext: rgba(255, 255, 255, 0.92);
+      --summary-badge-bg: rgba(255, 255, 255, 0.22);
+      --summary-badge-text: #ffffff;
+    }
+
+    /* Explicit color overrides */
+    .summary-card.summary-card--red {
+      --summary-bg: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+      --summary-text: #ffffff;
+      --summary-subtext: rgba(255, 255, 255, 0.92);
+      --summary-badge-bg: rgba(255, 255, 255, 0.22);
+      --summary-badge-text: #ffffff;
+    }
+
+    .summary-card.summary-card--yellow {
+      --summary-bg: linear-gradient(135deg, #fbbf24 0%, #d97706 100%);
+      --summary-text: #111827;
+      --summary-subtext: #1f2937;
+      --summary-badge-bg: rgba(17, 24, 39, 0.14);
+      --summary-badge-text: #111827;
+    }
+
+    .summary-card.summary-card--green,
+    .summary-card.summary-card--low.summary-card--green,
+    .summary-card.summary-card--high.summary-card--green {
+      --summary-bg: linear-gradient(135deg, #10b981 0%, #047857 100%);
+      --summary-text: #ffffff;
+      --summary-subtext: rgba(255, 255, 255, 0.92);
+      --summary-badge-bg: rgba(255, 255, 255, 0.22);
+      --summary-badge-text: #ffffff;
+    }
+
+    .summary-value {
+      font-size: 2.5rem;
+      font-weight: 700;
+      margin-bottom: 0.25rem;
+      color: var(--summary-text);
+    }
+
+    .summary-label {
+      font-size: 0.875rem;
+      color: var(--summary-subtext);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+
+    .summary-scope {
+      font-size: 0.78rem;
+      color: var(--summary-subtext);
+      margin-top: 0.35rem;
+      line-height: 1.4;
+    }
+
+    .summary-perf-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.18rem 0.6rem;
+      border-radius: 9999px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      background: var(--summary-badge-bg);
+      color: var(--summary-badge-text);
+      white-space: nowrap;
+    }
     .manager-badge { display: inline-flex; align-items: center; gap: 0.5rem; background: rgba(124,58,237,0.1); color: #7c3aed; padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
     .search-toolbar { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1rem; margin-bottom: 0; }
     .search-toolbar .form-group { margin-bottom: 0; }
@@ -297,17 +399,34 @@
 
       <!-- Sales Overview Cards -->
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:1.5rem;margin-bottom:1.5rem;">
-        <div class="summary-card">
-          <div class="summary-label">Total Sales</div>
+        <!-- Total Sales Card (Low: Green, Middle: Yellow, High: Green) -->
+        <div class="summary-card" id="managerTotalSalesCard" data-performance-level="low" data-card-color="green">
+          <div class="summary-label">
+            <span>Total Sales</span>
+            <span class="summary-perf-badge" id="managerTotalSalesPerfBadge" role="status">Low Performance</span>
+          </div>
           <div class="summary-value" id="managerTotalSales">₱0.00</div>
+          <div id="managerTotalSalesScope" class="summary-scope">All-Time Total</div>
         </div>
-        <div class="summary-card">
-          <div class="summary-label">Total Records</div>
+
+        <!-- Total Records Card (Low: Red, Middle: Yellow, High: Green) -->
+        <div class="summary-card" id="managerTotalRecordsCard" data-performance-level="low" data-card-color="red">
+          <div class="summary-label">
+            <span>Total Records</span>
+            <span class="summary-perf-badge" id="managerTotalRecordsPerfBadge" role="status">Low Performance</span>
+          </div>
           <div class="summary-value" id="managerTotalRecords">0</div>
+          <div id="managerTotalRecordsScope" class="summary-scope">All Sales Records</div>
         </div>
-        <div class="summary-card">
-          <div class="summary-label">Average Sale</div>
+
+        <!-- Average Sale Card (Low: Red, Middle: Yellow, High: Green) -->
+        <div class="summary-card" id="managerAverageSaleCard" data-performance-level="low" data-card-color="red">
+          <div class="summary-label">
+            <span>Average Sale</span>
+            <span class="summary-perf-badge" id="managerAverageSalePerfBadge" role="status">Low Performance</span>
+          </div>
           <div class="summary-value" id="managerAverageSale">₱0.00</div>
+          <div id="managerAverageSaleScope" class="summary-scope">Per Transaction Average</div>
         </div>
       </div>
 
@@ -447,6 +566,31 @@
           </svg>
           Add New Stock Item
         </button>
+      </div>
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="search-toolbar">
+          <div class="form-group">
+            <label class="form-label" for="managerInventorySearch">Search inventory</label>
+            <input id="managerInventorySearch" type="text" class="form-input" placeholder="Search by name, item code, category">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="managerInventoryCategoryFilter">Filter by category</label>
+            <select id="managerInventoryCategoryFilter" class="form-input">
+              <option value="all">All Categories</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="managerInventoryStatusFilter">Filter by stock status</label>
+            <select id="managerInventoryStatusFilter" class="form-input">
+              <option value="all">All Statuses</option>
+              <option value="in-stock">In Stock</option>
+              <option value="low-stock">Low Stock</option>
+            </select>
+          </div>
+          <div class="form-group" style="display:flex;align-items:flex-end;">
+            <button type="button" id="managerInventoryResetFilters" class="btn btn-secondary" style="width:100%;">Reset Filters</button>
+          </div>
+        </div>
       </div>
       <div class="card">
         <h3 style="font-size:1.125rem;font-weight:600;color:#111827;margin-bottom:0.5rem;">Stock Levels</h3>

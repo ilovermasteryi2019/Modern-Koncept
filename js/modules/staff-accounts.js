@@ -277,10 +277,15 @@ export async function openMyAccountModal() {
     if (!result.success) { showToast('❌ ' + (result.message || 'Failed to load your account'), 'error'); return; }
     account = result.data;
   } catch (error) { showToast('❌ Failed to load your account', 'error'); return; }
-  myAccountOriginal = { email: account.email || '', phone: normalizePhPhoneClient(account.phone) };
+  myAccountOriginal = {
+    email: account.email || '',
+    phone: normalizePhPhoneClient(account.phone),
+    recoveryEmail: (account.recovery_email || '').trim(),
+    recoveryEmailVerified: Boolean(account.recovery_email_verified)
+  };
   const modalHTML = `
     <div id="myAccountModal" class="modal active">
-      <div class="modal-content">
+      <div class="modal-content" style="max-width: 520px;">
         <div class="modal-header">
           <h3 class="modal-title">Edit My Account</h3>
           <button class="modal-close" type="button" onclick="closeMyAccountModal()">×</button>
@@ -292,7 +297,7 @@ export async function openMyAccountModal() {
               <input type="text" id="myAccountName" class="form-input" maxlength="100" required>
             </div>
             <div class="form-group">
-              <label class="form-label">Email</label>
+              <label class="form-label">Primary Login Email</label>
               <input type="email" id="myAccountEmail" class="form-input" maxlength="254" autocomplete="username" required>
             </div>
             <div class="form-group">
@@ -300,6 +305,37 @@ export async function openMyAccountModal() {
               <input type="tel" id="myAccountPhone" class="form-input" inputmode="tel" autocomplete="off" maxlength="20" placeholder="e.g. 09171234567" required>
               <small style="color:#6b7280;font-size:0.75rem;">Philippine mobile number. Your SMS verification code is sent here at login.</small>
             </div>
+
+            <!-- Admin Recovery Email Configuration Section -->
+            <div class="form-group" style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:14px; margin-bottom:1.25rem;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <label class="form-label" style="margin-bottom:0; font-weight:600; color:#1e293b;">Admin Recovery Email</label>
+                <span id="recoveryEmailStatusBadge" style="font-size:0.75rem; padding:3px 8px; border-radius:12px; font-weight:600;"></span>
+              </div>
+              <p style="font-size:0.75rem; color:#64748b; margin-bottom:8px; line-height:1.4;">
+                Dedicated recovery email used strictly to recover Admin access if you forget your password. Must be separate from your primary login email.
+              </p>
+              <div style="display:flex; gap:8px;">
+                <input type="email" id="myAccountRecoveryEmail" class="form-input" maxlength="254" placeholder="e.g. recovery-admin@example.com" style="flex:1;">
+                <button type="button" id="myAccountSendCodeBtn" class="btn btn-secondary" style="white-space:nowrap; font-size:0.8125rem; padding:6px 12px;">
+                  Verify Email
+                </button>
+              </div>
+
+              <!-- Inline Verification Code Box -->
+              <div id="recoveryCodeBox" style="display:none; margin-top:10px; padding:10px; background:#ffffff; border:1px solid #cbd5e1; border-radius:6px;">
+                <p style="font-size:0.75rem; color:#334155; margin-bottom:6px; font-weight:500;">
+                  Enter the 6-digit confirmation code sent to your recovery email:
+                </p>
+                <div style="display:flex; gap:8px;">
+                  <input type="text" id="myAccountRecoveryCode" class="form-input" maxlength="6" placeholder="6 digits" style="width:120px; letter-spacing:0.2em; font-family:monospace; text-align:center;">
+                  <button type="button" id="myAccountVerifyCodeBtn" class="btn btn-accent" style="white-space:nowrap; font-size:0.8125rem; padding:6px 12px;">
+                    Confirm Code
+                  </button>
+                </div>
+              </div>
+            </div>
+
             <div class="form-group">
               <label class="form-label">New Password</label>
               <input type="password" id="myAccountNewPassword" class="form-input" maxlength="128" autocomplete="new-password" placeholder="Leave blank to keep your current password">
@@ -312,9 +348,9 @@ export async function openMyAccountModal() {
             <div class="form-group">
               <label class="form-label">Current Password</label>
               <input type="password" id="myAccountCurrentPassword" class="form-input" maxlength="128" autocomplete="current-password">
-              <small style="color:#6b7280;font-size:0.75rem;">Required to change your email, phone number or password.</small>
+              <small style="color:#6b7280;font-size:0.75rem;">Required to change your email, recovery email, phone number or password.</small>
             </div>
-            <div style="display:flex;gap:0.75rem;">
+            <div style="display:flex;gap:0.75rem;margin-top:1.5rem;">
               <button type="submit" class="btn btn-accent" style="flex:1;">Save Changes</button>
               <button type="button" class="btn btn-secondary" onclick="closeMyAccountModal()" style="flex:1;">Cancel</button>
             </div>
@@ -323,10 +359,127 @@ export async function openMyAccountModal() {
       </div>
     </div>`;
   document.body.insertAdjacentHTML('beforeend', modalHTML);
-  // Values are set through the DOM so they can never break the markup
+
+  // Set form values
   document.getElementById('myAccountName').value = account.name || '';
   document.getElementById('myAccountEmail').value = account.email || '';
   document.getElementById('myAccountPhone').value = account.phone || '';
+  const recoveryEmailInput = document.getElementById('myAccountRecoveryEmail');
+  recoveryEmailInput.value = account.recovery_email || '';
+
+  // Update badge display function
+  function updateBadge(isVerified, hasEmail, isPending) {
+    const badge = document.getElementById('recoveryEmailStatusBadge');
+    const sendBtn = document.getElementById('myAccountSendCodeBtn');
+    if (!badge) return;
+    if (isPending) {
+      badge.textContent = 'Code Sent';
+      badge.style.background = '#e0f2fe';
+      badge.style.color = '#0369a1';
+      badge.style.border = '1px solid #7dd3fc';
+      if (sendBtn) sendBtn.textContent = 'Resend Code';
+    } else if (hasEmail && isVerified) {
+      badge.textContent = '✓ Verified';
+      badge.style.background = '#dcfce7';
+      badge.style.color = '#15803d';
+      badge.style.border = '1px solid #86efac';
+      if (sendBtn) sendBtn.textContent = 'Re-verify';
+    } else if (hasEmail && !isVerified) {
+      badge.textContent = '⚠️ Unverified';
+      badge.style.background = '#fef9c3';
+      badge.style.color = '#854d0e';
+      badge.style.border = '1px solid #fde047';
+      if (sendBtn) sendBtn.textContent = 'Verify Email';
+    } else {
+      badge.textContent = 'Not Configured';
+      badge.style.background = '#f1f5f9';
+      badge.style.color = '#64748b';
+      badge.style.border = '1px solid #cbd5e1';
+      if (sendBtn) sendBtn.textContent = 'Verify Email';
+    }
+  }
+
+  updateBadge(Boolean(account.recovery_email_verified), Boolean(account.recovery_email), false);
+
+  // Wire send verification code button
+  document.getElementById('myAccountSendCodeBtn').addEventListener('click', async () => {
+    const recEmail = document.getElementById('myAccountRecoveryEmail').value.trim();
+    const primaryEmail = document.getElementById('myAccountEmail').value.trim();
+    const currPass = document.getElementById('myAccountCurrentPassword').value;
+
+    if (!recEmail) {
+      showToast('Please enter a recovery email address first.', 'warning');
+      document.getElementById('myAccountRecoveryEmail').focus();
+      return;
+    }
+    if (recEmail.toLowerCase() === primaryEmail.toLowerCase()) {
+      showToast('Recovery email must be different from your primary login email.', 'warning');
+      document.getElementById('myAccountRecoveryEmail').focus();
+      return;
+    }
+    if (!currPass) {
+      showToast('Enter your current password below to authorize sending a verification code.', 'warning');
+      document.getElementById('myAccountCurrentPassword').focus();
+      return;
+    }
+
+    const sendBtn = document.getElementById('myAccountSendCodeBtn');
+    sendBtn.disabled = true;
+    sendBtn.textContent = 'Sending…';
+
+    try {
+      const res = await API.sendRecoveryEmailCode(recEmail, currPass);
+      if (res.success) {
+        showToast(res.message || 'Verification code sent to recovery email.', 'success');
+        updateBadge(false, true, true);
+        const codeBox = document.getElementById('recoveryCodeBox');
+        if (codeBox) codeBox.style.display = 'block';
+        const codeInput = document.getElementById('myAccountRecoveryCode');
+        if (codeInput) { codeInput.value = ''; codeInput.focus(); }
+      } else {
+        showToast('❌ ' + (res.message || 'Failed to send verification code.'), 'error');
+      }
+    } catch (err) {
+      showToast('❌ Failed to reach server. Check connection.', 'error');
+    } finally {
+      sendBtn.disabled = false;
+      sendBtn.textContent = 'Verify Email';
+    }
+  });
+
+  // Wire confirm verification code button
+  document.getElementById('myAccountVerifyCodeBtn').addEventListener('click', async () => {
+    const code = document.getElementById('myAccountRecoveryCode').value.trim();
+    if (!code || !/^\d{6}$/.test(code)) {
+      showToast('Please enter the 6-digit numeric verification code.', 'warning');
+      document.getElementById('myAccountRecoveryCode').focus();
+      return;
+    }
+
+    const verifyBtn = document.getElementById('myAccountVerifyCodeBtn');
+    verifyBtn.disabled = true;
+    verifyBtn.textContent = 'Verifying…';
+
+    try {
+      const res = await API.verifyRecoveryEmailCode(code);
+      if (res.success) {
+        showToast('✓ ' + (res.message || 'Recovery email verified successfully!'), 'success');
+        updateBadge(true, true, false);
+        const codeBox = document.getElementById('recoveryCodeBox');
+        if (codeBox) codeBox.style.display = 'none';
+        myAccountOriginal.recoveryEmail = document.getElementById('myAccountRecoveryEmail').value.trim();
+        myAccountOriginal.recoveryEmailVerified = true;
+      } else {
+        showToast('❌ ' + (res.message || 'Invalid or expired verification code.'), 'error');
+      }
+    } catch (err) {
+      showToast('❌ Failed to verify code.', 'error');
+    } finally {
+      verifyBtn.disabled = false;
+      verifyBtn.textContent = 'Confirm Code';
+    }
+  });
+
   document.getElementById('myAccountForm').addEventListener('submit', handleMyAccountSubmit);
 }
 
@@ -338,6 +491,7 @@ async function handleMyAccountSubmit(event) {
   const name = document.getElementById('myAccountName').value.trim();
   const email = document.getElementById('myAccountEmail').value.trim();
   const phone = document.getElementById('myAccountPhone').value.trim();
+  const recoveryEmail = document.getElementById('myAccountRecoveryEmail').value.trim();
   const newPassword = document.getElementById('myAccountNewPassword').value;
   const confirmPassword = document.getElementById('myAccountConfirmPassword').value;
   const currentPassword = document.getElementById('myAccountCurrentPassword').value;
@@ -346,19 +500,28 @@ async function handleMyAccountSubmit(event) {
   if (!email) { showToast('Please enter your email', 'warning'); return; }
   const phoneProblem = validatePhPhoneClient(phone);
   if (phoneProblem) { showToast(phoneProblem, 'warning'); return; }
+  if (recoveryEmail && recoveryEmail.toLowerCase() === email.toLowerCase()) {
+    showToast('The recovery email must be different from your primary login email', 'warning');
+    document.getElementById('myAccountRecoveryEmail').focus();
+    return;
+  }
   if (newPassword) {
     if (newPassword.length < 8) { showToast('The new password must be at least 8 characters', 'warning'); return; }
     if (newPassword !== confirmPassword) { showToast('The new passwords do not match', 'warning'); return; }
   }
-  const sensitiveChange = email !== myAccountOriginal.email || normalizePhPhoneClient(phone) !== myAccountOriginal.phone || !!newPassword;
+
+  const recoveryEmailChanged = recoveryEmail !== (myAccountOriginal.recoveryEmail || '');
+  const sensitiveChange = email !== myAccountOriginal.email || normalizePhPhoneClient(phone) !== myAccountOriginal.phone || !!newPassword || recoveryEmailChanged;
+
   if (sensitiveChange && !currentPassword) {
-    showToast('Enter your current password to change your email, phone number or password', 'warning');
+    showToast('Enter your current password to change sensitive account settings', 'warning');
     document.getElementById('myAccountCurrentPassword').focus();
     return;
   }
 
   // Only these fields are sent: the account is identified by the login session, and the role is never part of the request
   const data = { name, email, phone };
+  if (recoveryEmailChanged) data.recoveryEmail = recoveryEmail;
   if (sensitiveChange) data.currentPassword = currentPassword;
   if (newPassword) data.newPassword = newPassword;
 

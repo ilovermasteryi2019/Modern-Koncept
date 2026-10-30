@@ -151,6 +151,11 @@ export const API = {
   updateStaffStatus: async (id, isActive) => (await fetch(`${API_URL}/staff/${id}/status`, { method: 'PATCH', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ is_active: Boolean(isActive) }) })).json(),
   getMyAccount: async () => (await fetch(`${API_URL}/account/me`, { headers: authHeaders() })).json(),
   updateMyAccount: async (data) => (await fetch(`${API_URL}/account/me`, { method: 'PUT', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(data) })).json(),
+  // Admin-only recovery email & password reset
+  requestAdminPasswordReset: async (identifier) => (await fetch(`${API_URL}/auth/admin/forgot-password`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifier }) })).json(),
+  resetAdminPassword: async (token, newPassword) => (await fetch(`${API_URL}/auth/admin/reset-password`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, newPassword }) })).json(),
+  sendRecoveryEmailCode: async (recoveryEmail, currentPassword) => (await fetch(`${API_URL}/account/recovery-email/send-code`, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ recoveryEmail, currentPassword }) })).json(),
+  verifyRecoveryEmailCode: async (code) => (await fetch(`${API_URL}/account/recovery-email/verify-code`, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ code }) })).json(),
   // SMS verification at login (backend routes: /login/mfa/send, /resend, /verify, /cancel - see "LOGIN WITH SMS VERIFICATION" below).
   mfaSend: (challengeId) => mfaRequest('/login/mfa/send', { challengeId }),
   mfaResend: (challengeId) => mfaRequest('/login/mfa/resend', { challengeId }),

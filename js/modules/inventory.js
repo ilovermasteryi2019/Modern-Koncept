@@ -209,66 +209,209 @@ export function getInventoryUnitPrice(item) {
   return Number.isFinite(price) && price > 0 ? price : null;
 }
 
-// =============================================================================
-// =============================================================================
-// STAFF MODULE - INVENTORY (read-only)
-// =============================================================================
-export async function loadStaffInventoryList() {
-  try {
-    const result = await API.getInventory();
-    const tbody = document.getElementById('staffInventoryList');
-    if (!tbody) return;
-    tbody.innerHTML = '';
-    if (!result.success || result.data.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#9ca3af;padding:2rem;">No inventory items found</td></tr>';
-      return;
-    }
-    result.data.forEach(item => {
-      const status = item.quantity > 10 ? 'in-stock' : 'low-stock';
-      const statusText = item.quantity > 10 ? 'In Stock' : 'Low Stock';
-      tbody.innerHTML += `
-        <tr>
-          <td>${item.image ? `<img src="${item.image}" alt="${item.name}" style="width:50px;height:50px;object-fit:cover;border-radius:0.375rem;">` : '<span style="color:#9ca3af;font-size:0.75rem;">No image</span>'}</td>
-          <td style="font-family:monospace;font-size:0.8rem;">${item.item_code || '<span style="color:#9ca3af;">N/A</span>'}</td>
-          <td>${item.name}</td>
-          <td>${item.category}</td>
-          <td>${getInventoryUnitPrice(item) ? formatCurrency(getInventoryUnitPrice(item)) : '<span style="color:#9ca3af;">Not set</span>'}</td>
-          <td><strong>${item.quantity}</strong></td>
-          <td><span class="stock-status ${status}">${statusText}</span></td>
-        </tr>`;
-    });
-  } catch (error) { showToast('❌ Failed to load inventory', 'error'); }
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
-// MANAGER MODULE - INVENTORY (shared inventory data, different container)
 // =============================================================================
-export async function loadManagerInventoryList() {
+// STAFF MODULE - INVENTORY (read-only with search & filters)
+// =============================================================================
+let staffInventoryItems = [];
+
+function refreshStaffInventoryCategoryOptions(items) {
+  const select = document.getElementById('staffInventoryCategoryFilter');
+  if (!select) return;
+  const selected = select.value || 'all';
+  const categories = new Set(items.map(item => item.category).filter(Boolean));
+  if (selected !== 'all') categories.add(selected);
+  select.replaceChildren(new Option('All Categories', 'all'));
+  Array.from(categories).sort((a, b) => a.localeCompare(b)).forEach(cat => select.appendChild(new Option(cat, cat)));
+  select.value = selected;
+}
+
+function filterStaffInventoryList() {
+  const searchInput = document.getElementById('staffInventorySearch');
+  const categoryFilter = document.getElementById('staffInventoryCategoryFilter');
+  const statusFilter = document.getElementById('staffInventoryStatusFilter');
+  let filtered = [...staffInventoryItems];
+  if (searchInput && searchInput.value.trim()) {
+    const s = searchInput.value.trim().toLowerCase();
+    filtered = filtered.filter(item =>
+      (item.name && item.name.toLowerCase().includes(s)) ||
+      (item.item_code && String(item.item_code).toLowerCase().includes(s)) ||
+      (item.category && item.category.toLowerCase().includes(s)));
+  }
+  if (categoryFilter && categoryFilter.value !== 'all') filtered = filtered.filter(item => item.category === categoryFilter.value);
+  if (statusFilter && statusFilter.value !== 'all') filtered = filtered.filter(item => inventoryStockStatus(item) === statusFilter.value);
+  renderStaffInventoryTable(filtered);
+}
+
+function resetStaffInventoryFilters() {
+  const searchInput = document.getElementById('staffInventorySearch');
+  const categoryFilter = document.getElementById('staffInventoryCategoryFilter');
+  const statusFilter = document.getElementById('staffInventoryStatusFilter');
+  if (searchInput) searchInput.value = '';
+  if (categoryFilter) categoryFilter.value = 'all';
+  if (statusFilter) statusFilter.value = 'all';
+  filterStaffInventoryList();
+}
+
+export function initStaffInventorySearch() {
+  const searchInput = document.getElementById('staffInventorySearch');
+  if (!searchInput || searchInput.dataset.kdBound === '1') return;
+  searchInput.dataset.kdBound = '1';
+  const categoryFilter = document.getElementById('staffInventoryCategoryFilter');
+  const statusFilter = document.getElementById('staffInventoryStatusFilter');
+  const resetBtn = document.getElementById('staffInventoryResetFilters');
+  searchInput.addEventListener('input', filterStaffInventoryList);
+  if (categoryFilter) categoryFilter.addEventListener('change', filterStaffInventoryList);
+  if (statusFilter) statusFilter.addEventListener('change', filterStaffInventoryList);
+  if (resetBtn) resetBtn.addEventListener('click', resetStaffInventoryFilters);
+}
+
+function renderStaffInventoryTable(items) {
+  const tbody = document.getElementById('staffInventoryList');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  if (!items || items.length === 0) {
+    const emptyMsg = staffInventoryItems.length > 0
+      ? 'No inventory items match your search or filter criteria.'
+      : 'No inventory items found';
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#9ca3af;padding:2rem;">${emptyMsg}</td></tr>`;
+    return;
+  }
+  items.forEach(item => {
+    const status = item.quantity > 10 ? 'in-stock' : 'low-stock';
+    const statusText = item.quantity > 10 ? 'In Stock' : 'Low Stock';
+    tbody.innerHTML += `
+      <tr>
+        <td>${item.image ? `<img src="${item.image}" alt="${escapeHtml(item.name)}" style="width:50px;height:50px;object-fit:cover;border-radius:0.375rem;">` : '<span style="color:#9ca3af;font-size:0.75rem;">No image</span>'}</td>
+        <td style="font-family:monospace;font-size:0.8rem;">${item.item_code ? escapeHtml(item.item_code) : '<span style="color:#9ca3af;">N/A</span>'}</td>
+        <td>${escapeHtml(item.name)}</td>
+        <td>${escapeHtml(item.category || '')}</td>
+        <td>${getInventoryUnitPrice(item) ? formatCurrency(getInventoryUnitPrice(item)) : '<span style="color:#9ca3af;">Not set</span>'}</td>
+        <td><strong>${item.quantity}</strong></td>
+        <td><span class="stock-status ${status}">${statusText}</span></td>
+      </tr>`;
+  });
+}
+
+export async function loadStaffInventoryList() {
   try {
+    initStaffInventorySearch();
     const result = await API.getInventory();
     if (result.success) {
-      const container = document.getElementById('managerInventoryList');
-      if (!container) return;
-      container.innerHTML = '';
-      if (result.data.length === 0) { container.innerHTML = '<p style="text-align:center;color:#9ca3af;padding:2rem;">No inventory items found</p>'; return; }
-      let tableHTML = `<div class="table-container"><table><thead><tr><th>Image</th><th>Item Name</th><th>Item Code</th><th>Category</th><th>Price</th><th>Quantity</th><th>Stock Status</th><th>Last Updated</th><th>Actions</th></tr></thead><tbody>`;
-      result.data.forEach(item => {
-        const status = item.quantity > 10 ? 'in-stock' : 'low-stock';
-        const statusText = item.quantity > 10 ? 'In Stock' : 'Low Stock';
-        tableHTML += `
-          <tr>
-            <td>${item.image ? `<img src="${item.image}" alt="${item.name}" style="width:50px;height:50px;object-fit:cover;border-radius:0.375rem;">` : '<span style="color:#9ca3af;font-size:0.75rem;">No image</span>'}</td>
-            <td>${item.name}</td>
-            <td style="font-family:monospace;font-size:0.8rem;">${item.item_code || '<span style="color:#9ca3af;">N/A</span>'}</td>
-            <td>${item.category}</td>
-            <td>${getInventoryUnitPrice(item) ? formatCurrency(getInventoryUnitPrice(item)) : '<span style="color:#9ca3af;">Not set</span>'}</td>
-            <td><strong>${item.quantity}</strong></td>
-            <td><span class="stock-status ${status}">${statusText}</span></td>
-            <td>${formatDateTime(item.last_updated)}</td>
-            <td><button class="action-btn edit" onclick="openManagerEditInventoryModal(${item.id})"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Edit</button></td>
-          </tr>`;
-      });
-      tableHTML += `</tbody></table></div>`;
-      container.innerHTML = tableHTML;
+      staffInventoryItems = Array.isArray(result.data) ? result.data : [];
+      refreshStaffInventoryCategoryOptions(staffInventoryItems);
+      filterStaffInventoryList();
+    } else {
+      showToast('❌ ' + (result.message || 'Failed to load inventory'), 'error');
+    }
+  } catch (error) {
+    showToast('❌ Failed to load inventory', 'error');
+  }
+}
+
+// MANAGER MODULE - INVENTORY (search, filter, stock management)
+// =============================================================================
+let managerInventoryItems = [];
+
+function refreshManagerInventoryCategoryOptions(items) {
+  const select = document.getElementById('managerInventoryCategoryFilter');
+  if (!select) return;
+  const selected = select.value || 'all';
+  const categories = new Set(items.map(item => item.category).filter(Boolean));
+  if (selected !== 'all') categories.add(selected);
+  select.replaceChildren(new Option('All Categories', 'all'));
+  Array.from(categories).sort((a, b) => a.localeCompare(b)).forEach(cat => select.appendChild(new Option(cat, cat)));
+  select.value = selected;
+}
+
+function filterManagerInventoryList() {
+  const searchInput = document.getElementById('managerInventorySearch');
+  const categoryFilter = document.getElementById('managerInventoryCategoryFilter');
+  const statusFilter = document.getElementById('managerInventoryStatusFilter');
+  let filtered = [...managerInventoryItems];
+  if (searchInput && searchInput.value.trim()) {
+    const s = searchInput.value.trim().toLowerCase();
+    filtered = filtered.filter(item =>
+      (item.name && item.name.toLowerCase().includes(s)) ||
+      (item.item_code && String(item.item_code).toLowerCase().includes(s)) ||
+      (item.category && item.category.toLowerCase().includes(s)));
+  }
+  if (categoryFilter && categoryFilter.value !== 'all') filtered = filtered.filter(item => item.category === categoryFilter.value);
+  if (statusFilter && statusFilter.value !== 'all') filtered = filtered.filter(item => inventoryStockStatus(item) === statusFilter.value);
+  renderManagerInventoryTable(filtered);
+}
+
+function resetManagerInventoryFilters() {
+  const searchInput = document.getElementById('managerInventorySearch');
+  const categoryFilter = document.getElementById('managerInventoryCategoryFilter');
+  const statusFilter = document.getElementById('managerInventoryStatusFilter');
+  if (searchInput) searchInput.value = '';
+  if (categoryFilter) categoryFilter.value = 'all';
+  if (statusFilter) statusFilter.value = 'all';
+  filterManagerInventoryList();
+}
+
+export function initManagerInventorySearch() {
+  const searchInput = document.getElementById('managerInventorySearch');
+  if (!searchInput || searchInput.dataset.kdBound === '1') return;
+  searchInput.dataset.kdBound = '1';
+  const categoryFilter = document.getElementById('managerInventoryCategoryFilter');
+  const statusFilter = document.getElementById('managerInventoryStatusFilter');
+  const resetBtn = document.getElementById('managerInventoryResetFilters');
+  searchInput.addEventListener('input', filterManagerInventoryList);
+  if (categoryFilter) categoryFilter.addEventListener('change', filterManagerInventoryList);
+  if (statusFilter) statusFilter.addEventListener('change', filterManagerInventoryList);
+  if (resetBtn) resetBtn.addEventListener('click', resetManagerInventoryFilters);
+}
+
+function renderManagerInventoryTable(items) {
+  const container = document.getElementById('managerInventoryList');
+  if (!container) return;
+  container.innerHTML = '';
+  if (!items || items.length === 0) {
+    const emptyMsg = managerInventoryItems.length > 0
+      ? 'No inventory items match your search or filter criteria.'
+      : 'No inventory items found';
+    container.innerHTML = `<p style="text-align:center;color:#9ca3af;padding:2rem;">${emptyMsg}</p>`;
+    return;
+  }
+  let tableHTML = `<div class="table-container"><table><thead><tr><th>Image</th><th>Item Name</th><th>Item Code</th><th>Category</th><th>Price</th><th>Quantity</th><th>Stock Status</th><th>Last Updated</th><th>Actions</th></tr></thead><tbody>`;
+  items.forEach(item => {
+    const status = item.quantity > 10 ? 'in-stock' : 'low-stock';
+    const statusText = item.quantity > 10 ? 'In Stock' : 'Low Stock';
+    tableHTML += `
+      <tr>
+        <td>${item.image ? `<img src="${item.image}" alt="${escapeHtml(item.name)}" style="width:50px;height:50px;object-fit:cover;border-radius:0.375rem;">` : '<span style="color:#9ca3af;font-size:0.75rem;">No image</span>'}</td>
+        <td>${escapeHtml(item.name)}</td>
+        <td style="font-family:monospace;font-size:0.8rem;">${item.item_code ? escapeHtml(item.item_code) : '<span style="color:#9ca3af;">N/A</span>'}</td>
+        <td>${escapeHtml(item.category || '')}</td>
+        <td>${getInventoryUnitPrice(item) ? formatCurrency(getInventoryUnitPrice(item)) : '<span style="color:#9ca3af;">Not set</span>'}</td>
+        <td><strong>${item.quantity}</strong></td>
+        <td><span class="stock-status ${status}">${statusText}</span></td>
+        <td>${formatDateTime(item.last_updated)}</td>
+        <td><button class="action-btn edit" onclick="openManagerEditInventoryModal(${item.id})"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Edit</button></td>
+      </tr>`;
+  });
+  tableHTML += `</tbody></table></div>`;
+  container.innerHTML = tableHTML;
+}
+
+export async function loadManagerInventoryList() {
+  try {
+    initManagerInventorySearch();
+    const result = await API.getInventory();
+    if (result.success) {
+      managerInventoryItems = Array.isArray(result.data) ? result.data : [];
+      refreshManagerInventoryCategoryOptions(managerInventoryItems);
+      filterManagerInventoryList();
     } else {
       showToast('❌ ' + (result.message || 'Failed to load inventory'), 'error');
     }

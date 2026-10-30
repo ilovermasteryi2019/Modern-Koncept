@@ -269,18 +269,23 @@ function mfaDisplayPhone(value) {
   return digits.length >= 2 ? `+63 XXX XXX XX${digits.slice(-2)}` : 'your registered mobile number';
 }
 
-function mfaSetStep(step) { // 'credentials' | 'send' | 'code'
+function mfaSetStep(step) { // 'credentials' | 'send' | 'code' | 'recovery' | 'resetPassword'
   const copy = {
     credentials: ['Welcome Back', 'Login to access your dashboard'],
     send: ['Verify your identity', 'For your security, confirm it is you before we open your dashboard.'],
-    code: ['Verify your identity', 'Enter the code we sent to your phone.']
-  }[step];
-  mfaEl('loginTitle').textContent = copy[0];
-  mfaEl('loginSubtitle').textContent = copy[1];
-  mfaEl('loginForm').hidden = step !== 'credentials';
-  mfaEl('mfaPanel').hidden = step === 'credentials';
-  mfaEl('mfaStepSend').hidden = step !== 'send';
-  mfaEl('mfaStepCode').hidden = step !== 'code';
+    code: ['Verify your identity', 'Enter the code we sent to your phone.'],
+    recovery: ['Account Recovery', 'Recover your Administrator account access.'],
+    resetPassword: ['Reset Password', 'Create a new password for your Administrator account.']
+  }[step] || ['Welcome Back', 'Login to access your dashboard'];
+
+  if (mfaEl('loginTitle')) mfaEl('loginTitle').textContent = copy[0];
+  if (mfaEl('loginSubtitle')) mfaEl('loginSubtitle').textContent = copy[1];
+  if (mfaEl('loginForm')) mfaEl('loginForm').hidden = step !== 'credentials';
+  if (mfaEl('mfaPanel')) mfaEl('mfaPanel').hidden = !['send', 'code'].includes(step);
+  if (mfaEl('mfaStepSend')) mfaEl('mfaStepSend').hidden = step !== 'send';
+  if (mfaEl('mfaStepCode')) mfaEl('mfaStepCode').hidden = step !== 'code';
+  if (mfaEl('recoveryPanel')) mfaEl('recoveryPanel').hidden = step !== 'recovery';
+  if (mfaEl('resetPasswordPanel')) mfaEl('resetPasswordPanel').hidden = step !== 'resetPassword';
   setLoginErrorBanner('');
 }
 
@@ -473,16 +478,149 @@ function mfaCancel() {
 export function initMfaUi() {
   if (!mfaEl('mfaPanel')) return; // this page has no verification screen
   const codeInput = mfaEl('mfaCode');
-  codeInput.maxLength = MFA_OTP_LENGTH;
-  codeInput.placeholder = `Enter the ${MFA_OTP_LENGTH}-digit code`;
-  codeInput.addEventListener('input', () => {
-    codeInput.value = codeInput.value.replace(/\D/g, '').slice(0, MFA_OTP_LENGTH);
-    mfaRefreshButtons();
-  });
-  mfaEl('mfaSendBtn').addEventListener('click', () => mfaSendCode(false));
-  mfaEl('mfaResendBtn').addEventListener('click', () => mfaSendCode(true));
-  mfaEl('mfaVerifyForm').addEventListener('submit', mfaVerifyCode);
-  mfaEl('mfaCancelBtn').addEventListener('click', mfaCancel);
+  if (codeInput) {
+    codeInput.maxLength = MFA_OTP_LENGTH;
+    codeInput.placeholder = `Enter the ${MFA_OTP_LENGTH}-digit code`;
+    codeInput.addEventListener('input', () => {
+      codeInput.value = codeInput.value.replace(/\D/g, '').slice(0, MFA_OTP_LENGTH);
+      mfaRefreshButtons();
+    });
+  }
+  const sendBtn = mfaEl('mfaSendBtn');
+  if (sendBtn) sendBtn.addEventListener('click', () => mfaSendCode(false));
+  const resendBtn = mfaEl('mfaResendBtn');
+  if (resendBtn) resendBtn.addEventListener('click', () => mfaSendCode(true));
+  const verifyForm = mfaEl('mfaVerifyForm');
+  if (verifyForm) verifyForm.addEventListener('submit', mfaVerifyCode);
+  const cancelBtn = mfaEl('mfaCancelBtn');
+  if (cancelBtn) cancelBtn.addEventListener('click', mfaCancel);
+
+  // --- Admin Password Recovery & Reset Handlers ---
+  const forgotLink = mfaEl('forgotPasswordLink');
+  if (forgotLink) {
+    forgotLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      mfaSetStep('recovery');
+      const idInput = mfaEl('recoveryIdentifier');
+      if (idInput) {
+        const loginEmail = mfaEl('loginEmail');
+        if (loginEmail && loginEmail.value) idInput.value = loginEmail.value;
+        idInput.focus();
+      }
+    });
+  }
+
+  const recoveryBackBtn = mfaEl('recoveryBackBtn');
+  if (recoveryBackBtn) {
+    recoveryBackBtn.addEventListener('click', () => {
+      mfaSetStep('credentials');
+    });
+  }
+
+  const recoveryForm = mfaEl('recoveryForm');
+  if (recoveryForm) {
+    recoveryForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const idInput = mfaEl('recoveryIdentifier');
+      const submitBtn = mfaEl('recoverySubmitBtn');
+      const alertBox = mfaEl('recoveryAlert');
+      const alertMsg = mfaEl('recoveryAlertMsg');
+      const identifier = idInput ? idInput.value.trim() : '';
+      if (!identifier) return;
+
+      if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Sending…'; }
+      try {
+        const res = await API.requestAdminPasswordReset(identifier);
+        const msg = res.message || 'If an eligible Admin account is found with a verified recovery email, password recovery instructions will be sent to its registered recovery email.';
+        if (alertBox && alertMsg) {
+          alertMsg.textContent = msg;
+          alertBox.hidden = false;
+          alertBox.classList.remove('hidden');
+        }
+        showToast(msg, 'info', 7000);
+      } catch (err) {
+        showToast('Failed to send recovery request. Please check your connection.', 'error');
+      } finally {
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Send Recovery Link'; }
+      }
+    });
+  }
+
+  // Token detection in URL query parameter (?token=...)
+  const urlParams = new URLSearchParams(window.location.search);
+  const urlToken = urlParams.get('token');
+  if (urlToken && /^[a-f0-9]{64}$/i.test(urlToken.trim())) {
+    const tokenInput = mfaEl('resetPasswordToken');
+    if (tokenInput) tokenInput.value = urlToken.trim();
+    mfaSetStep('resetPassword');
+    // Sanitize address bar so token does not linger in history or bookmarks
+    window.history.replaceState({}, '', window.location.pathname + '#reset-password');
+  }
+
+  const resetPasswordBackBtn = mfaEl('resetPasswordBackBtn');
+  if (resetPasswordBackBtn) {
+    resetPasswordBackBtn.addEventListener('click', () => {
+      mfaSetStep('credentials');
+    });
+  }
+
+  const resetPasswordForm = mfaEl('resetPasswordForm');
+  if (resetPasswordForm) {
+    resetPasswordForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const tokenInput = mfaEl('resetPasswordToken');
+      const newPasswordInput = mfaEl('resetNewPassword');
+      const confirmPasswordInput = mfaEl('resetConfirmPassword');
+      const submitBtn = mfaEl('resetPasswordSubmitBtn');
+      const alertBox = mfaEl('resetPasswordAlert');
+      const alertMsg = mfaEl('resetPasswordAlertMsg');
+
+      const token = tokenInput ? tokenInput.value.trim() : '';
+      const newPassword = newPasswordInput ? newPasswordInput.value : '';
+      const confirmPassword = confirmPasswordInput ? confirmPasswordInput.value : '';
+
+      if (!token) {
+        showToast('Password reset token is missing. Please click the link in your recovery email.', 'error');
+        return;
+      }
+      if (newPassword.length < 8) {
+        showToast('The new password must be at least 8 characters long.', 'warning');
+        if (newPasswordInput) newPasswordInput.focus();
+        return;
+      }
+      if (newPassword !== confirmPassword) {
+        showToast('The new passwords do not match.', 'warning');
+        if (confirmPasswordInput) confirmPasswordInput.focus();
+        return;
+      }
+
+      if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Updating…'; }
+      try {
+        const res = await API.resetAdminPassword(token, newPassword);
+        if (res.success) {
+          showToast(res.message || 'Password reset successfully! Please log in and complete SMS verification.', 'success', 7000);
+          if (newPasswordInput) newPasswordInput.value = '';
+          if (confirmPasswordInput) confirmPasswordInput.value = '';
+          if (tokenInput) tokenInput.value = '';
+          mfaSetStep('credentials');
+          const loginPass = mfaEl('loginPassword');
+          if (loginPass) { loginPass.value = ''; loginPass.focus(); }
+        } else {
+          const errText = res.message || 'Failed to reset password.';
+          if (alertBox && alertMsg) {
+            alertMsg.textContent = errText;
+            alertBox.hidden = false;
+            alertBox.classList.remove('hidden');
+          }
+          showToast(errText, 'error');
+        }
+      } catch (err) {
+        showToast('Failed to reset password. Please check your connection.', 'error');
+      } finally {
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Update Admin Password'; }
+      }
+    });
+  }
 }
 
 export async function handleLogin(event) {

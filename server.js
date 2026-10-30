@@ -785,6 +785,527 @@ app.post('/login/mfa/cancel', (req, res) => {
 });
 
 // =============================================================================
+// ADMIN-ONLY RECOVERY EMAIL & PASSWORD RESET
+//
+// Strictly restricted to Admin accounts (Manager, Staff, and Driver accounts
+// are excluded and cannot request password resets or configure recovery emails).
+//
+// Security Design:
+// - Cryptographically secure 32-byte (64 hex) tokens.
+// - Database stores ONLY the SHA-256 hash of tokens/codes (zero raw token storage).
+// - Tokens expire in 15 minutes and are single-use.
+// - Password reset revokes all existing sessions and pending MFA challenges.
+// - MFA is PRESERVED: resetting password does not log the user in; Admin must still
+//   authenticate via login.html and pass Semaphore SMS OTP verification.
+// - Generic responses on forgot-password to prevent account/role enumeration.
+// - Resend REST API integration via native fetch with fallback development logger.
+// =============================================================================
+
+const RESET_TOKEN_TTL_MS = 15 * 60 * 1000; // 15 minutes
+const RECOVERY_CODE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const RECOVERY_MAX_REQUESTS_PER_HOUR = 5;
+
+// In-memory rate limiting for recovery requests (key -> { count, resetAt })
+const recoveryRateLimits = new Map();
+
+function checkRecoveryRateLimit(key) {
+  const now = Date.now();
+  const entry = recoveryRateLimits.get(key);
+  if (!entry || now > entry.resetAt) {
+    recoveryRateLimits.set(key, { count: 1, resetAt: now + 60 * 60 * 1000 });
+    return true;
+  }
+  if (entry.count >= RECOVERY_MAX_REQUESTS_PER_HOUR) return false;
+  entry.count++;
+  return true;
+}
+
+// In-memory mirror / fallback store ensuring resilience before or after DB migration
+const adminRecoveryMemoryStore = new Map(); // adminId -> { recovery_email, recovery_email_verified, recovery_email_code_hash, recovery_email_code_expires_at }
+const adminResetTokensMemoryStore = new Map(); // tokenHash -> { userId, expiresAt, used }
+
+function maskEmail(email) {
+  if (!email || typeof email !== 'string') return null;
+  const parts = email.trim().split('@');
+  if (parts.length !== 2) return email;
+  const name = parts[0];
+  const domain = parts[1];
+  if (name.length <= 2) {
+    return `${name[0]}*@${domain}`;
+  }
+  const maskedMiddle = '*'.repeat(Math.min(name.length - 2, 5));
+  return `${name[0]}${maskedMiddle}${name[name.length - 1]}@${domain}`;
+}
+
+async function sendTransactionalEmail({ to, subject, html, text }) {
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.RECOVERY_EMAIL_FROM || 'Modern Koncept <onboarding@resend.dev>';
+
+  if (!apiKey) {
+    console.log('\n============================================================');
+    console.log(' [TRANSACTIONAL EMAIL - DEVELOPMENT / FALLBACK LOGGER]');
+    console.log(` To:      ${to}`);
+    console.log(` From:    ${from}`);
+    console.log(` Subject: ${subject}`);
+    console.log('------------------------------------------------------------');
+    console.log(text || html);
+    console.log('============================================================\n');
+    return { ok: true, devMode: true };
+  }
+
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from,
+        to: [to],
+        subject,
+        html,
+        text
+      })
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      console.error('Resend API error:', data);
+      return { ok: false, error: data };
+    }
+    return { ok: true, id: data.id };
+  } catch (err) {
+    console.error('Failed to send email via Resend:', err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+// Helper to determine the application base URL for reset links
+function getAppBaseUrl(req) {
+  if (process.env.APP_URL && process.env.APP_URL.trim() !== '') {
+    return process.env.APP_URL.trim().replace(/\/+$/, '');
+  }
+  const host = req.get('host') || 'localhost:3000';
+  const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+  return `${protocol}://${host}`;
+}
+
+// 1. FORGOT PASSWORD (PUBLIC, ADMIN-ONLY)
+app.post('/auth/admin/forgot-password', async (req, res) => {
+  const GENERIC_RESPONSE = {
+    success: true,
+    message: 'If an eligible Admin account is found with a verified recovery email, password recovery instructions will be sent to its registered recovery email.'
+  };
+
+  const body = req.body || {};
+  const rawIdentifier = typeof body.identifier === 'string' ? body.identifier.trim() : '';
+  const ip = req.ip || req.connection.remoteAddress || 'unknown';
+
+  if (!rawIdentifier) {
+    return res.status(400).json({ success: false, message: 'Please enter your Admin email or username.' });
+  }
+
+  // Rate limiting (by IP and by identifier)
+  if (!checkRecoveryRateLimit(`ip:${ip}`) || !checkRecoveryRateLimit(`id:${rawIdentifier.toLowerCase()}`)) {
+    return res.status(429).json({
+      success: false,
+      message: 'Too many recovery requests. Please try again in an hour.'
+    });
+  }
+
+  try {
+    // Lookup user by email or name
+    let user = null;
+    const { data: byEmail } = await db.from('users').select('*').ilike('email', rawIdentifier.replace(/[\\%_]/g, '\\$&')).limit(1);
+    if (byEmail && byEmail.length > 0) {
+      user = byEmail[0];
+    } else {
+      const { data: byName } = await db.from('users').select('*').ilike('name', rawIdentifier.replace(/[\\%_]/g, '\\$&')).limit(1);
+      if (byName && byName.length > 0) user = byName[0];
+    }
+
+    // STRICT CHECK 1: User must exist
+    if (!user) {
+      return res.json(GENERIC_RESPONSE);
+    }
+
+    // STRICT CHECK 2: User must be ADMIN ONLY
+    if (normalizeRole(user.role) !== 'admin') {
+      console.warn(`[RECOVERY] Non-admin user (${user.email}, role: ${user.role}) attempted password recovery. Blocked.`);
+      return res.json(GENERIC_RESPONSE);
+    }
+
+    // STRICT CHECK 3: Must have a VERIFIED recovery email
+    const memRecovery = adminRecoveryMemoryStore.get(String(user.id)) || {};
+    const recoveryEmail = (user.recovery_email || memRecovery.recovery_email || '').trim();
+    const isVerified = user.recovery_email_verified !== undefined ? Boolean(user.recovery_email_verified) : Boolean(memRecovery.recovery_email_verified);
+
+    if (!recoveryEmail || !isVerified) {
+      console.warn(`[RECOVERY] Admin account (${user.email}) requested password recovery, but no verified recovery email is configured.`);
+      return res.json(GENERIC_RESPONSE);
+    }
+
+    // Invalidate outstanding tokens for this user
+    for (const [hash, entry] of adminResetTokensMemoryStore.entries()) {
+      if (String(entry.userId) === String(user.id)) {
+        entry.used = true;
+      }
+    }
+
+    // Generate cryptographically secure random token (32 bytes = 64 hex chars)
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS).toISOString();
+
+    // Store in DB (and in-memory fallback)
+    try {
+      await db.from('users').update({
+        password_reset_token_hash: tokenHash,
+        password_reset_token_expires_at: expiresAt,
+        password_reset_token_used: false
+      }).eq('id', user.id);
+    } catch (dbErr) {
+      console.warn('[RECOVERY] DB update for reset token warning (using memory fallback):', dbErr.message);
+    }
+
+    adminResetTokensMemoryStore.set(tokenHash, {
+      userId: user.id,
+      expiresAt: Date.now() + RESET_TOKEN_TTL_MS,
+      used: false
+    });
+
+    // Build reset URL
+    const appBaseUrl = getAppBaseUrl(req);
+    const resetUrl = `${appBaseUrl}/Pages/login.html?token=${rawToken}#reset-password`;
+
+    const emailSubject = 'K-Desk Admin Password Reset Request';
+    const emailText = `Hello Admin,
+
+A request was received to reset the password for your K-Desk Admin account (${user.email}) at Modern Koncept Furniture Centre.
+
+To reset your password, visit the link below (valid for 15 minutes, single-use):
+${resetUrl}
+
+SECURITY NOTICE:
+- Resetting your password will immediately terminate all active sessions.
+- In accordance with our security policy, password reset does NOT bypass SMS OTP verification. You will be required to log in with your new password and complete SMS verification sent to your registered phone.
+- If you did not request this password reset, please ignore this email or review your account immediately. Your password will remain unchanged.
+
+Modern Koncept Furniture Centre · K-Desk System`;
+
+    const emailHtml = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 24px; color: #111827; background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px;">
+        <div style="text-align: center; margin-bottom: 24px;">
+          <h2 style="color: #dc2626; margin: 0 0 6px 0; font-size: 24px; font-weight: 700;">Modern Koncept</h2>
+          <p style="color: #6b7280; margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;">K-Desk · Admin Account Recovery</p>
+        </div>
+        <div style="background-color: #f9fafb; border-left: 4px solid #dc2626; padding: 14px 18px; margin-bottom: 20px; border-radius: 4px;">
+          <p style="margin: 0; font-size: 14px; line-height: 1.5; color: #374151;">
+            A password reset was requested for your <strong>K-Desk Administrator Account</strong> (<code>${user.email}</code>).
+          </p>
+        </div>
+        <p style="font-size: 15px; line-height: 1.6; margin-bottom: 24px;">
+          Click the button below to choose a new password. This secure link is valid for <strong>15 minutes</strong> and can only be used once.
+        </p>
+        <div style="text-align: center; margin-bottom: 28px;">
+          <a href="${resetUrl}" style="display: inline-block; background-color: #dc2626; color: #ffffff; padding: 13px 28px; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 6px; box-shadow: 0 2px 4px rgba(220,38,38,0.25);">Reset Admin Password</a>
+        </div>
+        <p style="font-size: 13px; color: #6b7280; line-height: 1.5; margin-bottom: 16px;">
+          Or copy and paste this link into your browser:<br>
+          <a href="${resetUrl}" style="color: #2563eb; word-break: break-all;">${resetUrl}</a>
+        </p>
+        <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 24px 0;">
+        <div style="font-size: 12px; color: #6b7280; line-height: 1.6;">
+          <strong>Security Preservation Notice:</strong>
+          <ul style="margin: 6px 0 0 18px; padding: 0;">
+            <li>Password reset revokes all existing active sessions immediately.</li>
+            <li><strong>SMS OTP MFA is strictly preserved.</strong> After resetting your password, you must log in with your new password and verify the SMS code sent to your registered mobile number.</li>
+            <li>If you did not request this reset, your account is safe and no changes have been made.</li>
+          </ul>
+        </div>
+      </div>
+    `;
+
+    await sendTransactionalEmail({
+      to: recoveryEmail,
+      subject: emailSubject,
+      text: emailText,
+      html: emailHtml
+    });
+
+    return res.json(GENERIC_RESPONSE);
+  } catch (err) {
+    console.error('[RECOVERY] Error during forgot-password request:', err);
+    return res.json(GENERIC_RESPONSE);
+  }
+});
+
+// 2. RESET PASSWORD (PUBLIC, ADMIN-ONLY)
+app.post('/auth/admin/reset-password', async (req, res) => {
+  const body = req.body || {};
+  const token = typeof body.token === 'string' ? body.token.trim() : '';
+  const newPassword = body.newPassword;
+
+  if (!token || !/^[a-f0-9]{64}$/i.test(token)) {
+    return res.status(400).json({ success: false, message: 'Invalid or malformed reset token.' });
+  }
+
+  if (typeof newPassword !== 'string' || newPassword.length < 8 || newPassword.length > 128) {
+    return res.status(400).json({ success: false, message: 'New password must be between 8 and 128 characters.' });
+  }
+
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+  try {
+    let user = null;
+    let tokenUsed = false;
+    let expiresAt = 0;
+
+    // First try DB
+    const { data: dbUser } = await db.from('users').select('*').eq('password_reset_token_hash', tokenHash).single();
+    if (dbUser) {
+      user = dbUser;
+      tokenUsed = Boolean(dbUser.password_reset_token_used);
+      expiresAt = dbUser.password_reset_token_expires_at ? new Date(dbUser.password_reset_token_expires_at).getTime() : 0;
+    } else {
+      // Check memory store fallback
+      const memEntry = adminResetTokensMemoryStore.get(tokenHash);
+      if (memEntry) {
+        tokenUsed = memEntry.used;
+        expiresAt = memEntry.expiresAt;
+        const { data: fallbackUser } = await db.from('users').select('*').eq('id', memEntry.userId).single();
+        if (fallbackUser) user = fallbackUser;
+      }
+    }
+
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: 'This password reset link is invalid or has expired. Please request a new one.'
+      });
+    }
+
+    // STRICT CHECK: Admin role only
+    if (normalizeRole(user.role) !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Only Administrator accounts can be recovered via this portal.' });
+    }
+
+    if (tokenUsed || Date.now() > expiresAt) {
+      return res.status(400).json({
+        success: false,
+        message: 'This password reset link has expired or has already been used. Please request a new one.'
+      });
+    }
+
+    // Hash new password using scrypt
+    const newPasswordHash = await hashForStorage(newPassword);
+    if (!newPasswordHash) {
+      return res.status(500).json({ success: false, message: 'Failed to securely hash password.' });
+    }
+
+    // Update password, mark token as used and clear token hash
+    try {
+      await db.from('users').update({
+        password: newPasswordHash,
+        password_reset_token_used: true,
+        password_reset_token_hash: null,
+        password_reset_token_expires_at: null
+      }).eq('id', user.id);
+    } catch (dbErr) {
+      console.warn('[RECOVERY] DB update fallback:', dbErr.message);
+      // Fallback: update password directly
+      await db.from('users').update({ password: newPasswordHash }).eq('id', user.id);
+    }
+
+    // Invalidate in memory store
+    const memEntry = adminResetTokensMemoryStore.get(tokenHash);
+    if (memEntry) memEntry.used = true;
+
+    // SECURITY REVOCATION: Revoke all existing sessions and MFA challenges
+    revokeUserSessions(user.id);
+    revokeUserMfaChallenges(user.id);
+
+    console.log(`[RECOVERY] Admin password reset successfully for user id ${user.id} (${user.email}). Sessions revoked.`);
+
+    return res.json({
+      success: true,
+      message: 'Admin password has been reset successfully. Please log in with your new password and complete SMS OTP verification.'
+    });
+  } catch (err) {
+    console.error('[RECOVERY] Error during password reset execution:', err);
+    return res.status(500).json({ success: false, message: 'An unexpected error occurred during password reset.' });
+  }
+});
+
+// 3. SEND RECOVERY EMAIL VERIFICATION CODE (ADMIN ONLY, PROTECTED)
+app.post('/account/recovery-email/send-code', requireRole('admin'), async (req, res) => {
+  const body = req.body || {};
+  const recoveryEmail = typeof body.recoveryEmail === 'string' ? body.recoveryEmail.trim() : '';
+  const currentPassword = typeof body.currentPassword === 'string' ? body.currentPassword : '';
+
+  if (!recoveryEmail || recoveryEmail.length > 254 || !STAFF_EMAIL_RE.test(recoveryEmail)) {
+    return res.status(400).json({ success: false, message: 'A valid email address is required for recovery email.' });
+  }
+
+  if (!currentPassword) {
+    return res.status(400).json({ success: false, message: 'Please enter your current Admin password to update your recovery email.' });
+  }
+
+  // Fetch current admin user
+  const { data: adminUser, error } = await db.from('users').select('*').eq('id', req.authUser.id).single();
+  if (error || !adminUser) {
+    return res.status(404).json({ success: false, message: 'Admin account not found.' });
+  }
+
+  // Re-authenticate Admin password
+  const check = await verifyPassword(currentPassword, adminUser.password);
+  if (!check.ok) {
+    return res.status(403).json({ success: false, message: 'Your current password is incorrect.' });
+  }
+
+  // Separation check: recovery email must not match primary login email
+  if (recoveryEmail.toLowerCase() === (adminUser.email || '').toLowerCase()) {
+    return res.status(400).json({
+      success: false,
+      message: 'The recovery email must be different from your primary login email.'
+    });
+  }
+
+  // Generate 6-digit numeric verification code
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const codeHash = crypto.createHash('sha256').update(code).digest('hex');
+  const expiresAt = new Date(Date.now() + RECOVERY_CODE_TTL_MS).toISOString();
+
+  // Save pending verification info to memory store and DB
+  adminRecoveryMemoryStore.set(String(adminUser.id), {
+    recovery_email: recoveryEmail,
+    recovery_email_verified: false,
+    recovery_email_code_hash: codeHash,
+    recovery_email_code_expires_at: Date.now() + RECOVERY_CODE_TTL_MS
+  });
+
+  try {
+    await db.from('users').update({
+      recovery_email: recoveryEmail,
+      recovery_email_verified: false,
+      recovery_email_code_hash: codeHash,
+      recovery_email_code_expires_at: expiresAt
+    }).eq('id', adminUser.id);
+  } catch (dbErr) {
+    console.warn('[RECOVERY] DB update error when setting recovery code (memory fallback active):', dbErr.message);
+  }
+
+  const emailSubject = 'Your K-Desk Admin Recovery Email Verification Code';
+  const emailText = `Hello Admin,
+
+You requested to configure or update your recovery email address for your K-Desk Admin account (${adminUser.email}) at Modern Koncept Furniture Centre.
+
+Your 6-digit verification code is:
+${code}
+
+This code will expire in 10 minutes.
+
+Enter this code in your Admin Account Settings to verify this recovery email. If you did not request this, you can safely ignore this email.
+
+Modern Koncept Furniture Centre · K-Desk System`;
+
+  const emailHtml = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 24px; color: #111827; background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <h2 style="color: #dc2626; margin: 0 0 6px 0; font-size: 24px; font-weight: 700;">Modern Koncept</h2>
+        <p style="color: #6b7280; margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;">K-Desk · Recovery Email Verification</p>
+      </div>
+      <p style="font-size: 15px; line-height: 1.6; margin-bottom: 16px;">
+        You are configuring this email address as the recovery email for your <strong>K-Desk Admin account</strong> (<code>${adminUser.email}</code>).
+      </p>
+      <div style="background-color: #f3f4f6; border-radius: 8px; padding: 20px; text-align: center; margin: 24px 0;">
+        <span style="font-size: 13px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.08em; display: block; margin-bottom: 8px;">Your 6-Digit Verification Code</span>
+        <span style="font-size: 32px; font-weight: 700; letter-spacing: 0.25em; color: #111827; font-family: monospace;">${code}</span>
+      </div>
+      <p style="font-size: 13px; color: #6b7280; line-height: 1.5; margin-bottom: 20px;">
+        This code is valid for <strong>10 minutes</strong>. Return to your Admin Account Settings and enter this code to complete verification.
+      </p>
+      <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 24px 0;">
+      <p style="font-size: 12px; color: #9ca3af; margin: 0;">
+        If you did not request this verification code, please disregard this email.
+      </p>
+    </div>
+  `;
+
+  await sendTransactionalEmail({
+    to: recoveryEmail,
+    subject: emailSubject,
+    text: emailText,
+    html: emailHtml
+  });
+
+  res.json({
+    success: true,
+    message: `Verification code sent to ${maskEmail(recoveryEmail)}.`,
+    maskedEmail: maskEmail(recoveryEmail)
+  });
+});
+
+// 4. VERIFY RECOVERY EMAIL CODE (ADMIN ONLY, PROTECTED)
+app.post('/account/recovery-email/verify-code', requireRole('admin'), async (req, res) => {
+  const body = req.body || {};
+  const code = typeof body.code === 'string' ? body.code.trim() : '';
+
+  if (!code || !/^\d{6}$/.test(code)) {
+    return res.status(400).json({ success: false, message: 'Please enter the 6-digit numeric verification code.' });
+  }
+
+  const codeHash = crypto.createHash('sha256').update(code).digest('hex');
+
+  try {
+    const { data: user, error } = await db.from('users').select('*').eq('id', req.authUser.id).single();
+    if (error || !user) return res.status(404).json({ success: false, message: 'Account not found.' });
+
+    const mem = adminRecoveryMemoryStore.get(String(user.id)) || {};
+
+    let expectedHash = user.recovery_email_code_hash || mem.recovery_email_code_hash;
+    let expiresAt = user.recovery_email_code_expires_at ? new Date(user.recovery_email_code_expires_at).getTime() : mem.recovery_email_code_expires_at;
+
+    if (!expectedHash || !expiresAt || Date.now() > expiresAt) {
+      return res.status(400).json({ success: false, message: 'Verification code has expired or was not requested. Please request a new code.' });
+    }
+
+    if (expectedHash !== codeHash) {
+      return res.status(400).json({ success: false, message: 'Invalid verification code. Please check and try again.' });
+    }
+
+    // Code matches: mark recovery email verified
+    const finalRecoveryEmail = user.recovery_email || mem.recovery_email;
+
+    mem.recovery_email_verified = true;
+    mem.recovery_email_code_hash = null;
+    mem.recovery_email_code_expires_at = null;
+    adminRecoveryMemoryStore.set(String(user.id), mem);
+
+    try {
+      await db.from('users').update({
+        recovery_email_verified: true,
+        recovery_email_code_hash: null,
+        recovery_email_code_expires_at: null
+      }).eq('id', user.id);
+    } catch (dbErr) {
+      console.warn('[RECOVERY] DB update error when verifying recovery email (memory fallback active):', dbErr.message);
+    }
+
+    return res.json({
+      success: true,
+      message: 'Recovery email verified successfully!',
+      recovery_email: finalRecoveryEmail,
+      masked_recovery_email: maskEmail(finalRecoveryEmail),
+      recovery_email_verified: true
+    });
+  } catch (err) {
+    console.error('[RECOVERY] Error during recovery email verification:', err);
+    return res.status(500).json({ success: false, message: 'Failed to verify code.' });
+  }
+});
+
+// =============================================================================
 // FURNITURE
 // =============================================================================
 // Validates the optional discounted_price against the regular price.
@@ -2251,9 +2772,34 @@ function recordReauthFailure(userId) {
 }
 
 app.get('/account/me', requireRole('admin'), async (req, res) => {
-  const { data, error } = await db.from('users').select(`id,name,email,role,${USER_PHONE_COLUMN}`).eq('id', req.authUser.id).single();
-  if (error || !data) return res.status(404).json({ success: false, message: 'Account not found.' });
-  res.json({ success: true, data: { id: data.id, name: data.name, email: data.email, role: data.role, phone: data[USER_PHONE_COLUMN] || null } });
+  let data = null;
+  // Try querying with recovery_email fields
+  const { data: fullData, error: fullErr } = await db.from('users').select(`id,name,email,role,${USER_PHONE_COLUMN},recovery_email,recovery_email_verified`).eq('id', req.authUser.id).single();
+  if (fullErr || !fullData) {
+    const { data: baseData, error: baseErr } = await db.from('users').select(`id,name,email,role,${USER_PHONE_COLUMN}`).eq('id', req.authUser.id).single();
+    if (baseErr || !baseData) return res.status(404).json({ success: false, message: 'Account not found.' });
+    data = baseData;
+  } else {
+    data = fullData;
+  }
+
+  const mem = adminRecoveryMemoryStore.get(String(data.id)) || {};
+  const recoveryEmail = (data.recovery_email || mem.recovery_email || '').trim() || null;
+  const recoveryEmailVerified = data.recovery_email_verified !== undefined && data.recovery_email_verified !== null ? Boolean(data.recovery_email_verified) : Boolean(mem.recovery_email_verified);
+
+  res.json({
+    success: true,
+    data: {
+      id: data.id,
+      name: data.name,
+      email: data.email,
+      role: data.role,
+      phone: data[USER_PHONE_COLUMN] || null,
+      recovery_email: recoveryEmail,
+      masked_recovery_email: maskEmail(recoveryEmail),
+      recovery_email_verified: recoveryEmailVerified
+    }
+  });
 });
 
 app.put('/account/me', requireRole('admin'), async (req, res) => {
@@ -2275,6 +2821,24 @@ app.put('/account/me', requireRole('admin'), async (req, res) => {
   if (!cleanEmail || cleanEmail.length > 254 || !STAFF_EMAIL_RE.test(cleanEmail)) return res.status(400).json({ success: false, message: 'A valid email is required.' });
   const phoneCheck = normalizePhPhone(body.phone);
   if (!phoneCheck.ok) return res.status(400).json({ success: false, message: phoneCheck.message });
+
+  // Recovery email field validation (optional during profile update)
+  let cleanRecoveryEmail = undefined;
+  if (body.recoveryEmail !== undefined && body.recoveryEmail !== null) {
+    const rawRec = typeof body.recoveryEmail === 'string' ? body.recoveryEmail.trim() : '';
+    if (rawRec !== '') {
+      if (rawRec.length > 254 || !STAFF_EMAIL_RE.test(rawRec)) {
+        return res.status(400).json({ success: false, message: 'A valid recovery email address is required.' });
+      }
+      if (rawRec.toLowerCase() === cleanEmail.toLowerCase()) {
+        return res.status(400).json({ success: false, message: 'The recovery email must be different from your primary login email.' });
+      }
+      cleanRecoveryEmail = rawRec;
+    } else {
+      cleanRecoveryEmail = null;
+    }
+  }
+
   const newPassword = body.newPassword;
   const changePassword = newPassword !== undefined && newPassword !== null && newPassword !== '';
   if (changePassword && (typeof newPassword !== 'string' || newPassword.length < 8 || newPassword.length > 128)) {
@@ -2285,25 +2849,35 @@ app.put('/account/me', requireRole('admin'), async (req, res) => {
   }
 
   // ---- current record ----
-  const { data: current, error: loadError } = await db.from('users').select(`id,name,email,role,password,${USER_PHONE_COLUMN}`).eq('id', myId).single();
-  if (loadError || !current) return res.status(404).json({ success: false, message: 'Account not found.' });
+  let current = null;
+  const { data: fullCurrent, error: loadError } = await db.from('users').select(`id,name,email,role,password,${USER_PHONE_COLUMN},recovery_email,recovery_email_verified`).eq('id', myId).single();
+  if (loadError || !fullCurrent) {
+    const { data: baseCurrent, error: baseLoadErr } = await db.from('users').select(`id,name,email,role,password,${USER_PHONE_COLUMN}`).eq('id', myId).single();
+    if (baseLoadErr || !baseCurrent) return res.status(404).json({ success: false, message: 'Account not found.' });
+    current = baseCurrent;
+  } else {
+    current = fullCurrent;
+  }
+
   if ((current.role || 'staff') !== 'admin') return res.status(403).json({ success: false, message: 'Only the Admin can use this.' });
 
+  const mem = adminRecoveryMemoryStore.get(String(myId)) || {};
+  const currentRecoveryEmail = (current.recovery_email || mem.recovery_email || '').trim() || null;
   const storedPhone = current[USER_PHONE_COLUMN] ? normalizePhPhone(String(current[USER_PHONE_COLUMN])) : null;
   const emailChanged = cleanEmail !== current.email;
   const phoneChanged = !storedPhone || !storedPhone.ok || storedPhone.value !== phoneCheck.value;
-  const sensitiveChange = emailChanged || phoneChanged || changePassword;
+  const recoveryEmailChanged = cleanRecoveryEmail !== undefined && cleanRecoveryEmail !== currentRecoveryEmail;
+  const sensitiveChange = emailChanged || phoneChanged || changePassword || recoveryEmailChanged;
 
-  // ---- re-authentication for sensitive changes (the phone number is where MFA codes are sent) ----
+  // ---- re-authentication for sensitive changes ----
   if (sensitiveChange) {
     if (typeof body.currentPassword !== 'string' || body.currentPassword === '') {
-      return res.status(400).json({ success: false, message: 'Enter your current password to change your email, phone number or password.' });
+      return res.status(400).json({ success: false, message: 'Enter your current password to change sensitive account settings.' });
     }
     if (reauthLocked(myId)) return res.status(429).json({ success: false, message: 'Too many incorrect attempts. Please try again in 15 minutes.' });
     const check = await verifyPassword(body.currentPassword, current.password);
     if (!check.ok) {
       recordReauthFailure(myId);
-      // 403 (not 401) on purpose: the session itself is still valid
       return res.status(403).json({ success: false, message: 'Your current password is incorrect.' });
     }
     reauthFailures.delete(String(myId));
@@ -2319,26 +2893,71 @@ app.put('/account/me', requireRole('admin'), async (req, res) => {
     if (clash && clash.length > 0) return res.status(409).json({ success: false, message: 'Email already exists' });
   }
 
-  // ---- save (role is never part of the update; the filter makes sure only the Admin row is touched) ----
+  // ---- save ----
   const updates = { name: cleanName, email: cleanEmail, [USER_PHONE_COLUMN]: phoneCheck.value };
   if (changePassword) {
     updates.password = await hashForStorage(newPassword);
     if (!updates.password) return res.status(500).json({ success: false, message: 'Failed to update your account.' });
   }
-  const { data: updated, error } = await db.from('users').update(updates).eq('id', myId).eq('role', 'admin').select(`id,name,email,role,${USER_PHONE_COLUMN}`).single();
-  if (error) {
-    if (error.code === '23505') return res.status(409).json({ success: false, message: 'Email already exists' });
-    console.error('Own account update error:', error.message);
+
+  let finalRecoveryEmail = currentRecoveryEmail;
+  let finalRecoveryEmailVerified = current.recovery_email_verified !== undefined ? Boolean(current.recovery_email_verified) : Boolean(mem.recovery_email_verified);
+
+  if (recoveryEmailChanged) {
+    finalRecoveryEmail = cleanRecoveryEmail;
+    // Changing recovery email resets verification status unless cleared
+    finalRecoveryEmailVerified = false;
+    updates.recovery_email = cleanRecoveryEmail;
+    updates.recovery_email_verified = false;
+    updates.recovery_email_code_hash = null;
+    updates.recovery_email_code_expires_at = null;
+
+    mem.recovery_email = cleanRecoveryEmail;
+    mem.recovery_email_verified = false;
+    mem.recovery_email_code_hash = null;
+    mem.recovery_email_code_expires_at = null;
+    adminRecoveryMemoryStore.set(String(myId), mem);
+  }
+
+  let updated = null;
+  try {
+    const { data: u, error } = await db.from('users').update(updates).eq('id', myId).eq('role', 'admin').select(`id,name,email,role,${USER_PHONE_COLUMN}`).single();
+    if (error) {
+      // If error is due to column not existing in DB, strip recovery fields and retry base fields
+      delete updates.recovery_email;
+      delete updates.recovery_email_verified;
+      delete updates.recovery_email_code_hash;
+      delete updates.recovery_email_code_expires_at;
+      const { data: retryU, error: retryErr } = await db.from('users').update(updates).eq('id', myId).eq('role', 'admin').select(`id,name,email,role,${USER_PHONE_COLUMN}`).single();
+      if (retryErr) {
+        if (retryErr.code === '23505') return res.status(409).json({ success: false, message: 'Email already exists' });
+        console.error('Own account update error:', retryErr.message);
+        return res.status(500).json({ success: false, message: 'Failed to update your account.' });
+      }
+      updated = retryU;
+    } else {
+      updated = u;
+    }
+  } catch (err) {
+    console.error('Unexpected account update error:', err);
     return res.status(500).json({ success: false, message: 'Failed to update your account.' });
   }
 
   const result = {
     success: true,
     message: 'Your account was updated successfully.',
-    data: { id: updated.id, name: updated.name, email: updated.email, role: updated.role, phone: updated[USER_PHONE_COLUMN] || null }
+    data: {
+      id: updated.id,
+      name: updated.name,
+      email: updated.email,
+      role: updated.role,
+      phone: updated[USER_PHONE_COLUMN] || null,
+      recovery_email: finalRecoveryEmail,
+      masked_recovery_email: maskEmail(finalRecoveryEmail),
+      recovery_email_verified: finalRecoveryEmailVerified
+    }
   };
   if (sensitiveChange) {
-    // Session safeguard: every session of this account (including other browsers) is ended and this browser gets a fresh one
     revokeUserSessions(updated.id);
     result.token = createSession({ id: updated.id, role: updated.role });
   }
