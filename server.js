@@ -927,32 +927,7 @@ function sendEmailViaGmailSmtp({ user, pass, from, to, subject, html, text }) {
 }
 
 async function sendTransactionalEmail({ to, subject, html, text }) {
-  // Option 1: Gmail SMTP (Sends to ANY recipient email address in the world, no custom domain needed)
-  const gmailUser = process.env.GMAIL_USER || process.env.SMTP_USER;
-  const gmailPass = process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASS;
-
-  if (gmailUser && gmailPass) {
-    try {
-      const smtpRes = await sendEmailViaGmailSmtp({
-        user: gmailUser,
-        pass: gmailPass,
-        from: process.env.RECOVERY_EMAIL_FROM || `Modern Koncept <${gmailUser}>`,
-        to,
-        subject,
-        html,
-        text
-      });
-      if (smtpRes.ok) {
-        console.log(`[EMAIL] Successfully delivered email to ${to} via Gmail SMTP.`);
-        return { ok: true, provider: 'gmail-smtp' };
-      }
-      console.error('[EMAIL] Gmail SMTP error:', smtpRes.error);
-    } catch (err) {
-      console.error('[EMAIL] Failed sending via Gmail SMTP:', err.message);
-    }
-  }
-
-  // Option 2: Brevo REST API (Uses HTTPS Port 443: NEVER blocked by Render, sends to ANY email without custom domain)
+  // Option 1: Brevo REST API (Uses HTTPS Port 443: NEVER blocked by Render, sends to ANY email without custom domain)
   const brevoApiKey = process.env.BREVO_API_KEY;
   if (brevoApiKey) {
     try {
@@ -982,7 +957,7 @@ async function sendTransactionalEmail({ to, subject, html, text }) {
     }
   }
 
-  // Option 3: Resend REST API (Uses HTTPS Port 443: Works on Render, sends to registered Resend account email)
+  // Option 2: Resend REST API (Uses HTTPS Port 443: Works on Render, sends to registered Resend account email)
   const resendApiKey = process.env.RESEND_API_KEY;
   if (resendApiKey) {
     try {
@@ -1023,6 +998,31 @@ async function sendTransactionalEmail({ to, subject, html, text }) {
       return { ok: false, error: data };
     } catch (err) {
       console.error('Failed to send email via Resend:', err.message);
+    }
+  }
+
+  // Option 3: Gmail SMTP (Direct TLS on port 465 - works on local machines without outbound firewall)
+  const gmailUser = process.env.GMAIL_USER || process.env.SMTP_USER;
+  const gmailPass = process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASS;
+
+  if (gmailUser && gmailPass) {
+    try {
+      const smtpRes = await sendEmailViaGmailSmtp({
+        user: gmailUser,
+        pass: gmailPass,
+        from: process.env.RECOVERY_EMAIL_FROM || `Modern Koncept <${gmailUser}>`,
+        to,
+        subject,
+        html,
+        text
+      });
+      if (smtpRes.ok) {
+        console.log(`[EMAIL] Successfully delivered email to ${to} via Gmail SMTP.`);
+        return { ok: true, provider: 'gmail-smtp' };
+      }
+      console.warn('[EMAIL] Direct Gmail SMTP failed (likely blocked by cloud host firewall).');
+    } catch (err) {
+      console.warn('[EMAIL] Direct Gmail SMTP skipped:', err.message);
     }
   }
 
