@@ -952,7 +952,37 @@ async function sendTransactionalEmail({ to, subject, html, text }) {
     }
   }
 
-  // Option 2: Resend REST API
+  // Option 2: Brevo REST API (Uses HTTPS Port 443: NEVER blocked by Render, sends to ANY email without custom domain)
+  const brevoApiKey = process.env.BREVO_API_KEY;
+  if (brevoApiKey) {
+    try {
+      const senderEmail = process.env.BREVO_SENDER_EMAIL || process.env.GMAIL_USER || 'info@modernkoncept.com';
+      const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'api-key': brevoApiKey,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          sender: { name: 'Modern Koncept', email: senderEmail },
+          to: [{ email: to }],
+          subject,
+          htmlContent: html || text
+        })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        console.log(`[EMAIL] Successfully delivered email to ${to} via Brevo API.`);
+        return { ok: true, id: data.messageId, provider: 'brevo' };
+      }
+      console.error('[EMAIL] Brevo API error:', data);
+    } catch (err) {
+      console.error('[EMAIL] Failed sending via Brevo API:', err.message);
+    }
+  }
+
+  // Option 3: Resend REST API (Uses HTTPS Port 443: Works on Render, sends to registered Resend account email)
   const resendApiKey = process.env.RESEND_API_KEY;
   if (resendApiKey) {
     try {
