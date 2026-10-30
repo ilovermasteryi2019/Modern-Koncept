@@ -1026,12 +1026,21 @@ Modern Koncept Furniture Centre · K-Desk System`;
       </div>
     `;
 
-    await sendTransactionalEmail({
+    const sendResult = await sendTransactionalEmail({
       to: recoveryEmail,
       subject: emailSubject,
       text: emailText,
       html: emailHtml
     });
+
+    if (sendResult && sendResult.devMode) {
+      return res.json({
+        ...GENERIC_RESPONSE,
+        devMode: true,
+        devLink: resetUrl,
+        message: `[Dev Mode] No email provider configured in .env. Reset link logged in server terminal: ${resetUrl}`
+      });
+    }
 
     return res.json(GENERIC_RESPONSE);
   } catch (err) {
@@ -1232,7 +1241,7 @@ Modern Koncept Furniture Centre · K-Desk System`;
     </div>
   `;
 
-  await sendTransactionalEmail({
+  const sendResult = await sendTransactionalEmail({
     to: recoveryEmail,
     subject: emailSubject,
     text: emailText,
@@ -1241,8 +1250,12 @@ Modern Koncept Furniture Centre · K-Desk System`;
 
   res.json({
     success: true,
-    message: `Verification code sent to ${maskEmail(recoveryEmail)}.`,
-    maskedEmail: maskEmail(recoveryEmail)
+    message: sendResult && sendResult.devMode
+      ? `[Dev Mode] No email provider configured in .env. Your verification code is: ${code} (also logged in server terminal).`
+      : `Verification code sent to ${maskEmail(recoveryEmail)}.`,
+    maskedEmail: maskEmail(recoveryEmail),
+    devMode: Boolean(sendResult && sendResult.devMode),
+    devCode: sendResult && sendResult.devMode ? code : undefined
   });
 });
 

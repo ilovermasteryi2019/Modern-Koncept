@@ -430,12 +430,19 @@ export async function openMyAccountModal() {
     try {
       const res = await API.sendRecoveryEmailCode(recEmail, currPass);
       if (res.success) {
-        showToast(res.message || 'Verification code sent to recovery email.', 'success');
+        if (res.devMode && res.devCode) {
+          showToast(`[Dev Mode] No email provider set in .env. Your code is: ${res.devCode} (also logged in terminal)`, 'info', 10000);
+        } else {
+          showToast(res.message || 'Verification code sent to recovery email.', 'success');
+        }
         updateBadge(false, true, true);
         const codeBox = document.getElementById('recoveryCodeBox');
         if (codeBox) codeBox.style.display = 'block';
         const codeInput = document.getElementById('myAccountRecoveryCode');
-        if (codeInput) { codeInput.value = ''; codeInput.focus(); }
+        if (codeInput) {
+          codeInput.value = (res.devMode && res.devCode) ? res.devCode : '';
+          codeInput.focus();
+        }
       } else {
         showToast('❌ ' + (res.message || 'Failed to send verification code.'), 'error');
       }
