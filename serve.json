@@ -28,6 +28,10 @@
     { "source": "/staff.html", "destination": "/Pages/staff.html" },
     { "source": "/driver", "destination": "/Pages/driver.html" },
     { "source": "/driver.html", "destination": "/Pages/driver.html" },
+    { "source": "/login/manager.html", "destination": "/Pages/manager.html" },
+    { "source": "/login/admin.html", "destination": "/Pages/admin.html" },
+    { "source": "/login/staff.html", "destination": "/Pages/staff.html" },
+    { "source": "/login/driver.html", "destination": "/Pages/driver.html" },
     { "source": "/placeholder-furniture.jpg", "destination": "/Images/sofa.png" },
     { "source": "/Pages/placeholder-furniture.jpg", "destination": "/Images/sofa.png" }
   ]

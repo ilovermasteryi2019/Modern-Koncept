@@ -61,15 +61,17 @@ function clearLocalSession() {
 
 export function dashboardPageFor(role) {
   const r = normalizeRole(role);
-  if (r === 'admin') return 'admin.html';
-  if (r === 'manager') return 'manager.html';
-  if (r === 'delivery_driver') return 'driver.html';
-  return 'staff.html';
+  const page = r === 'admin' ? 'admin.html' : r === 'manager' ? 'manager.html' : r === 'delivery_driver' ? 'driver.html' : 'staff.html';
+  if (window.location.pathname.includes('/Pages/')) {
+    return `/Pages/${page}`;
+  }
+  return `/${page}`;
 }
 
 function goToLogin(reason) {
   document.documentElement.style.visibility = 'hidden'; // never leave a dashboard on screen while leaving
-  window.location.replace('login.html' + (reason ? `?reason=${reason}` : ''));
+  const loginPath = window.location.pathname.includes('/Pages/') ? '/Pages/login.html' : '/login.html';
+  window.location.replace(loginPath + (reason ? `?reason=${reason}` : ''));
 }
 
 function handleSessionExpired(reason) {
@@ -667,7 +669,8 @@ export async function handleLogout() {
     ]);
   } catch (error) { /* log out locally even if the server cannot be reached */ }
   clearLocalSession();
-  window.location.replace('login.html');
+  const loginPath = window.location.pathname.includes('/Pages/') ? '/Pages/login.html' : '/login.html';
+  window.location.replace(loginPath);
 }
 
 // Tell core which function ends the session when the API answers 401 (core does not import auth).

@@ -1574,12 +1574,169 @@ app.delete('/products/:id', (req, res) => {
 });
 
 // =============================================================================
+// ARCHIVE SYSTEM (Admin Soft-Delete & Restore Support)
+// =============================================================================
+function toPositiveIntSafe(v) {
+  const n = Number(v);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+const fallbackInventoryArchive = new Map(); // id (number) -> { is_archived: true, archived_at: string, archived_by: string }
+const fallbackDeliveryArchive = new Map();  // id (number) -> { is_archived: true, archived_at: string, archived_by: string }
+const fallbackSalesArchive = new Map();     // id (number) -> { is_archived: true, archived_at: string, archived_by: string }
+
+let inventoryArchiveCache = { at: 0, supported: null };
+async function getInventoryArchiveSupported() {
+  if (inventoryArchiveCache.supported !== null && Date.now() - inventoryArchiveCache.at < 60 * 1000) {
+    return inventoryArchiveCache.supported;
+  }
+  const { error } = await db.from('inventory').select('is_archived').limit(1);
+  const supported = !error;
+  inventoryArchiveCache = { at: Date.now(), supported };
+  return supported;
+}
+
+let deliveryArchiveCache = { at: 0, supported: null };
+async function getDeliveryArchiveSupported() {
+  if (deliveryArchiveCache.supported !== null && Date.now() - deliveryArchiveCache.at < 60 * 1000) {
+    return deliveryArchiveCache.supported;
+  }
+  const { error } = await db.from('deliveries').select('is_archived').limit(1);
+  const supported = !error;
+  deliveryArchiveCache = { at: Date.now(), supported };
+  return supported;
+}
+
+let salesArchiveCache = { at: 0, supported: null };
+async function getSalesArchiveSupported() {
+  if (salesArchiveCache.supported !== null && Date.now() - salesArchiveCache.at < 60 * 1000) {
+    return salesArchiveCache.supported;
+  }
+  const { error } = await db.from('sales').select('is_archived').limit(1);
+  const supported = !error;
+  salesArchiveCache = { at: Date.now(), supported };
+  return supported;
+}
+
+function mergeArchiveRecord(row, fallbackMap) {
+  if (!row || row.id == null) return row;
+  const numId = Number(row.id);
+  const meta = fallbackMap.get(numId);
+  const isArchived = row.is_archived !== undefined ? Boolean(row.is_archived) : Boolean(meta && meta.is_archived);
+  const archivedAt = row.archived_at !== undefined ? row.archived_at : (meta ? meta.archived_at : null);
+  const archivedBy = row.archived_by !== undefined ? row.archived_by : (meta ? meta.archived_by : null);
+  return {
+    ...row,
+    is_archived: isArchived,
+    archived_at: archivedAt,
+    archived_by: archivedBy
+  };
+}
+
+// =============================================================================
 // INVENTORY
 // =============================================================================
 app.get('/inventory', async (req, res) => {
   const { data, error } = await db.from('inventory').select('*').order('last_updated', { ascending: false });
   if (error) return res.status(500).json({ success: false, message: 'Failed to fetch inventory' });
-  res.json({ success: true, data });
+  const activeItems = (data || [])
+    .map(r => mergeArchiveRecord(r, fallbackInventoryArchive))
+    .filter(r => !r.is_archived);
+  res.json({ success: true, data: activeItems });
+});
+
+app.get('/inventory/archived', requireRole('admin', 'manager', 'staff'), async (req, res) => {
+  const { data, error } = await db.from('inventory').select('*').order('last_updated', { ascending: false });
+  if (error) return res.status(500).json({ success: false, message: 'Failed to fetch archived inventory' });
+  const archivedItems = (data || [])
+    .map(r => mergeArchiveRecord(r, fallbackInventoryArchive))
+    .filter(r => r.is_archived);
+  res.json({ success: true, data: archivedItems });
+});
+
+app.post('/inventory/:id/archive', requireRole('admin'), async (req, res) => {
+  const id = toPositiveIntSafe(req.params.id);
+  if (!id) return res.status(400).json({ success: false, message: 'Invalid inventory ID' });
+
+  const { data: item, error: fetchErr } = await db.from('inventory').select('*').eq('id', id).single();
+  if (fetchErr || !item) return res.status(404).json({ success: false, message: 'Inventory item not found' });
+
+  const merged = mergeArchiveRecord(item, fallbackInventoryArchive);
+  if (merged.is_archived) {
+    return res.status(400).json({ success: false, message: 'This inventory item is already archived.' });
+  }
+
+  // Dependency check: prevent archiving if referenced by active deliveries (Pending, Processing, In Transit)
+  const { data: activeDeliveries } = await db.from('deliveries')
+    .select('id, ref_code, status, inventory_id')
+    .eq('inventory_id', id);
+
+  const pendingDeliveries = (activeDeliveries || [])
+    .map(d => mergeArchiveRecord(d, fallbackDeliveryArchive))
+    .filter(d => !d.is_archived && ['Pending', 'Processing', 'In Transit'].includes(d.status));
+
+  if (pendingDeliveries.length > 0) {
+    const codes = pendingDeliveries.map(d => d.ref_code || `#${d.id}`).join(', ');
+    return res.status(400).json({
+      success: false,
+      message: `Cannot archive inventory item "${item.name}". It is currently assigned to ${pendingDeliveries.length} active delivery order(s) (${codes}). Please complete or update those deliveries first.`
+    });
+  }
+
+  const nowIso = new Date().toISOString();
+  const adminName = req.authUser ? (req.authUser.name || req.authUser.email) : 'Admin';
+  fallbackInventoryArchive.set(id, { is_archived: true, archived_at: nowIso, archived_by: adminName });
+
+  const hasDbCol = await getInventoryArchiveSupported();
+  if (hasDbCol) {
+    await db.from('inventory').update({
+      is_archived: true,
+      archived_at: nowIso,
+      archived_by: adminName
+    }).eq('id', id);
+  }
+
+  res.json({ success: true, message: `Inventory item "${item.name}" archived successfully.` });
+});
+
+app.post('/inventory/:id/restore', requireRole('admin'), async (req, res) => {
+  const id = toPositiveIntSafe(req.params.id);
+  if (!id) return res.status(400).json({ success: false, message: 'Invalid inventory ID' });
+
+  const { data: item, error: fetchErr } = await db.from('inventory').select('*').eq('id', id).single();
+  if (fetchErr || !item) return res.status(404).json({ success: false, message: 'Inventory item not found' });
+
+  const merged = mergeArchiveRecord(item, fallbackInventoryArchive);
+  if (!merged.is_archived) {
+    return res.status(400).json({ success: false, message: 'This inventory item is not archived.' });
+  }
+
+  // Conflict check: ensure no active item already uses this item_code
+  if (item.item_code) {
+    const { data: allItems } = await db.from('inventory').select('id, name, item_code');
+    const conflict = (allItems || [])
+      .map(r => mergeArchiveRecord(r, fallbackInventoryArchive))
+      .find(r => !r.is_archived && r.id !== id && r.item_code && r.item_code.trim().toLowerCase() === item.item_code.trim().toLowerCase());
+    if (conflict) {
+      return res.status(409).json({
+        success: false,
+        message: `Cannot restore inventory item: active item "${conflict.name}" is already using item code "${item.item_code}".`
+      });
+    }
+  }
+
+  fallbackInventoryArchive.delete(id);
+
+  const hasDbCol = await getInventoryArchiveSupported();
+  if (hasDbCol) {
+    await db.from('inventory').update({
+      is_archived: false,
+      archived_at: null,
+      archived_by: null
+    }).eq('id', id);
+  }
+
+  res.json({ success: true, message: `Inventory item "${item.name}" restored successfully.` });
 });
 
 // Validates the optional unit price of an inventory item.
@@ -1617,23 +1774,117 @@ app.post('/inventory', async (req, res) => {
   res.status(201).json({ success: true, message: 'Inventory item added successfully', id: data.id });
 });
 
-app.put('/inventory/:id', async (req, res) => {
-  const { name, category, quantity, item_code, image, price } = req.body;
-  if (!name || !category || quantity === undefined || !item_code) {
-    return res.status(400).json({ success: false, message: 'Name, item code, category, and quantity are required' });
+app.patch('/inventory/:id/quantity', requireRole('admin', 'manager'), async (req, res) => {
+  const id = toPositiveIntSafe(req.params.id);
+  if (!id) return res.status(400).json({ success: false, message: 'Invalid inventory ID' });
+
+  const { data: item, error: fetchErr } = await db.from('inventory').select('*').eq('id', id).maybeSingle();
+  if (fetchErr || !item) return res.status(404).json({ success: false, message: 'Inventory item not found' });
+
+  const merged = mergeArchiveRecord(item, fallbackInventoryArchive);
+  if (merged.is_archived) {
+    return res.status(400).json({ success: false, message: 'Archived records cannot be modified.' });
   }
+
+  let newQty;
+  if (req.body.quantity !== undefined) {
+    const q = Number(req.body.quantity);
+    if (!Number.isInteger(q) || q < 0) {
+      return res.status(400).json({ success: false, message: 'Quantity must be a valid non-negative whole number' });
+    }
+    newQty = q;
+  } else if (req.body.delta !== undefined) {
+    const d = Number(req.body.delta);
+    if (!Number.isInteger(d)) {
+      return res.status(400).json({ success: false, message: 'Delta must be an integer' });
+    }
+    const current = Number(item.quantity) || 0;
+    newQty = Math.max(0, current + d);
+  } else {
+    return res.status(400).json({ success: false, message: 'Quantity is required' });
+  }
+
+  const { error: updateErr } = await db.from('inventory').update({
+    quantity: newQty,
+    last_updated: new Date()
+  }).eq('id', id);
+
+  if (updateErr) {
+    return res.status(500).json({ success: false, message: 'Failed to update quantity in database' });
+  }
+
+  res.json({
+    success: true,
+    message: `Quantity for "${item.name}" updated to ${newQty}.`,
+    quantity: newQty,
+    id
+  });
+});
+
+app.put('/inventory/:id', requireRole('admin', 'manager'), async (req, res) => {
+  const id = toPositiveIntSafe(req.params.id);
+  if (!id) return res.status(400).json({ success: false, message: 'Invalid inventory ID' });
+
+  const { data: existingItem } = await db.from('inventory').select('*').eq('id', id).maybeSingle();
+  if (!existingItem) {
+    return res.status(404).json({ success: false, message: 'Inventory item not found' });
+  }
+
+  const merged = mergeArchiveRecord(existingItem, fallbackInventoryArchive);
+  if (merged.is_archived) {
+    return res.status(400).json({ success: false, message: 'Archived records cannot be modified.' });
+  }
+
+  const { name, category, quantity, item_code, image, price } = req.body;
+
+  // Case A: Quantity-only update (Admin and Manager)
+  if (!name && !category && !item_code && quantity !== undefined) {
+    if (req.authUser.role !== 'admin' && req.authUser.role !== 'manager') {
+      return res.status(403).json({ success: false, message: 'You do not have permission to adjust inventory quantities directly.' });
+    }
+    const q = Number(quantity);
+    if (!Number.isInteger(q) || q < 0) {
+      return res.status(400).json({ success: false, message: 'Quantity must be a valid non-negative whole number' });
+    }
+    const { error } = await db.from('inventory').update({
+      quantity: q,
+      last_updated: new Date()
+    }).eq('id', id);
+    if (error) {
+      return res.status(500).json({ success: false, message: 'Failed to update inventory quantity' });
+    }
+    return res.json({ success: true, message: 'Quantity updated successfully', quantity: q });
+  }
+
+  // Case B: Full item edit (Admin & Manager)
+  if (!name || !category || !item_code) {
+    return res.status(400).json({ success: false, message: 'Name, item code, and category are required' });
+  }
+
   const parsedPrice = parseInventoryPrice(price);
   if (!parsedPrice.ok) return res.status(400).json({ success: false, message: parsedPrice.message });
+
   const updates = {
     name,
     category,
-    quantity,
     item_code,
     image: image || null,
     last_updated: new Date()
   };
+
+  // If quantity was provided, validate and update it.
+  // If quantity was omitted (from Admin edit modal where quantity was removed), preserve existing quantity in database!
+  if (quantity !== undefined) {
+    const q = Number(quantity);
+    if (!Number.isInteger(q) || q < 0) {
+      return res.status(400).json({ success: false, message: 'Quantity must be a valid non-negative whole number' });
+    }
+    updates.quantity = q;
+  }
+
   if (parsedPrice.provided) updates.price = parsedPrice.value; // untouched when the request has no price
-  const { error } = await db.from('inventory').update(updates).eq('id', req.params.id);
+
+  const { error } = await db.from('inventory').update(updates).eq('id', id);
   if (error) {
     if (error.code === '23505') return res.status(409).json({ success: false, message: 'Item code already exists. Please use a unique item code.' });
     return res.status(500).json({ success: false, message: 'Failed to update inventory' });
@@ -1641,10 +1892,8 @@ app.put('/inventory/:id', async (req, res) => {
   res.json({ success: true, message: 'Inventory updated successfully' });
 });
 
-app.delete('/inventory/:id', async (req, res) => {
-  const { error } = await db.from('inventory').delete().eq('id', req.params.id);
-  if (error) return res.status(500).json({ success: false, message: 'Failed to delete inventory item' });
-  res.json({ success: true, message: 'Inventory item deleted successfully' });
+app.delete('/inventory/:id', requireRole('admin'), async (req, res) => {
+  res.status(405).json({ success: false, message: 'Permanent deletion is disabled. Please use the Archive action instead.' });
 });
 
 // =============================================================================
@@ -1727,8 +1976,7 @@ const fallbackDeliveryMeta = new Map(); // id (number) -> { delivery_end_date, d
 function mergeDeliveryFallbackMeta(row) {
   if (!row || row.id == null) return row;
   const meta = fallbackDeliveryMeta.get(Number(row.id));
-  if (!meta) return row;
-  return {
+  const base = meta ? {
     ...row,
     delivery_end_date: row.delivery_end_date !== undefined ? row.delivery_end_date : (meta.delivery_end_date || null),
     delivered_at: row.delivered_at !== undefined ? row.delivered_at : (meta.delivered_at || null),
@@ -1739,7 +1987,8 @@ function mergeDeliveryFallbackMeta(row) {
     quantity: row.quantity !== undefined ? row.quantity : (meta.quantity != null ? meta.quantity : 1),
     amount: row.amount !== undefined ? row.amount : (meta.amount != null ? meta.amount : null),
     sales_record_id: row.sales_record_id !== undefined ? row.sales_record_id : (meta.sales_record_id || null)
-  };
+  } : row;
+  return mergeArchiveRecord(base, fallbackDeliveryArchive);
 }
 
 // List active Delivery Driver accounts (Admin & Manager use this to assign deliveries)
@@ -1773,7 +2022,7 @@ app.get('/deliveries', async (req, res) => {
 
   const { data, error } = await db.from('deliveries').select('*').order('created_at', { ascending: false });
   if (error) return res.status(500).json({ success: false, message: 'Failed to fetch deliveries' });
-  let rows = (data || []).map(mergeDeliveryFallbackMeta);
+  let rows = (data || []).map(mergeDeliveryFallbackMeta).filter(d => !d.is_archived);
 
   // Delivery drivers can ONLY view deliveries assigned to their account
   if (isDriverRole(callerRole)) {
@@ -1781,6 +2030,13 @@ app.get('/deliveries', async (req, res) => {
   }
 
   res.json({ success: true, data: rows });
+});
+
+app.get('/deliveries/archived', requireRole('admin', 'manager', 'staff'), async (req, res) => {
+  const { data, error } = await db.from('deliveries').select('*').order('created_at', { ascending: false });
+  if (error) return res.status(500).json({ success: false, message: 'Failed to fetch archived deliveries' });
+  const archived = (data || []).map(mergeDeliveryFallbackMeta).filter(d => d.is_archived);
+  res.json({ success: true, data: archived });
 });
 
 app.get('/deliveries/track/:refCode', async (req, res) => {
@@ -1794,11 +2050,12 @@ app.get('/deliveries/track/:refCode', async (req, res) => {
 });
 
 app.get('/deliveries/stats', async (req, res) => {
-  const { data, error } = await db.from('deliveries').select('status');
+  const { data, error } = await db.from('deliveries').select('*');
   if (error) return res.status(500).json({ success: false, message: 'Failed to fetch delivery statistics' });
+  const activeRows = (data || []).map(mergeDeliveryFallbackMeta).filter(d => !d.is_archived);
   const stats = { pending: 0, processing: 0, in_transit: 0, delivered: 0 };
-  data.forEach(row => {
-    const key = row.status.toLowerCase().replace(/ /g, '_');
+  activeRows.forEach(row => {
+    const key = (row.status || '').toLowerCase().replace(/ /g, '_');
     if (stats.hasOwnProperty(key)) stats[key]++;
   });
   res.json({ success: true, data: stats });
@@ -1871,6 +2128,11 @@ app.put('/deliveries/:id', requireRole('admin', 'manager'), async (req, res) => 
   const { data: existing, error: fetchError } = await db.from('deliveries').select('*').eq('id', req.params.id).maybeSingle();
   if (fetchError) return res.status(500).json({ success: false, message: 'Failed to update delivery' });
   if (!existing) return res.status(404).json({ success: false, message: 'Delivery not found' });
+
+  const mergedDelivery = mergeDeliveryFallbackMeta(existing);
+  if (mergedDelivery.is_archived) {
+    return res.status(400).json({ success: false, message: 'Archived records cannot be modified.' });
+  }
 
   const cols = await getDeliveryOptionalColumns();
   const prevMeta = fallbackDeliveryMeta.get(Number(existing.id)) || {};
@@ -2177,10 +2439,70 @@ app.patch('/deliveries/:id/status', requireRole('admin', 'manager', 'delivery_dr
   });
 });
 
+app.post('/deliveries/:id/archive', requireRole('admin'), async (req, res) => {
+  const id = toPositiveIntSafe(req.params.id);
+  if (!id) return res.status(400).json({ success: false, message: 'Invalid delivery ID' });
+
+  const { data: delivery, error: fetchErr } = await db.from('deliveries').select('*').eq('id', id).single();
+  if (fetchErr || !delivery) return res.status(404).json({ success: false, message: 'Delivery not found' });
+
+  const merged = mergeDeliveryFallbackMeta(delivery);
+  if (merged.is_archived) {
+    return res.status(400).json({ success: false, message: 'This delivery is already archived.' });
+  }
+
+  // Delivery status eligibility check: only completed (Delivered) or Cancelled deliveries can be archived
+  if (['Pending', 'Processing', 'In Transit'].includes(merged.status)) {
+    return res.status(400).json({
+      success: false,
+      message: `Cannot archive an active delivery (Current status: ${merged.status}). Only completed (Delivered) or Cancelled deliveries can be archived.`
+    });
+  }
+
+  const nowIso = new Date().toISOString();
+  const adminName = req.authUser ? (req.authUser.name || req.authUser.email) : 'Admin';
+  fallbackDeliveryArchive.set(id, { is_archived: true, archived_at: nowIso, archived_by: adminName });
+
+  const hasDbCol = await getDeliveryArchiveSupported();
+  if (hasDbCol) {
+    await db.from('deliveries').update({
+      is_archived: true,
+      archived_at: nowIso,
+      archived_by: adminName
+    }).eq('id', id);
+  }
+
+  res.json({ success: true, message: `Delivery #${merged.ref_code || merged.id} archived successfully.` });
+});
+
+app.post('/deliveries/:id/restore', requireRole('admin'), async (req, res) => {
+  const id = toPositiveIntSafe(req.params.id);
+  if (!id) return res.status(400).json({ success: false, message: 'Invalid delivery ID' });
+
+  const { data: delivery, error: fetchErr } = await db.from('deliveries').select('*').eq('id', id).single();
+  if (fetchErr || !delivery) return res.status(404).json({ success: false, message: 'Delivery not found' });
+
+  const merged = mergeDeliveryFallbackMeta(delivery);
+  if (!merged.is_archived) {
+    return res.status(400).json({ success: false, message: 'This delivery is not archived.' });
+  }
+
+  fallbackDeliveryArchive.delete(id);
+
+  const hasDbCol = await getDeliveryArchiveSupported();
+  if (hasDbCol) {
+    await db.from('deliveries').update({
+      is_archived: false,
+      archived_at: null,
+      archived_by: null
+    }).eq('id', id);
+  }
+
+  res.json({ success: true, message: `Delivery #${merged.ref_code || merged.id} restored successfully.` });
+});
+
 app.delete('/deliveries/:id', requireRole('admin'), async (req, res) => {
-  const { error } = await db.from('deliveries').delete().eq('id', req.params.id);
-  if (error) return res.status(500).json({ success: false, message: 'Failed to delete delivery' });
-  res.json({ success: true, message: 'Delivery deleted successfully' });
+  res.status(405).json({ success: false, message: 'Permanent deletion is disabled. Please use the Archive action instead.' });
 });
 
 // =============================================================================
@@ -2398,7 +2720,10 @@ app.get('/sales', async (req, res) => {
     });
   }
 
-  const data = (salesRes.data || []).map(sale => {
+  const data = (salesRes.data || [])
+    .map(sale => mergeArchiveRecord(sale, fallbackSalesArchive))
+    .filter(sale => !sale.is_archived)
+    .map(sale => {
     const existingCat = typeof sale.category === 'string' && sale.category.trim() ? sale.category.trim() : null;
     const byId = sale.inventory_id != null ? invById.get(Number(sale.inventory_id)) : null;
     const normName = typeof sale.product_name === 'string' ? sale.product_name.trim().toLowerCase() : '';
@@ -2411,6 +2736,47 @@ app.get('/sales', async (req, res) => {
   });
 
   res.json({ success: true, data });
+});
+
+app.get('/sales/archived', requireRole('admin', 'manager', 'staff'), async (req, res) => {
+  const [salesRes, invRes, prodRes] = await Promise.all([
+    db.from('sales').select('*').order('sale_date', { ascending: false }),
+    db.from('inventory').select('id, name, category'),
+    db.from('products').select('name, category')
+  ]);
+  if (salesRes.error) return res.status(500).json({ success: false, message: 'Failed to fetch archived sales' });
+
+  const invById = new Map();
+  const invByName = new Map();
+  if (Array.isArray(invRes.data)) {
+    invRes.data.forEach(item => {
+      if (item && item.id != null && item.category) invById.set(Number(item.id), String(item.category).trim());
+      if (item && item.name && item.category) invByName.set(String(item.name).trim().toLowerCase(), String(item.category).trim());
+    });
+  }
+  const prodByName = new Map();
+  if (Array.isArray(prodRes.data)) {
+    prodRes.data.forEach(item => {
+      if (item && item.name && item.category) prodByName.set(String(item.name).trim().toLowerCase(), String(item.category).trim());
+    });
+  }
+
+  const archived = (salesRes.data || [])
+    .map(sale => mergeArchiveRecord(sale, fallbackSalesArchive))
+    .filter(sale => sale.is_archived)
+    .map(sale => {
+      const existingCat = typeof sale.category === 'string' && sale.category.trim() ? sale.category.trim() : null;
+      const byId = sale.inventory_id != null ? invById.get(Number(sale.inventory_id)) : null;
+      const normName = typeof sale.product_name === 'string' ? sale.product_name.trim().toLowerCase() : '';
+      const byInvName = normName ? invByName.get(normName) : null;
+      const byProdName = normName ? prodByName.get(normName) : null;
+      return {
+        ...sale,
+        category: existingCat || byId || byInvName || byProdName || 'Uncategorized'
+      };
+    });
+
+  res.json({ success: true, data: archived });
 });
 
 // Sales + inventory: stock is deducted / restored INSIDE Postgres functions
@@ -2516,9 +2882,18 @@ app.post('/sales', requireRole('admin', 'manager', 'staff'), async (req, res) =>
   });
 });
 
-app.put('/sales/:id', requireRole('admin', 'manager', 'staff'), async (req, res) => {
+app.put('/sales/:id', requireRole('admin', 'manager'), async (req, res) => {
   const saleId = toPositiveInt(req.params.id);
   if (!saleId) return res.status(400).json({ success: false, message: 'Invalid sales record' });
+
+  const { data: existingSale } = await db.from('sales').select('*').eq('id', saleId).maybeSingle();
+  if (existingSale) {
+    const mergedSale = mergeArchiveRecord(existingSale, fallbackSalesArchive);
+    if (mergedSale.is_archived) {
+      return res.status(400).json({ success: false, message: 'Archived records cannot be modified.' });
+    }
+  }
+
   const { customer_name, product_name, amount, sale_date, inventory_id, quantity } = req.body;
   const customer = typeof customer_name === 'string' ? customer_name.trim() : '';
   if (!customer) {
@@ -2558,34 +2933,78 @@ app.put('/sales/:id', requireRole('admin', 'manager', 'staff'), async (req, res)
   res.json({ success: true, message: 'Sales record updated successfully' });
 });
 
-app.delete('/sales/:id', requireRole('admin'), async (req, res) => {
-  const saleId = toPositiveInt(req.params.id);
-  if (!saleId) return res.status(400).json({ success: false, message: 'Invalid sales record' });
-  const { data, error } = await db.rpc('delete_sale_with_inventory', { p_sale_id: saleId });
-  if (error) {
-    console.error('delete_sale_with_inventory error:', error.message);
-    return res.status(500).json({ success: false, message: 'Failed to delete sales record' });
+app.post('/sales/:id/archive', requireRole('admin'), async (req, res) => {
+  const id = toPositiveIntSafe(req.params.id);
+  if (!id) return res.status(400).json({ success: false, message: 'Invalid sales record ID' });
+
+  const { data: sale, error: fetchErr } = await db.from('sales').select('*').eq('id', id).single();
+  if (fetchErr || !sale) return res.status(404).json({ success: false, message: 'Sales record not found' });
+
+  const merged = mergeArchiveRecord(sale, fallbackSalesArchive);
+  if (merged.is_archived) {
+    return res.status(400).json({ success: false, message: 'This sales record is already archived.' });
   }
-  if (!data || !data.success) return respondSaleFailure(res, data);
-  res.json({
-    success: true,
-    message: data.restored > 0
-      ? `Sales record deleted. ${data.restored} unit(s) returned to inventory.`
-      : 'Sales record deleted successfully'
-  });
+
+  const nowIso = new Date().toISOString();
+  const adminName = req.authUser ? (req.authUser.name || req.authUser.email) : 'Admin';
+  fallbackSalesArchive.set(id, { is_archived: true, archived_at: nowIso, archived_by: adminName });
+
+  const hasDbCol = await getSalesArchiveSupported();
+  if (hasDbCol) {
+    await db.from('sales').update({
+      is_archived: true,
+      archived_at: nowIso,
+      archived_by: adminName
+    }).eq('id', id);
+  }
+
+  res.json({ success: true, message: 'Sales record archived successfully.' });
+});
+
+app.post('/sales/:id/restore', requireRole('admin'), async (req, res) => {
+  const id = toPositiveIntSafe(req.params.id);
+  if (!id) return res.status(400).json({ success: false, message: 'Invalid sales record ID' });
+
+  const { data: sale, error: fetchErr } = await db.from('sales').select('*').eq('id', id).single();
+  if (fetchErr || !sale) return res.status(404).json({ success: false, message: 'Sales record not found' });
+
+  const merged = mergeArchiveRecord(sale, fallbackSalesArchive);
+  if (!merged.is_archived) {
+    return res.status(400).json({ success: false, message: 'This sales record is not archived.' });
+  }
+
+  fallbackSalesArchive.delete(id);
+
+  const hasDbCol = await getSalesArchiveSupported();
+  if (hasDbCol) {
+    await db.from('sales').update({
+      is_archived: false,
+      archived_at: null,
+      archived_by: null
+    }).eq('id', id);
+  }
+
+  res.json({ success: true, message: 'Sales record restored successfully.' });
+});
+
+app.delete('/sales/:id', requireRole('admin'), async (req, res) => {
+  res.status(405).json({ success: false, message: 'Permanent deletion is disabled. Please use the Archive action instead.' });
 });
 
 app.get('/sales/monthly', async (req, res) => {
   await syncDeliveredDeliveriesToSales();
-  const { data, error } = await db.from('sales').select('sale_date, amount');
+  const { data, error } = await db.from('sales').select('*');
   if (error) return res.status(500).json({ error: 'Failed to fetch monthly sales data' });
   const grouped = {};
-  data.forEach(row => {
-    const d = new Date(row.sale_date);
-    const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
-    if (!grouped[key]) grouped[key] = { month: d.getMonth() + 1, year: d.getFullYear(), total: 0 };
-    grouped[key].total += parseFloat(row.amount);
-  });
+  (data || [])
+    .map(r => mergeArchiveRecord(r, fallbackSalesArchive))
+    .filter(r => !r.is_archived)
+    .forEach(row => {
+      const d = new Date(row.sale_date);
+      const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+      if (!grouped[key]) grouped[key] = { month: d.getMonth() + 1, year: d.getFullYear(), total: 0 };
+      grouped[key].total += parseFloat(row.amount);
+    });
   res.json(Object.values(grouped).sort((a, b) => a.year - b.year || a.month - b.month));
 });
 
@@ -3570,8 +3989,16 @@ Rules:
 // =============================================================================
 // START SERVER
 // =============================================================================
-app.listen(PORT, () => {
-  console.log('==============================================');
-  console.log(`🚀 Server is running on http://localhost:${PORT}`);
-  console.log('==============================================');
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log('==============================================');
+    console.log(`🚀 Server is running on http://localhost:${PORT}`);
+    console.log('==============================================');
+  });
+}
+
+if (process.env.NODE_ENV === 'test') {
+  app.__createSession = createSession;
+}
+
+module.exports = app;

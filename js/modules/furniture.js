@@ -5,7 +5,7 @@
 // =============================================================================
 
 import { API, API_URL, formatCurrency, getDiscountInfo, getEffectivePrice, renderPriceHTML } from './core.js';
-import { hideModal, kdConfirm, kdFormOptions as submit, kdGuard, kdOpenOptions as open, kdWrapLoader, kdWrapPage, showModal, showToast } from './ui.js';
+import { hideModal, kdConfirm, kdFormOptions as submit, kdGuard, kdOpenOptions as open, kdWrapLoader, kdWrapPage, renderPagination, showModal, showToast } from './ui.js';
 import { KDeskDimensions, adminDimensionCell, fillFurnitureDimensionInputs, readFurnitureDimensionInputs, renderFurnitureDimensions } from './dimensions.js';
 
 // =============================================================================
@@ -16,25 +16,45 @@ let editingFurnitureId = null;
 let allFurnitureProducts = [];
 
 let adminFurnitureItems = [];
+export const FURNITURE_PAGE_SIZE = 10;
+let adminFurniturePage = 1;
+let adminFurnitureSearchLast = '';
+let adminFurnitureCategoryLast = 'all';
+
+export function getAdminFurnitureState() {
+  return {
+    items: [...adminFurnitureItems],
+    page: adminFurniturePage,
+    pageSize: FURNITURE_PAGE_SIZE
+  };
+}
+
+export function setAdminFurnitureItemsForTest(items) {
+  adminFurnitureItems = Array.isArray(items) ? [...items] : [];
+}
 
 export async function loadFurnitureList() {
   try {
     const result = await API.getFurniture();
-    if (result.success) {
-      adminFurnitureItems = result.data;
-      renderAdminFurnitureTable(adminFurnitureItems);
+    if (result && result.success) {
+      adminFurnitureItems = result.data || [];
+      filterAdminFurnitureList();
     }
   } catch (error) {
     showToast('❌ Failed to load furniture list', 'error');
   }
 }
 
-function renderAdminFurnitureTable(items) {
+export function renderAdminFurnitureTable(items, totalFilteredCount = (items ? items.length : 0)) {
   const tbody = document.getElementById('furnitureList');
   if (!tbody) return;
   tbody.innerHTML = '';
-  if (!items || items.length === 0) {
-    tbody.innerHTML = '<tr class="no-data-row"><td colspan="7">No furniture items found.</td></tr>';
+  if (!adminFurnitureItems || adminFurnitureItems.length === 0) {
+    tbody.innerHTML = '<tr class="no-data-row"><td colspan="7" style="text-align:center;color:#9ca3af;padding:2rem;">No furniture items found.</td></tr>';
+    return;
+  }
+  if (totalFilteredCount === 0 || !items || items.length === 0) {
+    tbody.innerHTML = '<tr class="no-data-row"><td colspan="7" style="text-align:center;color:#9ca3af;padding:2rem;">No furniture items match your search or filters.</td></tr>';
     return;
   }
   items.forEach(item => {
@@ -53,24 +73,73 @@ function renderAdminFurnitureTable(items) {
   });
 }
 
-function filterAdminFurnitureList() {
-  if (!adminFurnitureItems.length) { renderAdminFurnitureTable([]); return; }
+export function filterAdminFurnitureList(targetPage) {
   const searchInput = document.getElementById('adminFurnitureSearch');
   const categoryFilter = document.getElementById('adminCategoryFilter');
-  let filtered = [...adminFurnitureItems];
-  if (searchInput && searchInput.value.trim()) {
-    const s = searchInput.value.trim().toLowerCase();
-    filtered = filtered.filter(item => item.name.toLowerCase().includes(s) || (item.category && item.category.toLowerCase().includes(s)) || (item.material && item.material.toLowerCase().includes(s)));
+
+  const currentSearch = (searchInput && searchInput.value ? searchInput.value.trim().toLowerCase() : '');
+  const currentCategory = (categoryFilter && categoryFilter.value ? categoryFilter.value : 'all');
+
+  if (typeof targetPage === 'number') {
+    adminFurniturePage = targetPage;
+  } else if (currentSearch !== adminFurnitureSearchLast || currentCategory !== adminFurnitureCategoryLast) {
+    adminFurniturePage = 1;
   }
-  if (categoryFilter && categoryFilter.value !== 'all') filtered = filtered.filter(item => item.category === categoryFilter.value);
-  renderAdminFurnitureTable(filtered);
+  adminFurnitureSearchLast = currentSearch;
+  adminFurnitureCategoryLast = currentCategory;
+
+  let filtered = [...adminFurnitureItems];
+  if (currentSearch) {
+    filtered = filtered.filter(item =>
+      (item.name && item.name.toLowerCase().includes(currentSearch)) ||
+      (item.category && item.category.toLowerCase().includes(currentSearch)) ||
+      (item.material && item.material.toLowerCase().includes(currentSearch))
+    );
+  }
+  if (currentCategory !== 'all') {
+    filtered = filtered.filter(item => item.category === currentCategory);
+  }
+
+  const totalItems = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / FURNITURE_PAGE_SIZE));
+  if (adminFurniturePage > totalPages) {
+    adminFurniturePage = totalPages;
+  }
+  if (adminFurniturePage < 1) {
+    adminFurniturePage = 1;
+  }
+
+  const startIndex = (adminFurniturePage - 1) * FURNITURE_PAGE_SIZE;
+  const pagedItems = filtered.slice(startIndex, startIndex + FURNITURE_PAGE_SIZE);
+
+  renderAdminFurnitureTable(pagedItems, totalItems);
+  renderPagination({
+    containerId: 'adminFurniturePagination',
+    totalItems,
+    currentPage: adminFurniturePage,
+    pageSize: FURNITURE_PAGE_SIZE,
+    onPageChange: (newPage) => filterAdminFurnitureList(newPage),
+    ariaLabel: 'Furniture Pagination'
+  });
 }
 
 export function initAdminFurnitureSearch() {
   const searchInput = document.getElementById('adminFurnitureSearch');
+  if (searchInput && searchInput.dataset.kdBound !== '1') {
+    searchInput.dataset.kdBound = '1';
+    searchInput.addEventListener('input', () => {
+      adminFurniturePage = 1;
+      filterAdminFurnitureList();
+    });
+  }
   const categoryFilter = document.getElementById('adminCategoryFilter');
-  if (searchInput) searchInput.addEventListener('input', filterAdminFurnitureList);
-  if (categoryFilter) categoryFilter.addEventListener('change', filterAdminFurnitureList);
+  if (categoryFilter && categoryFilter.dataset.kdBound !== '1') {
+    categoryFilter.dataset.kdBound = '1';
+    categoryFilter.addEventListener('change', () => {
+      adminFurniturePage = 1;
+      filterAdminFurnitureList();
+    });
+  }
 }
 
 export async function loadPublicFurnitureList() {

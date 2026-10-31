@@ -4,8 +4,8 @@
 // Cut from the original main.js (lines 1018-2234 region). Code is unchanged except where a comment says otherwise.
 // =============================================================================
 
-import { API, API_URL, formatDate, kdCreateOnce } from './core.js';
-import { hideModal, kdConfirm, kdDeleteOptions as del, kdFormOptions as submit, kdGuard, kdOpenOptions as open, kdRun, kdWrapBusy, kdWrapLoader, showModal, showToast } from './ui.js';
+import { API, API_URL, escapeHtmlText, formatDate, formatDateTime, kdCreateOnce } from './core.js';
+import { hideModal, kdArchiveOptions as archiveOpt, kdConfirm, kdDeleteOptions as del, kdFormOptions as submit, kdGuard, kdOpenOptions as open, kdRestoreOptions as restoreOpt, kdRun, kdWrapBusy, kdWrapLoader, showModal, showToast } from './ui.js';
 
 const VALID_DELIVERY_STATUSES = ['Pending', 'Processing', 'In Transit', 'Delivered'];
 const DELIVERY_WINDOW_STORAGE_KEY = 'kd_delivery_windows_v1';
@@ -190,35 +190,11 @@ export async function loadStaffDeliveryList() {
 }
 
 export function openStaffAddDeliveryModal() {
-  const form = document.getElementById('staffDeliveryForm');
-  if (form) form.reset();
-  showModal('staffDeliveryModal');
+  openAddDeliveryModal();
 }
 
 export async function handleStaffDeliverySubmit(event) {
-  event.preventDefault();
-  const data = {
-    customer_name: document.getElementById('staffDeliveryCustomer').value.trim(),
-    contact_number: document.getElementById('staffDeliveryContactNumber').value.trim(),
-    address: document.getElementById('staffDeliveryAddress').value.trim(),
-    product: document.getElementById('staffDeliveryProduct').value.trim(),
-    status: document.getElementById('staffDeliveryStatus').value,
-    delivery_type: document.getElementById('staffDeliveryType').value,
-    delivery_date: document.getElementById('staffDeliveryDate').value || null
-  };
-  if (!data.customer_name || !data.address) { showToast('Customer name and address are required', 'warning'); return; }
-  const submitBtn = event.target.querySelector('button[type="submit"]');
-  try {
-    const result = await kdCreateOnce('delivery-create', data, API.createDelivery);
-    if (result.success) {
-      showToast('✅ ' + result.message + (result.ref_code ? ` Reference Code: ${result.ref_code}` : ''), 'success');
-      hideModal('staffDeliveryModal');
-      loadStaffDeliveryList();
-      loadDeliveryStats();
-    } else {
-      showToast('❌ ' + result.message, 'error');
-    }
-  } catch (error) { showToast('❌ Failed to save delivery', 'error'); }
+  return handleDeliverySubmit(event);
 }
 
 let adminDeliveryControlsInitialized = false;
@@ -732,7 +708,7 @@ function renderAdminDeliveryTableRows(filteredDeliveries, allDeliveriesCount) {
         </td>
         <td>
           <button class="action-btn edit" onclick="editDelivery(${item.id})" title="Edit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
-          <button class="action-btn delete" onclick="deleteDelivery(${item.id})" title="Delete"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
+          <button class="action-btn archive" onclick="archiveDelivery(${item.id})" title="Archive Delivery"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="21 8 21 21 3 21 3 8"></polyline><rect x="1" y="3" width="22" height="5"></rect><line x1="10" y1="12" x2="14" y2="12"></line></svg></button>
         </td>
       </tr>`;
   });
@@ -1025,6 +1001,27 @@ export function initAdminDeliveryControls() {
   bindChange('deliveryChartDateField', 'change');
   bindChange('deliveryChartInterval', 'change');
   bindChange('deliveryChartView', 'change');
+
+  const bindArchived = (id, evt = 'change') => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener(evt, () => filterArchivedDeliveries());
+  };
+  bindArchived('adminArchivedDeliverySearch', 'input');
+  bindArchived('adminArchivedDeliveryStatusFilter', 'change');
+  bindArchived('adminArchivedDeliveryDateFrom', 'change');
+  bindArchived('adminArchivedDeliveryDateTo', 'change');
+  bindArchived('adminArchivedDeliverySort', 'change');
+  const archReset = document.getElementById('adminArchivedDeliveryResetFilters');
+  if (archReset) {
+    archReset.addEventListener('click', () => {
+      const s = document.getElementById('adminArchivedDeliverySearch'); if (s) s.value = '';
+      const st = document.getElementById('adminArchivedDeliveryStatusFilter'); if (st) st.value = 'all';
+      const df = document.getElementById('adminArchivedDeliveryDateFrom'); if (df) df.value = '';
+      const dt = document.getElementById('adminArchivedDeliveryDateTo'); if (dt) dt.value = '';
+      const sr = document.getElementById('adminArchivedDeliverySort'); if (sr) sr.value = 'archived-desc';
+      filterArchivedDeliveries();
+    });
+  }
 
   const selectAllEl = document.getElementById('adminDeliverySelectAll');
   if (selectAllEl) {
@@ -1388,10 +1385,22 @@ export async function loadDeliveryProductOptions(selectedId = null, selectedName
 
 export function openAddDeliveryModal() {
   editingDeliveryId = null;
-  document.getElementById('deliveryModalTitle').textContent = 'Add New Delivery';
-  document.getElementById('deliveryForm').reset();
+  const title = document.getElementById('deliveryModalTitle');
+  if (title) title.textContent = 'Add New Delivery';
+  const form = document.getElementById('deliveryForm');
+  if (form) form.reset();
+  const startEl = document.getElementById('deliveryDate');
   const endEl = document.getElementById('deliveryEndDate');
   if (endEl) { endEl.value = ''; endEl.min = ''; }
+  if (startEl && endEl && !startEl.dataset.windowBound) {
+    startEl.addEventListener('change', () => {
+      endEl.min = startEl.value || '';
+      if (endEl.value && startEl.value && endEl.value < startEl.value) {
+        endEl.value = startEl.value;
+      }
+    });
+    startEl.dataset.windowBound = '1';
+  }
   const driverSelect = document.getElementById('deliveryDriverSelect');
   if (driverSelect) populateDriverDropdown(driverSelect, '');
   const qtyEl = document.getElementById('deliveryQuantity');
@@ -1477,6 +1486,7 @@ export async function handleDeliverySubmit(event) {
       showToast('✅ ' + result.message + (result.ref_code ? ` Reference Code: ${result.ref_code}` : ''), 'success');
       hideModal('deliveryModal');
       if (window.location.pathname.includes('manager')) loadManagerDeliveryList();
+      else if (window.location.pathname.includes('staff')) loadStaffDeliveryList();
       else loadDeliveryList();
       loadDeliveryStats();
     } else {
@@ -1523,18 +1533,484 @@ export async function editDelivery(id) {
 }
 
 export async function deleteDelivery(id) {
-  if (!(await kdConfirm('Are you sure you want to delete this delivery?', { title: 'Delete Delivery' }))) return;
+  // Permanent delete is deprecated in favor of archive
+  return archiveDelivery(id);
+}
+
+export async function archiveDelivery(id) {
+  const delivery = (cachedDeliveries || []).find(d => Number(d.id) === Number(id));
+  if (delivery && ['Pending', 'Processing', 'In Transit'].includes(delivery.status)) {
+    showToast(`⚠️ Cannot archive an active delivery (status: ${delivery.status}). Only completed (Delivered) or Cancelled deliveries can be archived.`, 'error');
+    return;
+  }
+
+  if (!(await kdConfirm('Are you sure you want to archive this delivery?\n\nIt will be moved to the Archived Deliveries tab and preserved for historical reference.', { title: 'Archive Delivery', confirmText: 'Archive' }))) return;
+
   try {
-    const result = await API.deleteDelivery(id);
+    const result = await API.archiveDelivery(id);
     if (result.success) {
       selectedAdminDeliveryIds.delete(Number(id));
       selectedManagerDeliveryIds.delete(Number(id));
-      showToast(result.message, 'success');
-      loadDeliveryList();
-      loadDeliveryStats();
+      showToast(result.message || 'Delivery archived successfully', 'success');
+      await Promise.all([loadDeliveryList(), loadArchivedDeliveryList(), loadDeliveryStats()]);
+    } else {
+      showToast(result.message || 'Failed to archive delivery', 'error');
     }
-    else showToast('❌ ' + result.message, 'error');
-  } catch (error) { showToast('❌ Failed to delete delivery', 'error'); }
+  } catch (error) {
+    showToast('❌ Failed to archive delivery', 'error');
+  }
+}
+
+export async function restoreDelivery(id) {
+  if (!(await kdConfirm('Restore this delivery record to active deliveries?', { title: 'Restore Delivery', confirmText: 'Restore' }))) return;
+
+  try {
+    const result = await API.restoreDelivery(id);
+    if (result.success) {
+      showToast(result.message || 'Delivery restored successfully', 'success');
+      await Promise.all([loadDeliveryList(), loadArchivedDeliveryList(), loadDeliveryStats()]);
+    } else {
+      showToast(result.message || 'Failed to restore delivery', 'error');
+    }
+  } catch (error) {
+    showToast('❌ Failed to restore delivery', 'error');
+  }
+}
+
+// Archived Deliveries State & Methods
+let adminArchivedDeliveriesCache = [];
+
+export async function loadArchivedDeliveryList() {
+  try {
+    const result = await API.getArchivedDeliveries();
+    if (result.success) {
+      adminArchivedDeliveriesCache = (Array.isArray(result.data) ? result.data : []).map(mergeLocalDeliveryWindow);
+      const badge = document.getElementById('adminDeliveryArchivedBadge');
+      if (badge) {
+        badge.textContent = adminArchivedDeliveriesCache.length;
+        badge.style.display = adminArchivedDeliveriesCache.length > 0 ? 'inline-block' : 'none';
+      }
+      filterArchivedDeliveries();
+    }
+  } catch (err) {
+    console.error('Failed to load archived deliveries:', err);
+  }
+}
+
+function renderArchivedDeliveryTableRows(items) {
+  const tbody = document.getElementById('adminArchivedDeliveryList');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  if (adminArchivedDeliveriesCache.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#9ca3af;padding:2rem;">No archived deliveries found</td></tr>';
+    return;
+  }
+  if (items.length === 0) {
+    tbody.innerHTML = '<tr class="no-data-row"><td colspan="10" style="text-align:center;color:#9ca3af;padding:2rem;">No archived deliveries match your search or filters.</td></tr>';
+    return;
+  }
+  items.forEach(item => {
+    const statusClass = (item.status || 'Pending').toLowerCase().replace(/\s+/g, '-');
+    const applicableDate = item.delivery_date ? formatDate(item.delivery_date) : 'N/A';
+    const archivedDate = item.archived_at ? formatDateTime(item.archived_at) : 'N/A';
+    tbody.innerHTML += `
+      <tr>
+        <td style="font-family:monospace;font-weight:600;">${escapeHtmlText(item.ref_code || '#' + item.id)}</td>
+        <td>${escapeHtmlText(item.customer_name || 'N/A')}</td>
+        <td>${escapeHtmlText(item.contact_number || 'N/A')}</td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtmlText(item.address || '')}">${escapeHtmlText(item.address || 'N/A')}</td>
+        <td>${escapeHtmlText(item.product || 'N/A')}</td>
+        <td>${escapeHtmlText(item.assigned_driver_name || 'Unassigned')}</td>
+        <td>${applicableDate}</td>
+        <td><span class="delivery-status-badge ${statusClass}">${escapeHtmlText(item.status || 'Pending')}</span></td>
+        <td>${archivedDate}</td>
+        <td>
+          <button class="action-btn restore" onclick="restoreDelivery(${item.id})" title="Restore Delivery" style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.8125rem;font-weight:600;padding:0.3rem 0.65rem;border-radius:0.375rem;border:1px solid #059669;color:#059669;background:transparent;cursor:pointer;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+            Restore
+          </button>
+        </td>
+      </tr>`;
+  });
+}
+
+function filterArchivedDeliveries() {
+  const searchInput = document.getElementById('adminArchivedDeliverySearch');
+  const statusFilter = document.getElementById('adminArchivedDeliveryStatusFilter');
+  const dateFrom = document.getElementById('adminArchivedDeliveryDateFrom');
+  const dateTo = document.getElementById('adminArchivedDeliveryDateTo');
+  const sortSelect = document.getElementById('adminArchivedDeliverySort');
+
+  let filtered = [...adminArchivedDeliveriesCache];
+  if (searchInput && searchInput.value.trim()) {
+    const s = searchInput.value.trim().toLowerCase();
+    filtered = filtered.filter(item =>
+      (item.ref_code && item.ref_code.toLowerCase().includes(s)) ||
+      (item.customer_name && item.customer_name.toLowerCase().includes(s)) ||
+      (item.product && item.product.toLowerCase().includes(s)) ||
+      (item.address && item.address.toLowerCase().includes(s))
+    );
+  }
+  if (statusFilter && statusFilter.value !== 'all') {
+    filtered = filtered.filter(item => item.status === statusFilter.value);
+  }
+  if (dateFrom && dateFrom.value) {
+    filtered = filtered.filter(item => (item.delivery_date || item.created_at || '').slice(0, 10) >= dateFrom.value);
+  }
+  if (dateTo && dateTo.value) {
+    filtered = filtered.filter(item => (item.delivery_date || item.created_at || '').slice(0, 10) <= dateTo.value);
+  }
+
+  const sortVal = sortSelect ? sortSelect.value : 'archived-desc';
+  filtered.sort((a, b) => {
+    if (sortVal === 'archived-desc') return new Date(b.archived_at || b.created_at || 0) - new Date(a.archived_at || a.created_at || 0);
+    if (sortVal === 'archived-asc') return new Date(a.archived_at || a.created_at || 0) - new Date(b.archived_at || b.created_at || 0);
+    if (sortVal === 'date-desc') return new Date(b.delivery_date || b.created_at || 0) - new Date(a.delivery_date || a.created_at || 0);
+    if (sortVal === 'date-asc') return new Date(a.delivery_date || a.created_at || 0) - new Date(b.delivery_date || b.created_at || 0);
+    if (sortVal === 'customer-asc') return (a.customer_name || '').localeCompare(b.customer_name || '');
+    if (sortVal === 'customer-desc') return (b.customer_name || '').localeCompare(a.customer_name || '');
+    return 0;
+  });
+
+  const summaryEl = document.getElementById('adminArchivedDeliveryFilterSummary');
+  if (summaryEl) {
+    const isFiltered = (searchInput && searchInput.value.trim()) || (statusFilter && statusFilter.value !== 'all') || (dateFrom && dateFrom.value) || (dateTo && dateTo.value);
+    summaryEl.textContent = isFiltered ? `Showing ${filtered.length} of ${adminArchivedDeliveriesCache.length} archived deliveries` : `${adminArchivedDeliveriesCache.length} archived deliver${adminArchivedDeliveriesCache.length === 1 ? 'y' : 'ies'}`;
+  }
+  renderArchivedDeliveryTableRows(filtered);
+}
+
+export function switchAdminDeliverySubtab(tab) {
+  const activeBtn = document.getElementById('adminDeliveryTabActive');
+  const archivedBtn = document.getElementById('adminDeliveryTabArchived');
+  const activeView = document.getElementById('adminDeliveryActiveView');
+  const archivedView = document.getElementById('adminDeliveryArchivedView');
+  if (!activeBtn || !archivedBtn) return;
+  if (tab === 'archived') {
+    activeBtn.classList.remove('active');
+    archivedBtn.classList.add('active');
+    if (activeView) activeView.style.display = 'none';
+    if (archivedView) archivedView.style.display = 'block';
+    loadArchivedDeliveryList();
+  } else {
+    archivedBtn.classList.remove('active');
+    activeBtn.classList.add('active');
+    if (archivedView) archivedView.style.display = 'none';
+    if (activeView) activeView.style.display = 'block';
+    loadDeliveryList();
+    loadDeliveryStats();
+  }
+}
+
+// =============================================================================
+// MANAGER ARCHIVED DELIVERIES
+// =============================================================================
+let managerArchivedDeliveriesCache = [];
+let managerArchivedDeliveryControlsInitialized = false;
+
+export function initManagerArchivedDeliveryControls() {
+  if (managerArchivedDeliveryControlsInitialized) return;
+  const searchEl = document.getElementById('managerArchivedDeliverySearch');
+  if (!searchEl) return;
+  managerArchivedDeliveryControlsInitialized = true;
+
+  const bindArchived = (id, evt = 'change') => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener(evt, () => filterManagerArchivedDeliveries());
+  };
+
+  bindArchived('managerArchivedDeliverySearch', 'input');
+  bindArchived('managerArchivedDeliveryStatusFilter', 'change');
+  bindArchived('managerArchivedDeliveryDateFrom', 'change');
+  bindArchived('managerArchivedDeliveryDateTo', 'change');
+  bindArchived('managerArchivedDeliverySort', 'change');
+
+  const archReset = document.getElementById('managerArchivedDeliveryResetFilters');
+  if (archReset) {
+    archReset.addEventListener('click', () => {
+      const s = document.getElementById('managerArchivedDeliverySearch'); if (s) s.value = '';
+      const st = document.getElementById('managerArchivedDeliveryStatusFilter'); if (st) st.value = 'all';
+      const df = document.getElementById('managerArchivedDeliveryDateFrom'); if (df) df.value = '';
+      const dt = document.getElementById('managerArchivedDeliveryDateTo'); if (dt) dt.value = '';
+      const sr = document.getElementById('managerArchivedDeliverySort'); if (sr) sr.value = 'archived-desc';
+      filterManagerArchivedDeliveries();
+    });
+  }
+}
+
+export async function loadManagerArchivedDeliveryList() {
+  try {
+    initManagerArchivedDeliveryControls();
+    const result = await API.getArchivedDeliveries();
+    if (result.success) {
+      managerArchivedDeliveriesCache = (Array.isArray(result.data) ? result.data : []).map(mergeLocalDeliveryWindow);
+      const badge = document.getElementById('managerDeliveryArchivedBadge');
+      if (badge) {
+        badge.textContent = managerArchivedDeliveriesCache.length;
+        badge.style.display = managerArchivedDeliveriesCache.length > 0 ? 'inline-block' : 'none';
+      }
+      filterManagerArchivedDeliveries();
+    }
+  } catch (err) {
+    console.error('Failed to load manager archived deliveries:', err);
+  }
+}
+
+function renderManagerArchivedDeliveryTableRows(items) {
+  const tbody = document.getElementById('managerArchivedDeliveryList');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  if (managerArchivedDeliveriesCache.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#9ca3af;padding:2rem;">No archived deliveries found</td></tr>';
+    return;
+  }
+  if (items.length === 0) {
+    tbody.innerHTML = '<tr class="no-data-row"><td colspan="10" style="text-align:center;color:#9ca3af;padding:2rem;">No archived deliveries match your search or filters.</td></tr>';
+    return;
+  }
+  items.forEach(item => {
+    const statusClass = (item.status || 'Pending').toLowerCase().replace(/\s+/g, '-');
+    const applicableDate = item.delivery_date ? formatDate(item.delivery_date) : 'N/A';
+    const archivedDate = item.archived_at ? formatDateTime(item.archived_at) : 'N/A';
+    tbody.innerHTML += `
+      <tr>
+        <td style="font-family:monospace;font-weight:600;">${escapeHtmlText(item.ref_code || '#' + item.id)}</td>
+        <td>${escapeHtmlText(item.customer_name || 'N/A')}</td>
+        <td>${escapeHtmlText(item.contact_number || 'N/A')}</td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtmlText(item.address || '')}">${escapeHtmlText(item.address || 'N/A')}</td>
+        <td>${escapeHtmlText(item.product || 'N/A')}</td>
+        <td>${escapeHtmlText(item.assigned_driver_name || 'Unassigned')}</td>
+        <td>${applicableDate}</td>
+        <td><span class="delivery-status-badge ${statusClass}">${escapeHtmlText(item.status || 'Pending')}</span></td>
+        <td>${archivedDate}</td>
+        <td>
+          <span class="badge" style="background:#f3f4f6;color:#6b7280;font-weight:600;padding:0.25rem 0.6rem;border-radius:0.375rem;font-size:0.75rem;display:inline-block;">Archived</span>
+        </td>
+      </tr>`;
+  });
+}
+
+function filterManagerArchivedDeliveries() {
+  const searchInput = document.getElementById('managerArchivedDeliverySearch');
+  const statusFilter = document.getElementById('managerArchivedDeliveryStatusFilter');
+  const dateFrom = document.getElementById('managerArchivedDeliveryDateFrom');
+  const dateTo = document.getElementById('managerArchivedDeliveryDateTo');
+  const sortSelect = document.getElementById('managerArchivedDeliverySort');
+
+  let filtered = [...managerArchivedDeliveriesCache];
+  if (searchInput && searchInput.value.trim()) {
+    const s = searchInput.value.trim().toLowerCase();
+    filtered = filtered.filter(item =>
+      (item.ref_code && item.ref_code.toLowerCase().includes(s)) ||
+      (item.customer_name && item.customer_name.toLowerCase().includes(s)) ||
+      (item.product && item.product.toLowerCase().includes(s)) ||
+      (item.address && item.address.toLowerCase().includes(s))
+    );
+  }
+  if (statusFilter && statusFilter.value !== 'all') {
+    filtered = filtered.filter(item => item.status === statusFilter.value);
+  }
+  if (dateFrom && dateFrom.value) {
+    filtered = filtered.filter(item => (item.delivery_date || item.created_at || '').slice(0, 10) >= dateFrom.value);
+  }
+  if (dateTo && dateTo.value) {
+    filtered = filtered.filter(item => (item.delivery_date || item.created_at || '').slice(0, 10) <= dateTo.value);
+  }
+
+  const sortVal = sortSelect ? sortSelect.value : 'archived-desc';
+  filtered.sort((a, b) => {
+    if (sortVal === 'archived-desc') return new Date(b.archived_at || b.created_at || 0) - new Date(a.archived_at || a.created_at || 0);
+    if (sortVal === 'archived-asc') return new Date(a.archived_at || a.created_at || 0) - new Date(b.archived_at || b.created_at || 0);
+    if (sortVal === 'date-desc') return new Date(b.delivery_date || b.created_at || 0) - new Date(a.delivery_date || a.created_at || 0);
+    if (sortVal === 'date-asc') return new Date(a.delivery_date || a.created_at || 0) - new Date(b.delivery_date || b.created_at || 0);
+    if (sortVal === 'customer-asc') return (a.customer_name || '').localeCompare(b.customer_name || '');
+    if (sortVal === 'customer-desc') return (b.customer_name || '').localeCompare(a.customer_name || '');
+    return 0;
+  });
+
+  const summaryEl = document.getElementById('managerArchivedDeliveryFilterSummary');
+  if (summaryEl) {
+    const isFiltered = (searchInput && searchInput.value.trim()) || (statusFilter && statusFilter.value !== 'all') || (dateFrom && dateFrom.value) || (dateTo && dateTo.value);
+    summaryEl.textContent = isFiltered ? `Showing ${filtered.length} of ${managerArchivedDeliveriesCache.length} archived deliveries` : `${managerArchivedDeliveriesCache.length} archived deliver${managerArchivedDeliveriesCache.length === 1 ? 'y' : 'ies'}`;
+  }
+  renderManagerArchivedDeliveryTableRows(filtered);
+}
+
+export function switchManagerDeliverySubtab(tab) {
+  const activeBtn = document.getElementById('managerDeliveryTabActive');
+  const archivedBtn = document.getElementById('managerDeliveryTabArchived');
+  const activeView = document.getElementById('managerDeliveryActiveView');
+  const archivedView = document.getElementById('managerDeliveryArchivedView');
+  if (!activeBtn || !archivedBtn) return;
+  if (tab === 'archived') {
+    activeBtn.classList.remove('active');
+    archivedBtn.classList.add('active');
+    if (activeView) activeView.style.display = 'none';
+    if (archivedView) archivedView.style.display = 'block';
+    loadManagerArchivedDeliveryList();
+  } else {
+    archivedBtn.classList.remove('active');
+    activeBtn.classList.add('active');
+    if (archivedView) archivedView.style.display = 'none';
+    if (activeView) activeView.style.display = 'block';
+    loadManagerDeliveryList();
+    loadDeliveryStats();
+  }
+}
+
+// =============================================================================
+// STAFF ARCHIVED DELIVERIES
+// =============================================================================
+let staffArchivedDeliveriesCache = [];
+let staffArchivedDeliveryControlsInitialized = false;
+
+export function initStaffArchivedDeliveryControls() {
+  if (staffArchivedDeliveryControlsInitialized) return;
+  const searchEl = document.getElementById('staffArchivedDeliverySearch');
+  if (!searchEl) return;
+  staffArchivedDeliveryControlsInitialized = true;
+
+  const bindArchived = (id, evt = 'change') => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener(evt, () => filterStaffArchivedDeliveries());
+  };
+
+  bindArchived('staffArchivedDeliverySearch', 'input');
+  bindArchived('staffArchivedDeliveryStatusFilter', 'change');
+  bindArchived('staffArchivedDeliveryDateFrom', 'change');
+  bindArchived('staffArchivedDeliveryDateTo', 'change');
+  bindArchived('staffArchivedDeliverySort', 'change');
+
+  const archReset = document.getElementById('staffArchivedDeliveryResetFilters');
+  if (archReset) {
+    archReset.addEventListener('click', () => {
+      const s = document.getElementById('staffArchivedDeliverySearch'); if (s) s.value = '';
+      const st = document.getElementById('staffArchivedDeliveryStatusFilter'); if (st) st.value = 'all';
+      const df = document.getElementById('staffArchivedDeliveryDateFrom'); if (df) df.value = '';
+      const dt = document.getElementById('staffArchivedDeliveryDateTo'); if (dt) dt.value = '';
+      const sr = document.getElementById('staffArchivedDeliverySort'); if (sr) sr.value = 'archived-desc';
+      filterStaffArchivedDeliveries();
+    });
+  }
+}
+
+export async function loadStaffArchivedDeliveryList() {
+  try {
+    initStaffArchivedDeliveryControls();
+    const result = await API.getArchivedDeliveries();
+    if (result.success) {
+      staffArchivedDeliveriesCache = (Array.isArray(result.data) ? result.data : []).map(mergeLocalDeliveryWindow);
+      const badge = document.getElementById('staffDeliveryArchivedBadge');
+      if (badge) {
+        badge.textContent = staffArchivedDeliveriesCache.length;
+        badge.style.display = staffArchivedDeliveriesCache.length > 0 ? 'inline-block' : 'none';
+      }
+      filterStaffArchivedDeliveries();
+    }
+  } catch (err) {
+    console.error('Failed to load staff archived deliveries:', err);
+  }
+}
+
+function renderStaffArchivedDeliveryTableRows(items) {
+  const tbody = document.getElementById('staffArchivedDeliveryList');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  if (staffArchivedDeliveriesCache.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#9ca3af;padding:2rem;">No archived deliveries found</td></tr>';
+    return;
+  }
+  if (items.length === 0) {
+    tbody.innerHTML = '<tr class="no-data-row"><td colspan="10" style="text-align:center;color:#9ca3af;padding:2rem;">No archived deliveries match your search or filters.</td></tr>';
+    return;
+  }
+  items.forEach(item => {
+    const applicableDate = item.delivery_date ? formatDate(item.delivery_date) : 'N/A';
+    const archivedDate = item.archived_at ? formatDateTime(item.archived_at) : 'N/A';
+    tbody.innerHTML += `
+      <tr>
+        <td style="font-family:monospace;font-weight:600;">${escapeHtmlText(item.ref_code || '#' + item.id)}</td>
+        <td>${escapeHtmlText(item.customer_name || 'N/A')}</td>
+        <td>${escapeHtmlText(item.contact_number || 'N/A')}</td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtmlText(item.address || '')}">${escapeHtmlText(item.address || 'N/A')}</td>
+        <td>${escapeHtmlText(item.product || 'N/A')}</td>
+        <td>${getStatusBadge(item.status)}</td>
+        <td>${getTypeBadge(item.delivery_type)}</td>
+        <td>${applicableDate}</td>
+        <td>${archivedDate}</td>
+        <td>
+          <span class="badge" style="background:#f3f4f6;color:#6b7280;font-weight:600;padding:0.25rem 0.6rem;border-radius:0.375rem;font-size:0.75rem;display:inline-block;">Archived</span>
+        </td>
+      </tr>`;
+  });
+}
+
+function filterStaffArchivedDeliveries() {
+  const searchInput = document.getElementById('staffArchivedDeliverySearch');
+  const statusFilter = document.getElementById('staffArchivedDeliveryStatusFilter');
+  const dateFrom = document.getElementById('staffArchivedDeliveryDateFrom');
+  const dateTo = document.getElementById('staffArchivedDeliveryDateTo');
+  const sortSelect = document.getElementById('staffArchivedDeliverySort');
+
+  let filtered = [...staffArchivedDeliveriesCache];
+  if (searchInput && searchInput.value.trim()) {
+    const s = searchInput.value.trim().toLowerCase();
+    filtered = filtered.filter(item =>
+      (item.ref_code && item.ref_code.toLowerCase().includes(s)) ||
+      (item.customer_name && item.customer_name.toLowerCase().includes(s)) ||
+      (item.product && item.product.toLowerCase().includes(s)) ||
+      (item.address && item.address.toLowerCase().includes(s))
+    );
+  }
+  if (statusFilter && statusFilter.value !== 'all') {
+    filtered = filtered.filter(item => item.status === statusFilter.value);
+  }
+  if (dateFrom && dateFrom.value) {
+    filtered = filtered.filter(item => (item.delivery_date || item.created_at || '').slice(0, 10) >= dateFrom.value);
+  }
+  if (dateTo && dateTo.value) {
+    filtered = filtered.filter(item => (item.delivery_date || item.created_at || '').slice(0, 10) <= dateTo.value);
+  }
+
+  const sortVal = sortSelect ? sortSelect.value : 'archived-desc';
+  filtered.sort((a, b) => {
+    if (sortVal === 'archived-desc') return new Date(b.archived_at || b.created_at || 0) - new Date(a.archived_at || a.created_at || 0);
+    if (sortVal === 'archived-asc') return new Date(a.archived_at || a.created_at || 0) - new Date(b.archived_at || b.created_at || 0);
+    if (sortVal === 'date-desc') return new Date(b.delivery_date || b.created_at || 0) - new Date(a.delivery_date || a.created_at || 0);
+    if (sortVal === 'date-asc') return new Date(a.delivery_date || a.created_at || 0) - new Date(b.delivery_date || b.created_at || 0);
+    if (sortVal === 'customer-asc') return (a.customer_name || '').localeCompare(b.customer_name || '');
+    if (sortVal === 'customer-desc') return (b.customer_name || '').localeCompare(a.customer_name || '');
+    return 0;
+  });
+
+  const summaryEl = document.getElementById('staffArchivedDeliveryFilterSummary');
+  if (summaryEl) {
+    const isFiltered = (searchInput && searchInput.value.trim()) || (statusFilter && statusFilter.value !== 'all') || (dateFrom && dateFrom.value) || (dateTo && dateTo.value);
+    summaryEl.textContent = isFiltered ? `Showing ${filtered.length} of ${staffArchivedDeliveriesCache.length} archived deliveries` : `${staffArchivedDeliveriesCache.length} archived deliver${staffArchivedDeliveriesCache.length === 1 ? 'y' : 'ies'}`;
+  }
+  renderStaffArchivedDeliveryTableRows(filtered);
+}
+
+export function switchStaffDeliverySubtab(tab) {
+  const activeBtn = document.getElementById('staffDeliveryTabActive');
+  const archivedBtn = document.getElementById('staffDeliveryTabArchived');
+  const activeView = document.getElementById('staffDeliveryActiveView');
+  const archivedView = document.getElementById('staffDeliveryArchivedView');
+  if (!activeBtn || !archivedBtn) return;
+  if (tab === 'archived') {
+    activeBtn.classList.remove('active');
+    archivedBtn.classList.add('active');
+    if (activeView) activeView.style.display = 'none';
+    if (archivedView) archivedView.style.display = 'block';
+    loadStaffArchivedDeliveryList();
+  } else {
+    archivedBtn.classList.remove('active');
+    activeBtn.classList.add('active');
+    if (archivedView) archivedView.style.display = 'none';
+    if (activeView) activeView.style.display = 'block';
+    loadStaffDeliveryList();
+    loadDeliveryStats();
+  }
 }
 
 export async function updateDeliveryStatus(deliveryId) {
@@ -1798,6 +2274,8 @@ handleDeliverySubmit = kdGuard(handleDeliverySubmit, { button: 'event', progress
 handlePublicTrackDelivery = kdGuard(handlePublicTrackDelivery, { button: 'event', loadingText: 'Tracking...' });
 confirmSendSms = kdGuard(confirmSendSms, { key: () => 'sendSms:' + currentSmsDeliveryId, button: '#confirmSendSmsBtn', loadingText: 'Sending SMS...', progress: 'Sending SMS...' });
 deleteDelivery = kdGuard(deleteDelivery, del('delivery'));
+archiveDelivery = kdGuard(archiveDelivery, archiveOpt('delivery'));
+restoreDelivery = kdGuard(restoreDelivery, restoreOpt('delivery'));
 updateDeliveryStatus = kdGuard(updateDeliveryStatus, {
     key: (id) => 'deliveryStatus:' + id,
     progress: 'Updating status...',
@@ -1805,8 +2283,11 @@ updateDeliveryStatus = kdGuard(updateDeliveryStatus, {
   });
 editDelivery = kdGuard(editDelivery, open('delivery'));
 loadDeliveryList = kdWrapLoader(loadDeliveryList, { target: 'adminDeliveryList', loading: 'Loading deliveries...', empty: 'No deliveries found', error: 'Unable to load deliveries.' });
+loadArchivedDeliveryList = kdWrapLoader(loadArchivedDeliveryList, { target: 'adminArchivedDeliveryList', loading: 'Loading archived deliveries...', empty: 'No archived deliveries found', error: 'Unable to load archived deliveries.' });
 loadStaffDeliveryList = kdWrapLoader(loadStaffDeliveryList, { target: 'staffDeliveryList', loading: 'Loading deliveries...', empty: 'No deliveries found', error: 'Unable to load deliveries.' });
+loadStaffArchivedDeliveryList = kdWrapLoader(loadStaffArchivedDeliveryList, { target: 'staffArchivedDeliveryList', loading: 'Loading archived deliveries...', empty: 'No archived deliveries found', error: 'Unable to load archived deliveries.' });
 loadManagerDeliveryList = kdWrapLoader(loadManagerDeliveryList, { target: 'managerDeliveryList', loading: 'Loading deliveries...', empty: 'No deliveries found', error: 'Unable to load deliveries.' });
+loadManagerArchivedDeliveryList = kdWrapLoader(loadManagerArchivedDeliveryList, { target: 'managerArchivedDeliveryList', loading: 'Loading archived deliveries...', empty: 'No archived deliveries found', error: 'Unable to load archived deliveries.' });
 loadDeliveryStats = kdWrapBusy(loadDeliveryStats, '[id$="PendingCount"], [id$="ProcessingCount"], [id$="InTransitCount"], [id$="DeliveredCount"]');
 markDeliveryAsDelivered = kdGuard(markDeliveryAsDelivered, {
   key: (id) => 'markDelivered:' + id,

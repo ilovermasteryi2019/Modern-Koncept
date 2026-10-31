@@ -443,6 +443,8 @@ export function kdWrapPage(original, message) {
 // Option builders for the wrapper declarations in every module (were local to the old install block; bodies unchanged)
 export const kdFormOptions = (loadingText, progress) => ({ button: 'event', loadingText, progress });
 export const kdDeleteOptions = (label) => ({ key: (id) => 'delete:' + label + ':' + id, progress: 'Deleting...' });
+export const kdArchiveOptions = (label) => ({ key: (id) => 'archive:' + label + ':' + id, progress: 'Archiving...' });
+export const kdRestoreOptions = (label) => ({ key: (id) => 'restore:' + label + ':' + id, progress: 'Restoring...' });
 export const kdOpenOptions = (label, progress) => ({ key: (id) => 'open:' + label + ':' + id, progress: progress || 'Loading details...' });
 
 export function showModal(modalId) {
@@ -484,4 +486,97 @@ export function initModalCloseButtons() {
   document.querySelectorAll('[data-close-modal]').forEach(btn => {
     btn.addEventListener('click', () => { hideModal(btn.getAttribute('data-close-modal')); });
   });
+}
+
+
+// =============================================================================
+// REUSABLE PAGINATION CONTROLS
+// =============================================================================
+/**
+ * Shared dashboard table pagination controls renderer (Inventory, Furniture, etc.)
+ * Handles info range, active page highlight, prev/next disable, page buttons, and callbacks.
+ * Does not display unnecessary pagination controls when there is only one page.
+ */
+export function renderPagination({ containerId, totalItems, currentPage, pageSize = 10, onPageChange, ariaLabel = 'Pagination Navigation' }) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  if (!totalItems || totalItems <= 0) {
+    container.innerHTML = '';
+    container.style.display = 'none';
+    return;
+  }
+
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const validPage = Math.min(Math.max(1, currentPage || 1), totalPages);
+
+  const startRecord = (validPage - 1) * pageSize + 1;
+  const endRecord = Math.min(validPage * pageSize, totalItems);
+  const rangeInfo = totalItems === 1
+    ? 'Showing 1 of 1 record'
+    : `Showing ${startRecord}–${endRecord} of ${totalItems} records`;
+
+  container.style.display = 'flex';
+
+  // Do not display unnecessary pagination controls when there is only one page.
+  if (totalPages <= 1) {
+    container.innerHTML = `<div class="kd-pagination-info">${rangeInfo}</div>`;
+    return;
+  }
+
+  // Generate pagination buttons for multi-page lists
+  let pageButtonsHtml = '';
+  if (totalPages <= 7) {
+    for (let p = 1; p <= totalPages; p++) {
+      const isActive = p === validPage;
+      pageButtonsHtml += `<button type="button" class="kd-page-btn kd-page-num ${isActive ? 'active' : ''}" data-page="${p}" ${isActive ? 'aria-current="page"' : ''} aria-label="Page ${p}">${p}</button>`;
+    }
+  } else {
+    // Windowed pages
+    let pageNumbers = [];
+    if (validPage <= 4) {
+      pageNumbers = [1, 2, 3, 4, 5, '...', totalPages];
+    } else if (validPage >= totalPages - 3) {
+      pageNumbers = [1, '...', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+    } else {
+      pageNumbers = [1, '...', validPage - 1, validPage, validPage + 1, '...', totalPages];
+    }
+
+    pageNumbers.forEach(p => {
+      if (p === '...') {
+        pageButtonsHtml += `<span class="kd-page-ellipsis" aria-hidden="true">…</span>`;
+      } else {
+        const isActive = p === validPage;
+        pageButtonsHtml += `<button type="button" class="kd-page-btn kd-page-num ${isActive ? 'active' : ''}" data-page="${p}" ${isActive ? 'aria-current="page"' : ''} aria-label="Page ${p}">${p}</button>`;
+      }
+    });
+  }
+
+  const prevDisabled = validPage === 1 ? 'disabled' : '';
+  const nextDisabled = validPage === totalPages ? 'disabled' : '';
+  const safeLabel = String(ariaLabel || 'Pagination Navigation').replace(/"/g, '&quot;');
+
+  container.innerHTML = `
+    <div class="kd-pagination-info">${rangeInfo} (Page ${validPage} of ${totalPages})</div>
+    <div class="kd-pagination-controls" role="navigation" aria-label="${safeLabel}">
+      <button type="button" class="kd-page-btn kd-page-prev" ${prevDisabled} aria-label="Previous Page">Previous</button>
+      ${pageButtonsHtml}
+      <button type="button" class="kd-page-btn kd-page-next" ${nextDisabled} aria-label="Next Page">Next</button>
+    </div>
+  `;
+
+  container.onclick = (e) => {
+    const btn = e.target.closest('.kd-page-btn');
+    if (!btn || btn.disabled) return;
+    if (btn.classList.contains('kd-page-prev')) {
+      if (validPage > 1 && typeof onPageChange === 'function') onPageChange(validPage - 1);
+    } else if (btn.classList.contains('kd-page-next')) {
+      if (validPage < totalPages && typeof onPageChange === 'function') onPageChange(validPage + 1);
+    } else if (btn.dataset.page) {
+      const targetPage = parseInt(btn.dataset.page, 10);
+      if (!isNaN(targetPage) && targetPage !== validPage && typeof onPageChange === 'function') {
+        onPageChange(targetPage);
+      }
+    }
+  };
 }

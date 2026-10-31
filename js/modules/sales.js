@@ -4,8 +4,8 @@
 // Cut from the original main.js (lines 690-2863 region). Code is unchanged except where a comment says otherwise.
 // =============================================================================
 
-import { API, API_URL, formatCurrency, formatDate } from './core.js';
-import { hideModal, kdConfirm, kdDeleteOptions as del, kdGuard, kdOpenOptions as open, kdWrapBusy, kdWrapLoader, showModal, showToast } from './ui.js';
+import { API, API_URL, formatCurrency, formatDate, formatDateTime } from './core.js';
+import { hideModal, kdArchiveOptions as archiveOpt, kdConfirm, kdDeleteOptions as del, kdGuard, kdOpenOptions as open, kdRestoreOptions as restoreOpt, kdWrapBusy, kdWrapLoader, showModal, showToast } from './ui.js';
 import { getInventoryUnitPrice, loadInventoryList, loadManagerInventoryList, loadStaffInventoryList } from './inventory.js';
 
 // Cached Admin sales & inventory category state for filtering, sorting, and chart reporting
@@ -410,7 +410,7 @@ function renderAdminSalesTableRows(filteredSales, allSalesCount) {
         <td>${formatCurrency(item.amount)}</td>
         <td>
           <button class="action-btn edit" onclick="editAdminSalesRecord(${item.id})" title="Edit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
-          <button class="action-btn delete" onclick="deleteSales(${item.id})" title="Delete"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
+          <button class="action-btn archive" onclick="archiveSales(${item.id})" title="Archive Sales Record"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="21 8 21 21 3 21 3 8"></polyline><rect x="1" y="3" width="22" height="5"></rect><line x1="10" y1="12" x2="14" y2="12"></line></svg></button>
         </td>
       </tr>`;
   });
@@ -827,6 +827,27 @@ export function initAdminSalesControls() {
   bindChange('adminSalesSort', 'change');
   bindChange('salesChartInterval', 'change');
   bindChange('salesChartComparison', 'change');
+
+  const bindArchived = (id, evt = 'change') => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener(evt, () => filterArchivedSales());
+  };
+  bindArchived('adminArchivedSalesSearch', 'input');
+  bindArchived('adminArchivedSalesCategoryFilter', 'change');
+  bindArchived('adminArchivedSalesDateFrom', 'change');
+  bindArchived('adminArchivedSalesDateTo', 'change');
+  bindArchived('adminArchivedSalesSort', 'change');
+  const archReset = document.getElementById('adminArchivedSalesResetFilters');
+  if (archReset) {
+    archReset.addEventListener('click', () => {
+      const s = document.getElementById('adminArchivedSalesSearch'); if (s) s.value = '';
+      const c = document.getElementById('adminArchivedSalesCategoryFilter'); if (c) c.value = 'all';
+      const df = document.getElementById('adminArchivedSalesDateFrom'); if (df) df.value = '';
+      const dt = document.getElementById('adminArchivedSalesDateTo'); if (dt) dt.value = '';
+      const sr = document.getElementById('adminArchivedSalesSort'); if (sr) sr.value = 'archived-desc';
+      filterArchivedSales();
+    });
+  }
 
   const resetBtn = document.getElementById('adminSalesResetFilters');
   if (resetBtn) {
@@ -1374,7 +1395,7 @@ function renderStaffSalesTableRows(filteredSales, allSalesCount) {
     const emptyMsg = allSalesCount > 0
       ? 'No sales records match your selected filters.'
       : 'No sales records found';
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#9ca3af;padding:2rem;">${emptyMsg}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:#9ca3af;padding:2rem;">${emptyMsg}</td></tr>`;
     return;
   }
 
@@ -1385,7 +1406,6 @@ function renderStaffSalesTableRows(filteredSales, allSalesCount) {
         <td>${escapeHtml(item.customer_name)}</td>
         <td>${formatSaleProduct(item)}</td>
         <td>${formatCurrency(item.amount)}</td>
-        <td><button class="action-btn edit" onclick="editStaffSalesRecord(${item.id})" title="Edit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Edit</button></td>
       </tr>`;
   });
 }
@@ -1701,16 +1721,8 @@ export async function loadManagerSalesList() {
   } catch (error) { showToast('❌ Failed to load sales records', 'error'); }
 }
 
-export async function editStaffSalesRecord(id) {
-  await openSalesEditForm(id, {
-    idField: 'editSalesId',
-    customer: 'editSalesCustomer',
-    product: 'editSalesProduct',
-    quantity: 'editSalesQuantity',
-    amount: 'editSalesAmount',
-    date: 'editSalesDate',
-    modal: 'editSalesModal'
-  });
+export async function editStaffSalesRecord() {
+  showToast('ℹ️ Staff accounts have view-only access to sales records.', 'info');
 }
 
 export async function editManagerSalesRecord(id) {
@@ -2117,12 +2129,521 @@ export function handleManagerSalesSubmit(event) {
 }
 
 export async function deleteSales(id) {
-  if (!(await kdConfirm('Are you sure you want to delete this sales record?', { title: 'Delete Sales Record' }))) return;
+  // Permanent delete is deprecated in favor of archive
+  return archiveSales(id);
+}
+
+export async function archiveSales(id) {
+  if (!(await kdConfirm('Are you sure you want to archive this sales record?\n\nIt will be moved to the Archived Sales tab and excluded from active sales totals and graphs.', { title: 'Archive Sales Record', confirmText: 'Archive' }))) return;
   try {
-    const result = await API.deleteSales(id);
-    if (result.success) { showToast('✅ ' + result.message, 'success'); loadSalesList(); loadSalesAnalytics(); loadInventoryList(); }
-    else showToast('❌ ' + result.message, 'error');
-  } catch (error) { showToast('❌ Failed to delete sales record', 'error'); }
+    const result = await API.archiveSales(id);
+    if (result.success) {
+      showToast(result.message || 'Sales record archived successfully', 'success');
+      await Promise.all([loadSalesList(), loadArchivedSalesList(), loadSalesAnalytics()]);
+    } else {
+      showToast(result.message || 'Failed to archive sales record', 'error');
+    }
+  } catch (error) {
+    showToast('❌ Failed to archive sales record', 'error');
+  }
+}
+
+export async function restoreSales(id) {
+  if (!(await kdConfirm('Restore this sales record to active sales?\n\nIt will return to active sales lists and be included in sales analysis.', { title: 'Restore Sales Record', confirmText: 'Restore' }))) return;
+  try {
+    const result = await API.restoreSales(id);
+    if (result.success) {
+      showToast(result.message || 'Sales record restored successfully', 'success');
+      await Promise.all([loadSalesList(), loadArchivedSalesList(), loadSalesAnalytics()]);
+    } else {
+      showToast(result.message || 'Failed to restore sales record', 'error');
+    }
+  } catch (error) {
+    showToast('❌ Failed to restore sales record', 'error');
+  }
+}
+
+// Archived Sales State & Methods
+let adminArchivedSalesCache = [];
+
+export async function loadArchivedSalesList() {
+  try {
+    await ensureAdminInventoryCategoryMap();
+    const result = await API.getArchivedSales();
+    if (result.success) {
+      adminArchivedSalesCache = Array.isArray(result.data) ? result.data : [];
+      const badge = document.getElementById('adminSalesArchivedBadge');
+      if (badge) {
+        badge.textContent = adminArchivedSalesCache.length;
+        badge.style.display = adminArchivedSalesCache.length > 0 ? 'inline-block' : 'none';
+      }
+      populateArchivedSalesCategoryDropdown(adminArchivedSalesCache);
+      filterArchivedSales();
+    }
+  } catch (err) {
+    console.error('Failed to load archived sales:', err);
+  }
+}
+
+function renderArchivedSalesTableRows(items) {
+  const tbody = document.getElementById('adminArchivedSalesList');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  if (adminArchivedSalesCache.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#9ca3af;padding:2rem;">No archived sales records found</td></tr>';
+    return;
+  }
+  if (items.length === 0) {
+    tbody.innerHTML = '<tr class="no-data-row"><td colspan="7" style="text-align:center;color:#9ca3af;padding:2rem;">No archived sales records match your selected filters.</td></tr>';
+    return;
+  }
+  items.forEach(item => {
+    const category = resolveSaleCategory(item);
+    const archivedDate = item.archived_at ? formatDateTime(item.archived_at) : 'N/A';
+    tbody.innerHTML += `
+      <tr>
+        <td>${formatDate(item.sale_date)}</td>
+        <td>${escapeHtml(item.customer_name)}</td>
+        <td>${formatSaleProduct(item)}</td>
+        <td><span class="status-badge" style="background:#f3f4f6;color:#374151;font-weight:500;">${escapeHtml(category)}</span></td>
+        <td>${formatCurrency(item.amount)}</td>
+        <td>${archivedDate}</td>
+        <td>
+          <button class="action-btn restore" onclick="restoreSales(${item.id})" title="Restore Sales Record" style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.8125rem;font-weight:600;padding:0.3rem 0.65rem;border-radius:0.375rem;border:1px solid #059669;color:#059669;background:transparent;cursor:pointer;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+            Restore
+          </button>
+        </td>
+      </tr>`;
+  });
+}
+
+function filterArchivedSales() {
+  const searchInput = document.getElementById('adminArchivedSalesSearch');
+  const categoryFilter = document.getElementById('adminArchivedSalesCategoryFilter');
+  const dateFrom = document.getElementById('adminArchivedSalesDateFrom');
+  const dateTo = document.getElementById('adminArchivedSalesDateTo');
+  const sortSelect = document.getElementById('adminArchivedSalesSort');
+
+  let filtered = [...adminArchivedSalesCache];
+  if (searchInput && searchInput.value.trim()) {
+    const s = searchInput.value.trim().toLowerCase();
+    filtered = filtered.filter(item =>
+      (item.customer_name && item.customer_name.toLowerCase().includes(s)) ||
+      (item.product_name && item.product_name.toLowerCase().includes(s))
+    );
+  }
+  if (categoryFilter && categoryFilter.value !== 'all') {
+    filtered = filtered.filter(item => resolveSaleCategory(item) === categoryFilter.value);
+  }
+  if (dateFrom && dateFrom.value) {
+    filtered = filtered.filter(item => (item.sale_date || '').slice(0, 10) >= dateFrom.value);
+  }
+  if (dateTo && dateTo.value) {
+    filtered = filtered.filter(item => (item.sale_date || '').slice(0, 10) <= dateTo.value);
+  }
+
+  const sortVal = sortSelect ? sortSelect.value : 'archived-desc';
+  filtered.sort((a, b) => {
+    if (sortVal === 'archived-desc') return new Date(b.archived_at || b.sale_date || 0) - new Date(a.archived_at || a.sale_date || 0);
+    if (sortVal === 'archived-asc') return new Date(a.archived_at || a.sale_date || 0) - new Date(b.archived_at || b.sale_date || 0);
+    if (sortVal === 'date-desc') return new Date(b.sale_date || 0) - new Date(a.sale_date || 0);
+    if (sortVal === 'date-asc') return new Date(a.sale_date || 0) - new Date(b.sale_date || 0);
+    if (sortVal === 'amount-desc') return Number(b.amount) - Number(a.amount);
+    if (sortVal === 'amount-asc') return Number(a.amount) - Number(b.amount);
+    return 0;
+  });
+
+  const summaryEl = document.getElementById('adminArchivedSalesFilterSummary');
+  if (summaryEl) {
+    const isFiltered = (searchInput && searchInput.value.trim()) || (categoryFilter && categoryFilter.value !== 'all') || (dateFrom && dateFrom.value) || (dateTo && dateTo.value);
+    summaryEl.textContent = isFiltered ? `Showing ${filtered.length} of ${adminArchivedSalesCache.length} archived sales records` : `${adminArchivedSalesCache.length} archived record${adminArchivedSalesCache.length === 1 ? '' : 's'}`;
+  }
+  renderArchivedSalesTableRows(filtered);
+}
+
+function populateArchivedSalesCategoryDropdown(salesRows) {
+  const select = document.getElementById('adminArchivedSalesCategoryFilter');
+  if (!select) return;
+  const cats = new Set();
+  (salesRows || []).forEach(s => {
+    const c = resolveSaleCategory(s);
+    if (c && c !== 'Uncategorized') cats.add(c);
+  });
+  const current = select.value;
+  select.innerHTML = '<option value="all">All Categories</option>';
+  [...cats].sort().forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c;
+    opt.textContent = c;
+    if (c === current) opt.selected = true;
+    select.appendChild(opt);
+  });
+  if (!cats.has(current) && current !== 'all') select.value = 'all';
+}
+
+export function switchAdminSalesSubtab(tab) {
+  const activeBtn = document.getElementById('adminSalesTabActive');
+  const archivedBtn = document.getElementById('adminSalesTabArchived');
+  const activeView = document.getElementById('adminSalesActiveView');
+  const archivedView = document.getElementById('adminSalesArchivedView');
+  if (!activeBtn || !archivedBtn) return;
+  if (tab === 'archived') {
+    activeBtn.classList.remove('active');
+    archivedBtn.classList.add('active');
+    if (activeView) activeView.style.display = 'none';
+    if (archivedView) archivedView.style.display = 'block';
+    loadArchivedSalesList();
+  } else {
+    archivedBtn.classList.remove('active');
+    activeBtn.classList.add('active');
+    if (archivedView) archivedView.style.display = 'none';
+    if (activeView) activeView.style.display = 'block';
+    loadSalesList();
+    loadSalesAnalytics();
+  }
+}
+
+// =============================================================================
+// MANAGER ARCHIVED SALES
+// =============================================================================
+let managerArchivedSalesCache = [];
+let managerArchivedSalesControlsInitialized = false;
+
+export function initManagerArchivedSalesControls() {
+  if (managerArchivedSalesControlsInitialized) return;
+  const searchInput = document.getElementById('managerArchivedSalesSearch');
+  if (!searchInput) return;
+  managerArchivedSalesControlsInitialized = true;
+
+  const bindArchived = (id, evt = 'change') => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener(evt, () => filterManagerArchivedSales());
+  };
+
+  bindArchived('managerArchivedSalesSearch', 'input');
+  bindArchived('managerArchivedSalesCategoryFilter', 'change');
+  bindArchived('managerArchivedSalesDateFrom', 'change');
+  bindArchived('managerArchivedSalesDateTo', 'change');
+  bindArchived('managerArchivedSalesSort', 'change');
+
+  const archReset = document.getElementById('managerArchivedSalesResetFilters');
+  if (archReset) {
+    archReset.addEventListener('click', () => {
+      const s = document.getElementById('managerArchivedSalesSearch'); if (s) s.value = '';
+      const c = document.getElementById('managerArchivedSalesCategoryFilter'); if (c) c.value = 'all';
+      const df = document.getElementById('managerArchivedSalesDateFrom'); if (df) df.value = '';
+      const dt = document.getElementById('managerArchivedSalesDateTo'); if (dt) dt.value = '';
+      const sr = document.getElementById('managerArchivedSalesSort'); if (sr) sr.value = 'archived-desc';
+      filterManagerArchivedSales();
+    });
+  }
+}
+
+export async function loadManagerArchivedSalesList() {
+  try {
+    initManagerArchivedSalesControls();
+    const result = await API.getArchivedSales();
+    if (result.success) {
+      managerArchivedSalesCache = Array.isArray(result.data) ? result.data : [];
+      const badge = document.getElementById('managerSalesArchivedBadge');
+      if (badge) {
+        badge.textContent = managerArchivedSalesCache.length;
+        badge.style.display = managerArchivedSalesCache.length > 0 ? 'inline-block' : 'none';
+      }
+      populateManagerArchivedSalesCategoryDropdown(managerArchivedSalesCache);
+      filterManagerArchivedSales();
+    }
+  } catch (err) {
+    console.error('Failed to load manager archived sales:', err);
+  }
+}
+
+function renderManagerArchivedSalesTableRows(items) {
+  const tbody = document.getElementById('managerArchivedSalesList');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  if (managerArchivedSalesCache.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#9ca3af;padding:2rem;">No archived sales records found</td></tr>';
+    return;
+  }
+  if (items.length === 0) {
+    tbody.innerHTML = '<tr class="no-data-row"><td colspan="7" style="text-align:center;color:#9ca3af;padding:2rem;">No archived sales records match your selected filters.</td></tr>';
+    return;
+  }
+  items.forEach(item => {
+    const category = resolveSaleCategory(item);
+    const archivedDate = item.archived_at ? formatDateTime(item.archived_at) : 'N/A';
+    tbody.innerHTML += `
+      <tr>
+        <td>${formatDate(item.sale_date)}</td>
+        <td>${escapeHtml(item.customer_name)}</td>
+        <td>${formatSaleProduct(item)}</td>
+        <td><span class="status-badge" style="background:#f3f4f6;color:#374151;font-weight:500;">${escapeHtml(category)}</span></td>
+        <td>${formatCurrency(item.amount)}</td>
+        <td>${archivedDate}</td>
+        <td>
+          <span class="badge" style="background:#f3f4f6;color:#6b7280;font-weight:600;padding:0.25rem 0.6rem;border-radius:0.375rem;font-size:0.75rem;display:inline-block;">Archived</span>
+        </td>
+      </tr>`;
+  });
+}
+
+function filterManagerArchivedSales() {
+  const searchInput = document.getElementById('managerArchivedSalesSearch');
+  const categoryFilter = document.getElementById('managerArchivedSalesCategoryFilter');
+  const dateFrom = document.getElementById('managerArchivedSalesDateFrom');
+  const dateTo = document.getElementById('managerArchivedSalesDateTo');
+  const sortSelect = document.getElementById('managerArchivedSalesSort');
+
+  let filtered = [...managerArchivedSalesCache];
+  if (searchInput && searchInput.value.trim()) {
+    const s = searchInput.value.trim().toLowerCase();
+    filtered = filtered.filter(item =>
+      (item.customer_name && item.customer_name.toLowerCase().includes(s)) ||
+      (item.product_name && item.product_name.toLowerCase().includes(s))
+    );
+  }
+  if (categoryFilter && categoryFilter.value !== 'all') {
+    filtered = filtered.filter(item => resolveSaleCategory(item) === categoryFilter.value);
+  }
+  if (dateFrom && dateFrom.value) {
+    filtered = filtered.filter(item => (item.sale_date || '').slice(0, 10) >= dateFrom.value);
+  }
+  if (dateTo && dateTo.value) {
+    filtered = filtered.filter(item => (item.sale_date || '').slice(0, 10) <= dateTo.value);
+  }
+
+  const sortVal = sortSelect ? sortSelect.value : 'archived-desc';
+  filtered.sort((a, b) => {
+    if (sortVal === 'archived-desc') return new Date(b.archived_at || b.sale_date || 0) - new Date(a.archived_at || a.sale_date || 0);
+    if (sortVal === 'archived-asc') return new Date(a.archived_at || a.sale_date || 0) - new Date(b.archived_at || b.sale_date || 0);
+    if (sortVal === 'date-desc') return new Date(b.sale_date || 0) - new Date(a.sale_date || 0);
+    if (sortVal === 'date-asc') return new Date(a.sale_date || 0) - new Date(b.sale_date || 0);
+    if (sortVal === 'amount-desc') return Number(b.amount || 0) - Number(a.amount || 0);
+    if (sortVal === 'amount-asc') return Number(a.amount || 0) - Number(b.amount || 0);
+    return 0;
+  });
+
+  const summaryEl = document.getElementById('managerArchivedSalesFilterSummary');
+  if (summaryEl) {
+    const isFiltered = (searchInput && searchInput.value.trim()) || (categoryFilter && categoryFilter.value !== 'all') || (dateFrom && dateFrom.value) || (dateTo && dateTo.value);
+    summaryEl.textContent = isFiltered ? `Showing ${filtered.length} of ${managerArchivedSalesCache.length} archived sales records` : `${managerArchivedSalesCache.length} archived record${managerArchivedSalesCache.length === 1 ? '' : 's'}`;
+  }
+  renderManagerArchivedSalesTableRows(filtered);
+}
+
+function populateManagerArchivedSalesCategoryDropdown(salesRows) {
+  const select = document.getElementById('managerArchivedSalesCategoryFilter');
+  if (!select) return;
+  const current = select.value || 'all';
+  const cats = new Set();
+  salesRows.forEach(s => {
+    const c = resolveSaleCategory(s);
+    if (c && c !== 'Uncategorized') cats.add(c);
+  });
+  select.innerHTML = '<option value="all">All Categories</option>';
+  Array.from(cats).sort().forEach(cat => {
+    const opt = document.createElement('option');
+    opt.value = cat;
+    opt.textContent = cat;
+    if (cat === current) opt.selected = true;
+    select.appendChild(opt);
+  });
+  if (!cats.has(current) && current !== 'all') select.value = 'all';
+}
+
+export function switchManagerSalesSubtab(tab) {
+  const activeBtn = document.getElementById('managerSalesTabActive');
+  const archivedBtn = document.getElementById('managerSalesTabArchived');
+  const activeView = document.getElementById('managerSalesActiveView');
+  const archivedView = document.getElementById('managerSalesArchivedView');
+  if (!activeBtn || !archivedBtn) return;
+  if (tab === 'archived') {
+    activeBtn.classList.remove('active');
+    archivedBtn.classList.add('active');
+    if (activeView) activeView.style.display = 'none';
+    if (archivedView) archivedView.style.display = 'block';
+    loadManagerArchivedSalesList();
+  } else {
+    archivedBtn.classList.remove('active');
+    activeBtn.classList.add('active');
+    if (archivedView) archivedView.style.display = 'none';
+    if (activeView) activeView.style.display = 'block';
+    loadManagerSalesList();
+    loadManagerSalesAnalytics();
+  }
+}
+
+// =============================================================================
+// STAFF ARCHIVED SALES
+// =============================================================================
+let staffArchivedSalesCache = [];
+let staffArchivedSalesControlsInitialized = false;
+
+export function initStaffArchivedSalesControls() {
+  if (staffArchivedSalesControlsInitialized) return;
+  const searchInput = document.getElementById('staffArchivedSalesSearch');
+  if (!searchInput) return;
+  staffArchivedSalesControlsInitialized = true;
+
+  const bindArchived = (id, evt = 'change') => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener(evt, () => filterStaffArchivedSales());
+  };
+
+  bindArchived('staffArchivedSalesSearch', 'input');
+  bindArchived('staffArchivedSalesCategoryFilter', 'change');
+  bindArchived('staffArchivedSalesDateFrom', 'change');
+  bindArchived('staffArchivedSalesDateTo', 'change');
+  bindArchived('staffArchivedSalesSort', 'change');
+
+  const archReset = document.getElementById('staffArchivedSalesResetFilters');
+  if (archReset) {
+    archReset.addEventListener('click', () => {
+      const s = document.getElementById('staffArchivedSalesSearch'); if (s) s.value = '';
+      const c = document.getElementById('staffArchivedSalesCategoryFilter'); if (c) c.value = 'all';
+      const df = document.getElementById('staffArchivedSalesDateFrom'); if (df) df.value = '';
+      const dt = document.getElementById('staffArchivedSalesDateTo'); if (dt) dt.value = '';
+      const sr = document.getElementById('staffArchivedSalesSort'); if (sr) sr.value = 'archived-desc';
+      filterStaffArchivedSales();
+    });
+  }
+}
+
+export async function loadStaffArchivedSalesList() {
+  try {
+    initStaffArchivedSalesControls();
+    const result = await API.getArchivedSales();
+    if (result.success) {
+      staffArchivedSalesCache = Array.isArray(result.data) ? result.data : [];
+      const badge = document.getElementById('staffSalesArchivedBadge');
+      if (badge) {
+        badge.textContent = staffArchivedSalesCache.length;
+        badge.style.display = staffArchivedSalesCache.length > 0 ? 'inline-block' : 'none';
+      }
+      populateStaffArchivedSalesCategoryDropdown(staffArchivedSalesCache);
+      filterStaffArchivedSales();
+    }
+  } catch (err) {
+    console.error('Failed to load staff archived sales:', err);
+  }
+}
+
+function renderStaffArchivedSalesTableRows(items) {
+  const tbody = document.getElementById('staffArchivedSalesList');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  if (staffArchivedSalesCache.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#9ca3af;padding:2rem;">No archived sales records found</td></tr>';
+    return;
+  }
+  if (items.length === 0) {
+    tbody.innerHTML = '<tr class="no-data-row"><td colspan="7" style="text-align:center;color:#9ca3af;padding:2rem;">No archived sales records match your selected filters.</td></tr>';
+    return;
+  }
+  items.forEach(item => {
+    const category = resolveSaleCategory(item);
+    const archivedDate = item.archived_at ? formatDateTime(item.archived_at) : 'N/A';
+    tbody.innerHTML += `
+      <tr>
+        <td>${formatDate(item.sale_date)}</td>
+        <td>${escapeHtml(item.customer_name)}</td>
+        <td>${formatSaleProduct(item)}</td>
+        <td><span class="status-badge" style="background:#f3f4f6;color:#374151;font-weight:500;">${escapeHtml(category)}</span></td>
+        <td>${formatCurrency(item.amount)}</td>
+        <td>${archivedDate}</td>
+        <td>
+          <span class="badge" style="background:#f3f4f6;color:#6b7280;font-weight:600;padding:0.25rem 0.6rem;border-radius:0.375rem;font-size:0.75rem;display:inline-block;">Archived</span>
+        </td>
+      </tr>`;
+  });
+}
+
+function filterStaffArchivedSales() {
+  const searchInput = document.getElementById('staffArchivedSalesSearch');
+  const categoryFilter = document.getElementById('staffArchivedSalesCategoryFilter');
+  const dateFrom = document.getElementById('staffArchivedSalesDateFrom');
+  const dateTo = document.getElementById('staffArchivedSalesDateTo');
+  const sortSelect = document.getElementById('staffArchivedSalesSort');
+
+  let filtered = [...staffArchivedSalesCache];
+  if (searchInput && searchInput.value.trim()) {
+    const s = searchInput.value.trim().toLowerCase();
+    filtered = filtered.filter(item =>
+      (item.customer_name && item.customer_name.toLowerCase().includes(s)) ||
+      (item.product_name && item.product_name.toLowerCase().includes(s))
+    );
+  }
+  if (categoryFilter && categoryFilter.value !== 'all') {
+    filtered = filtered.filter(item => resolveSaleCategory(item) === categoryFilter.value);
+  }
+  if (dateFrom && dateFrom.value) {
+    filtered = filtered.filter(item => (item.sale_date || '').slice(0, 10) >= dateFrom.value);
+  }
+  if (dateTo && dateTo.value) {
+    filtered = filtered.filter(item => (item.sale_date || '').slice(0, 10) <= dateTo.value);
+  }
+
+  const sortVal = sortSelect ? sortSelect.value : 'archived-desc';
+  filtered.sort((a, b) => {
+    if (sortVal === 'archived-desc') return new Date(b.archived_at || b.sale_date || 0) - new Date(a.archived_at || a.sale_date || 0);
+    if (sortVal === 'archived-asc') return new Date(a.archived_at || a.sale_date || 0) - new Date(b.archived_at || b.sale_date || 0);
+    if (sortVal === 'date-desc') return new Date(b.sale_date || 0) - new Date(a.sale_date || 0);
+    if (sortVal === 'date-asc') return new Date(a.sale_date || 0) - new Date(b.sale_date || 0);
+    if (sortVal === 'amount-desc') return Number(b.amount || 0) - Number(a.amount || 0);
+    if (sortVal === 'amount-asc') return Number(a.amount || 0) - Number(b.amount || 0);
+    return 0;
+  });
+
+  const summaryEl = document.getElementById('staffArchivedSalesFilterSummary');
+  if (summaryEl) {
+    const isFiltered = (searchInput && searchInput.value.trim()) || (categoryFilter && categoryFilter.value !== 'all') || (dateFrom && dateFrom.value) || (dateTo && dateTo.value);
+    summaryEl.textContent = isFiltered ? `Showing ${filtered.length} of ${staffArchivedSalesCache.length} archived sales records` : `${staffArchivedSalesCache.length} archived record${staffArchivedSalesCache.length === 1 ? '' : 's'}`;
+  }
+  renderStaffArchivedSalesTableRows(filtered);
+}
+
+function populateStaffArchivedSalesCategoryDropdown(salesRows) {
+  const select = document.getElementById('staffArchivedSalesCategoryFilter');
+  if (!select) return;
+  const current = select.value || 'all';
+  const cats = new Set();
+  salesRows.forEach(s => {
+    const c = resolveSaleCategory(s);
+    if (c && c !== 'Uncategorized') cats.add(c);
+  });
+  select.innerHTML = '<option value="all">All Categories</option>';
+  Array.from(cats).sort().forEach(cat => {
+    const opt = document.createElement('option');
+    opt.value = cat;
+    opt.textContent = cat;
+    if (cat === current) opt.selected = true;
+    select.appendChild(opt);
+  });
+  if (!cats.has(current) && current !== 'all') select.value = 'all';
+}
+
+export function switchStaffSalesSubtab(tab) {
+  const activeBtn = document.getElementById('staffSalesTabActive');
+  const archivedBtn = document.getElementById('staffSalesTabArchived');
+  const activeView = document.getElementById('staffSalesActiveView');
+  const archivedView = document.getElementById('staffSalesArchivedView');
+  if (!activeBtn || !archivedBtn) return;
+  if (tab === 'archived') {
+    activeBtn.classList.remove('active');
+    archivedBtn.classList.add('active');
+    if (activeView) activeView.style.display = 'none';
+    if (archivedView) archivedView.style.display = 'block';
+    loadStaffArchivedSalesList();
+  } else {
+    archivedBtn.classList.remove('active');
+    activeBtn.classList.add('active');
+    if (archivedView) archivedView.style.display = 'none';
+    if (activeView) activeView.style.display = 'block';
+    loadStaffSalesList();
+    loadStaffSalesAnalytics();
+  }
 }
 
 export async function editAdminSalesRecord(id) {
@@ -2143,10 +2664,15 @@ const saleButton = (cfg) => { const f = document.getElementById(cfg.formId); ret
 submitNewSale = kdGuard(submitNewSale, { key: (cfg) => 'sale:' + cfg.formId, button: saleButton, loadingText: 'Saving...', progress: 'Saving sales record...' });
 submitSalesEdit = kdGuard(submitSalesEdit, { key: (cfg) => 'saleEdit:' + cfg.formId, button: saleButton, loadingText: 'Saving...', progress: 'Saving changes...' });
 deleteSales = kdGuard(deleteSales, del('sales'));
+archiveSales = kdGuard(archiveSales, archiveOpt('sales'));
+restoreSales = kdGuard(restoreSales, restoreOpt('sales'));
 openSalesEditForm = kdGuard(openSalesEditForm, open('sales'));
 loadSalesList = kdWrapLoader(loadSalesList, { target: 'adminSalesList', loading: 'Loading sales records...', empty: 'No sales records found', error: 'Unable to load sales records.' });
+loadArchivedSalesList = kdWrapLoader(loadArchivedSalesList, { target: 'adminArchivedSalesList', loading: 'Loading archived sales records...', empty: 'No archived sales records found', error: 'Unable to load archived sales records.' });
 loadStaffSalesList = kdWrapLoader(loadStaffSalesList, { target: 'staffSalesList', loading: 'Loading sales records...', empty: 'No sales records found', error: 'Unable to load sales records.' });
+loadStaffArchivedSalesList = kdWrapLoader(loadStaffArchivedSalesList, { target: 'staffArchivedSalesList', loading: 'Loading archived sales records...', empty: 'No archived sales records found', error: 'Unable to load archived sales records.' });
 loadManagerSalesList = kdWrapLoader(loadManagerSalesList, { target: 'managerSalesList', loading: 'Loading sales records...', empty: 'No sales records found', error: 'Unable to load sales records.' });
+loadManagerArchivedSalesList = kdWrapLoader(loadManagerArchivedSalesList, { target: 'managerArchivedSalesList', loading: 'Loading archived sales records...', empty: 'No archived sales records found', error: 'Unable to load archived sales records.' });
 loadSalesAnalytics = kdWrapBusy(loadSalesAnalytics, '#totalSales, #totalRecords, #averageSale, #salesLineChart');
 loadStaffSalesAnalytics = kdWrapBusy(loadStaffSalesAnalytics, '#staffTotalSales, #staffTotalRecords, #staffAverageSale, #staffSalesLineChart');
 loadManagerSalesAnalytics = kdWrapBusy(loadManagerSalesAnalytics, '#managerTotalSales, #managerTotalRecords, #managerAverageSale, #managerSalesLineChart');

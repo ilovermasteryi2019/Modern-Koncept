@@ -264,8 +264,25 @@
         <!-- [BEGIN PARTIAL: partials/modules/delivery-module-manager.html] -->
     <!-- ========== DELIVERY MODULE ========== -->
     <div id="deliveryModule" class="dashboard-module active">
-      <h2 style="font-size:1.5rem;font-weight:700;color:#111827;margin-bottom:1.5rem;">Delivery Management</h2>
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem; margin-bottom: 1.5rem;">
+        <h2 style="font-size:1.5rem;font-weight:700;color:#111827;margin:0;">Delivery Management</h2>
 
+        <!-- Module Subtabs -->
+        <div class="kd-subtabs" style="margin-bottom:0;">
+          <button type="button" class="kd-subtab-btn active" id="managerDeliveryTabActive" onclick="switchManagerDeliverySubtab('active')">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            Active Deliveries
+          </button>
+          <button type="button" class="kd-subtab-btn" id="managerDeliveryTabArchived" onclick="switchManagerDeliverySubtab('archived')">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="21 8 21 21 3 21 3 8"></polyline><rect x="1" y="3" width="22" height="5"></rect><line x1="10" y1="12" x2="14" y2="12"></line></svg>
+            Archived Deliveries
+            <span class="kd-subtab-badge" id="managerDeliveryArchivedBadge" style="display:none;">0</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ACTIVE DELIVERIES VIEW -->
+      <div id="managerDeliveryActiveView">
       <!-- Delivery Metrics -->
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;margin-bottom:1.5rem;">
         <div class="card" style="margin-bottom:0;">
@@ -390,13 +407,104 @@
           </table>
         </div>
       </div>
+      </div>
+
+      <!-- ARCHIVED DELIVERIES VIEW -->
+      <div id="managerDeliveryArchivedView" style="display:none;">
+        <div class="card" style="margin-bottom: 1.5rem;">
+          <div class="search-toolbar">
+            <div class="form-group">
+              <label class="form-label" for="managerArchivedDeliverySearch">Search archived deliveries</label>
+              <input id="managerArchivedDeliverySearch" type="text" class="form-input" placeholder="Search ID, customer, product, address">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="managerArchivedDeliveryStatusFilter">Filter by status</label>
+              <select id="managerArchivedDeliveryStatusFilter" class="form-input">
+                <option value="all">All Statuses</option>
+                <option value="Delivered">Delivered</option>
+                <option value="Cancelled">Cancelled</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="managerArchivedDeliveryDateFrom">Delivery date from</label>
+              <input id="managerArchivedDeliveryDateFrom" type="date" class="form-input">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="managerArchivedDeliveryDateTo">Delivery date to</label>
+              <input id="managerArchivedDeliveryDateTo" type="date" class="form-input">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="managerArchivedDeliverySort">Sort by</label>
+              <select id="managerArchivedDeliverySort" class="form-input">
+                <option value="archived-desc">Archive Date: Newest First</option>
+                <option value="archived-asc">Archive Date: Oldest First</option>
+                <option value="date-desc">Delivery Date: Newest First</option>
+                <option value="date-asc">Delivery Date: Oldest First</option>
+                <option value="customer-asc">Customer Name: A–Z</option>
+                <option value="customer-desc">Customer Name: Z–A</option>
+              </select>
+            </div>
+            <div class="form-group" style="display:flex;align-items:flex-end;">
+              <button type="button" id="managerArchivedDeliveryResetFilters" class="btn btn-secondary" style="width:100%;">Reset Filters</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem; flex-wrap:wrap; gap:0.5rem;">
+            <div>
+              <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin: 0;">Archived Deliveries</h3>
+              <p style="font-size: 0.8125rem; color: #6b7280; margin: 0.25rem 0 0;">View-only record of deliveries archived by the Administrator.</p>
+            </div>
+            <span id="managerArchivedDeliveryFilterSummary" style="font-size: 0.8125rem; color: #6b7280; font-weight: 500;"></span>
+          </div>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Delivery ID</th>
+                  <th>Customer Name</th>
+                  <th>Contact Number</th>
+                  <th>Address</th>
+                  <th>Product</th>
+                  <th>Assigned Driver</th>
+                  <th>Scheduled Date</th>
+                  <th>Status</th>
+                  <th>Archived Date</th>
+                  <th>Archive Status</th>
+                </tr>
+              </thead>
+              <tbody id="managerArchivedDeliveryList">
+                <!-- Archived deliveries loaded here -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
         <!-- [END PARTIAL: partials/modules/delivery-module-manager.html] -->
         <!-- [BEGIN PARTIAL: partials/modules/sales-module-manager.html] -->
     <!-- ========== SALES MODULE ========== -->
     <div id="salesModule" class="dashboard-module">
-      <h2 style="font-size:1.5rem;font-weight:700;color:#111827;margin-bottom:1.5rem;">Sales Records & Data Analysis</h2>
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem; margin-bottom: 1.5rem;">
+        <h2 style="font-size:1.5rem;font-weight:700;color:#111827;margin:0;">Sales Records & Data Analysis</h2>
 
+        <!-- Module Subtabs -->
+        <div class="kd-subtabs" style="margin-bottom:0;">
+          <button type="button" class="kd-subtab-btn active" id="managerSalesTabActive" onclick="switchManagerSalesSubtab('active')">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            Active Sales Records
+          </button>
+          <button type="button" class="kd-subtab-btn" id="managerSalesTabArchived" onclick="switchManagerSalesSubtab('archived')">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="21 8 21 21 3 21 3 8"></polyline><rect x="1" y="3" width="22" height="5"></rect><line x1="10" y1="12" x2="14" y2="12"></line></svg>
+            Archived Sales Records
+            <span class="kd-subtab-badge" id="managerSalesArchivedBadge" style="display:none;">0</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ACTIVE SALES VIEW -->
+      <div id="managerSalesActiveView">
       <!-- Sales Overview Cards -->
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:1.5rem;margin-bottom:1.5rem;">
         <!-- Total Sales Card (Low: Green, Middle: Yellow, High: Green) -->
@@ -552,51 +660,192 @@
           </table>
         </div>
       </div>
+      </div>
+
+      <!-- ARCHIVED SALES VIEW -->
+      <div id="managerSalesArchivedView" style="display:none;">
+        <div class="card" style="margin-bottom: 1.5rem;">
+          <div class="search-toolbar">
+            <div class="form-group">
+              <label class="form-label" for="managerArchivedSalesSearch">Search archived sales</label>
+              <input id="managerArchivedSalesSearch" type="text" class="form-input" placeholder="Search customer or product name">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="managerArchivedSalesCategoryFilter">Filter by product category</label>
+              <select id="managerArchivedSalesCategoryFilter" class="form-input">
+                <option value="all">All Categories</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="managerArchivedSalesDateFrom">Sale date from</label>
+              <input id="managerArchivedSalesDateFrom" type="date" class="form-input">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="managerArchivedSalesDateTo">Sale date to</label>
+              <input id="managerArchivedSalesDateTo" type="date" class="form-input">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="managerArchivedSalesSort">Sort by</label>
+              <select id="managerArchivedSalesSort" class="form-input">
+                <option value="archived-desc">Archive Date: Newest First</option>
+                <option value="archived-asc">Archive Date: Oldest First</option>
+                <option value="date-desc">Sale Date: Newest First</option>
+                <option value="date-asc">Sale Date: Oldest First</option>
+                <option value="amount-desc">Sale Amount: Highest First</option>
+                <option value="amount-asc">Sale Amount: Lowest First</option>
+              </select>
+            </div>
+            <div class="form-group" style="display:flex;align-items:flex-end;">
+              <button type="button" id="managerArchivedSalesResetFilters" class="btn btn-secondary" style="width:100%;">Reset Filters</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem; flex-wrap:wrap; gap:0.5rem;">
+            <div>
+              <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin: 0;">Archived Sales Records</h3>
+              <p style="font-size: 0.8125rem; color: #6b7280; margin: 0.25rem 0 0;">View-only record of sales archived by the Administrator.</p>
+            </div>
+            <span id="managerArchivedSalesFilterSummary" style="font-size: 0.8125rem; color: #6b7280; font-weight: 500;"></span>
+          </div>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Customer</th>
+                  <th>Product</th>
+                  <th>Category</th>
+                  <th>Amount</th>
+                  <th>Archived Date</th>
+                  <th>Archive Status</th>
+                </tr>
+              </thead>
+              <tbody id="managerArchivedSalesList">
+                <!-- Archived sales records loaded here -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
         <!-- [END PARTIAL: partials/modules/sales-module-manager.html] -->
         <!-- [BEGIN PARTIAL: partials/modules/inventory-module-manager.html] -->
     <!-- ========== INVENTORY MODULE ========== -->
     <div id="inventoryModule" class="dashboard-module">
-      <h2 style="font-size:1.5rem;font-weight:700;color:#111827;margin-bottom:1.5rem;">Inventory Management</h2>
-      <div class="card" style="margin-bottom: 1.5rem;">
-        <button class="btn btn-accent" id="addManagerStockBtn" style="background:#7c3aed;border-color:#7c3aed;">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="12" y1="5" x2="12" y2="19"></line>
-            <line x1="5" y1="12" x2="19" y2="12"></line>
-          </svg>
-          Add New Stock Item
-        </button>
-      </div>
-      <div class="card" style="margin-bottom: 1.5rem;">
-        <div class="search-toolbar">
-          <div class="form-group">
-            <label class="form-label" for="managerInventorySearch">Search inventory</label>
-            <input id="managerInventorySearch" type="text" class="form-input" placeholder="Search by name, item code, category">
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="managerInventoryCategoryFilter">Filter by category</label>
-            <select id="managerInventoryCategoryFilter" class="form-input">
-              <option value="all">All Categories</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="managerInventoryStatusFilter">Filter by stock status</label>
-            <select id="managerInventoryStatusFilter" class="form-input">
-              <option value="all">All Statuses</option>
-              <option value="in-stock">In Stock</option>
-              <option value="low-stock">Low Stock</option>
-            </select>
-          </div>
-          <div class="form-group" style="display:flex;align-items:flex-end;">
-            <button type="button" id="managerInventoryResetFilters" class="btn btn-secondary" style="width:100%;">Reset Filters</button>
-          </div>
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem; margin-bottom: 1.5rem;">
+        <h2 style="font-size:1.5rem;font-weight:700;color:#111827;margin:0;">Inventory Management</h2>
+
+        <!-- Module Subtabs -->
+        <div class="kd-subtabs" style="margin-bottom:0;">
+          <button type="button" class="kd-subtab-btn active" id="managerInventoryTabActive" onclick="switchManagerInventorySubtab('active')">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            Active Inventory
+          </button>
+          <button type="button" class="kd-subtab-btn" id="managerInventoryTabArchived" onclick="switchManagerInventorySubtab('archived')">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="21 8 21 21 3 21 3 8"></polyline><rect x="1" y="3" width="22" height="5"></rect><line x1="10" y1="12" x2="14" y2="12"></line></svg>
+            Archived Inventory
+            <span class="kd-subtab-badge" id="managerInventoryArchivedBadge" style="display:none;">0</span>
+          </button>
         </div>
       </div>
-      <div class="card">
-        <h3 style="font-size:1.125rem;font-weight:600;color:#111827;margin-bottom:0.5rem;">Stock Levels</h3>
-        <p style="font-size:0.875rem;color:#6b7280;margin-bottom:1rem;">View inventory levels and update stock quantities.</p>
-        <div id="managerInventoryList">
-          <!-- Inventory loaded here -->
+
+      <!-- ACTIVE INVENTORY VIEW -->
+      <div id="managerInventoryActiveView">
+        <div class="card" style="margin-bottom: 1.5rem;">
+          <button class="btn btn-accent" id="addManagerStockBtn" style="background:#7c3aed;border-color:#7c3aed;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            Add New Stock Item
+          </button>
+        </div>
+        <div class="card" style="margin-bottom: 1.5rem;">
+          <div class="search-toolbar">
+            <div class="form-group">
+              <label class="form-label" for="managerInventorySearch">Search inventory</label>
+              <input id="managerInventorySearch" type="text" class="form-input" placeholder="Search by name, item code, category">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="managerInventoryCategoryFilter">Filter by category</label>
+              <select id="managerInventoryCategoryFilter" class="form-input">
+                <option value="all">All Categories</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="managerInventoryStatusFilter">Filter by stock status</label>
+              <select id="managerInventoryStatusFilter" class="form-input">
+                <option value="all">All Statuses</option>
+                <option value="in-stock">In Stock</option>
+                <option value="low-stock">Low Stock</option>
+              </select>
+            </div>
+            <div class="form-group" style="display:flex;align-items:flex-end;">
+              <button type="button" id="managerInventoryResetFilters" class="btn btn-secondary" style="width:100%;">Reset Filters</button>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <h3 style="font-size:1.125rem;font-weight:600;color:#111827;margin-bottom:0.5rem;">Stock Levels</h3>
+          <p style="font-size:0.875rem;color:#6b7280;margin-bottom:1rem;">View inventory levels and update stock quantities.</p>
+          <div id="managerInventoryList">
+            <!-- Inventory loaded here -->
+          </div>
+          <div id="managerInventoryPagination" class="kd-pagination" style="display:none;" aria-label="Manager inventory pagination"></div>
+        </div>
+      </div>
+
+      <!-- ARCHIVED INVENTORY VIEW -->
+      <div id="managerInventoryArchivedView" style="display:none;">
+        <div class="card" style="margin-bottom: 1.5rem;">
+          <div class="search-toolbar">
+            <div class="form-group">
+              <label class="form-label" for="managerArchivedInventorySearch">Search archived items</label>
+              <input id="managerArchivedInventorySearch" type="text" class="form-input" placeholder="Search archived name, code, category">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="managerArchivedInventoryCategoryFilter">Filter by category</label>
+              <select id="managerArchivedInventoryCategoryFilter" class="form-input">
+                <option value="all">All Categories</option>
+              </select>
+            </div>
+            <div class="form-group" style="display:flex;align-items:flex-end;">
+              <button type="button" id="managerArchivedInventoryResetFilters" class="btn btn-secondary" style="width:100%;">Reset Filters</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem; flex-wrap:wrap; gap:0.5rem;">
+            <div>
+              <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin: 0;">Archived Stock Items</h3>
+              <p style="font-size: 0.8125rem; color: #6b7280; margin: 0.25rem 0 0;">View-only record of inventory items archived by the Administrator.</p>
+            </div>
+            <span id="managerArchivedInventoryFilterSummary" style="font-size: 0.8125rem; color: #6b7280; font-weight: 500;"></span>
+          </div>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Image</th>
+                  <th>Item Name</th>
+                  <th>Item Code</th>
+                  <th>Category</th>
+                  <th>Price</th>
+                  <th>Quantity</th>
+                  <th>Status</th>
+                  <th>Archived Date</th>
+                  <th>Archive Status</th>
+                </tr>
+              </thead>
+              <tbody id="managerArchivedInventoryList">
+                <!-- Archived inventory items loaded here -->
+              </tbody>
+            </table>
+          </div>
+          <div id="managerArchivedInventoryPagination" class="kd-pagination" style="display:none;" aria-label="Manager archived inventory pagination"></div>
         </div>
       </div>
     </div>
@@ -767,10 +1016,6 @@
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">Quantity</label>
-            <input type="number" id="managerEditInventoryQuantity" class="form-input" min="0" required>
-          </div>
-          <div class="form-group">
             <label class="form-label">Price (₱)</label>
             <input type="number" id="managerEditInventoryPrice" class="form-input" placeholder="0.00" min="0.01" step="0.01" required>
             <small style="display:block;margin-top:0.25rem;color:#6b7280;font-size:0.8rem;">Price per unit. Used to compute the Amount automatically in Sales Records.</small>
@@ -782,9 +1027,6 @@
             <div id="managerEditInventoryImagePreview" style="display:none; margin-top:0.75rem;">
               <img id="managerEditInventoryImagePreviewImg" src="" alt="Preview" style="max-width:150px; max-height:150px; border-radius:0.5rem; object-fit:cover;">
             </div>
-          </div>
-          <div class="form-group">
-            <small style="color:#6b7280;font-size:0.875rem;">Stock Status: <strong><span id="managerStockPreview">-</span></strong></small>
           </div>
           <div style="display:flex;gap:0.75rem;">
             <button type="submit" class="btn btn-accent" style="flex:1;background:#7c3aed;border-color:#7c3aed;">Save Changes</button>

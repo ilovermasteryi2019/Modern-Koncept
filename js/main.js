@@ -7,9 +7,9 @@ import { API, API_URL } from './modules/core.js';
 import { hideModal, initDashboardTabs, initModalCloseButtons, kdEventButton, kdRun, showToast } from './modules/ui.js';
 import { handleLogin, handleLogout, handleSignup, initDashboardSession, initMfaUi } from './modules/auth.js';
 import { editFurniture, handleFurnitureSubmit, initAdminFurnitureSearch, initFurnitureListFilters, loadFurnitureDetail, loadFurnitureList, loadPublicFurnitureList, loadSpecialOffers } from './modules/furniture.js';
-import { currentManagerStockImage, deleteInventory, editInventory, handleInventorySubmit, handleManagerAddInventorySubmit, handleManagerAddStockImageUpload, handleManagerEditStockImageUpload, handleStockImageUpload, initAdminInventorySearch, initManagerInventorySearch, initStaffInventorySearch, loadInventoryList, loadManagerInventoryList, loadStaffInventoryList, openAddInventoryModal, openAddManagerInventoryModal, openManagerEditInventoryModal, updateManagerStockPreview } from './modules/inventory.js';
-import { deleteSales, editAdminSalesRecord, editManagerSalesRecord, editStaffSalesRecord, handleManagerSalesSubmit, handleSalesSubmit, handleStaffSalesSubmit, initAdminSalesControls, initManagerSalesControls, initStaffSalesControls, loadManagerSalesAnalytics, loadManagerSalesList, loadSalesAnalytics, loadSalesList, loadSalesProductOptions, loadStaffSalesAnalytics, loadStaffSalesList, openAddSalesModal, submitSalesEdit, syncDeliveredSalesRecords } from './modules/sales.js';
-import { confirmSendSms, deleteDelivery, editDelivery, handleDeliverySubmit, handlePublicTrackDelivery, handleStaffDeliverySubmit, initAdminDeliveryControls, initDriverDeliveryControls, initManagerDeliveryControls, loadDeliveryList, loadDeliveryStats, loadDriverDeliveryList, loadManagerDeliveryList, loadStaffDeliveryList, markDeliveryAsDelivered, openAddDeliveryModal, openSmsModal, openStaffAddDeliveryModal, toggleDeliverySelection, updateDeliveryStatus } from './modules/delivery.js';
+import { adjustAdminInventoryQuantity, adjustManagerInventoryQuantity, archiveInventory, currentManagerStockImage, deleteInventory, editInventory, handleInventorySubmit, handleManagerAddInventorySubmit, handleManagerAddStockImageUpload, handleManagerEditStockImageUpload, handleStockImageUpload, initAdminInventorySearch, initManagerInventorySearch, initStaffInventorySearch, loadArchivedInventoryList, loadInventoryList, loadManagerArchivedInventoryList, loadManagerInventoryList, loadStaffArchivedInventoryList, loadStaffInventoryList, openAddInventoryModal, openAddManagerInventoryModal, openManagerEditInventoryModal, restoreInventory, setAdminInventoryQuantity, setManagerInventoryQuantity, switchAdminInventorySubtab, switchManagerInventorySubtab, switchStaffInventorySubtab, updateManagerStockPreview } from './modules/inventory.js';
+import { archiveSales, deleteSales, editAdminSalesRecord, editManagerSalesRecord, editStaffSalesRecord, handleManagerSalesSubmit, handleSalesSubmit, handleStaffSalesSubmit, initAdminSalesControls, initManagerSalesControls, initStaffSalesControls, loadArchivedSalesList, loadManagerArchivedSalesList, loadManagerSalesAnalytics, loadManagerSalesList, loadSalesAnalytics, loadSalesList, loadSalesProductOptions, loadStaffArchivedSalesList, loadStaffSalesAnalytics, loadStaffSalesList, openAddSalesModal, restoreSales, submitSalesEdit, switchAdminSalesSubtab, switchManagerSalesSubtab, switchStaffSalesSubtab, syncDeliveredSalesRecords } from './modules/sales.js';
+import { archiveDelivery, confirmSendSms, deleteDelivery, editDelivery, handleDeliverySubmit, handlePublicTrackDelivery, handleStaffDeliverySubmit, initAdminDeliveryControls, initDriverDeliveryControls, initManagerDeliveryControls, loadArchivedDeliveryList, loadDeliveryList, loadDeliveryStats, loadDriverDeliveryList, loadManagerArchivedDeliveryList, loadManagerDeliveryList, loadStaffArchivedDeliveryList, loadStaffDeliveryList, markDeliveryAsDelivered, openAddDeliveryModal, openSmsModal, openStaffAddDeliveryModal, restoreDelivery, switchAdminDeliverySubtab, switchManagerDeliverySubtab, switchStaffDeliverySubtab, toggleDeliverySelection, updateDeliveryStatus } from './modules/delivery.js';
 import { handleContactFormSubmit, loadAboutPageContent, loadBusinessInfo, loadContactPageContent } from './modules/business-info.js';
 import { activateStaffAccount, closeEditStaffModal, closeMyAccountModal, deactivateStaffAccount, loadStaffAccountsList, openAddStaffModal, openEditStaffModal, openMyAccountModal } from './modules/staff-accounts.js';
 import { deleteAdminFeedback, deleteAdminInquiry, deleteChatbotItem, editChatbotQA, handleChatbotSubmit, initChatbot, initCustomerSupportPage, loadAdminFeedback, loadAdminInquiries, loadChatbotList, openAddChatbotModal } from './modules/chatbot.js';
@@ -82,6 +82,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Sales Records is now the default Staff tab, so load it on page open
     loadStaffSalesList();
+    loadStaffArchivedSalesList();
     loadStaffSalesAnalytics();
     loadSalesProductOptions('salesProduct');
     document.addEventListener('visibilitychange', () => {
@@ -90,9 +91,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     const bind = (id, handler) => { const el = document.getElementById(id); if (el) el.addEventListener('submit', handler); };
+    bind('deliveryForm', handleDeliverySubmit);
     bind('staffDeliveryForm', handleStaffDeliverySubmit);
     const staffAddDeliveryBtn = document.getElementById('staffAddDeliveryBtn');
-    if (staffAddDeliveryBtn) staffAddDeliveryBtn.addEventListener('click', openStaffAddDeliveryModal);
+    if (staffAddDeliveryBtn) staffAddDeliveryBtn.addEventListener('click', openAddDeliveryModal);
     bind('staffSalesForm', handleStaffSalesSubmit);
     bind('editStaffSalesForm', (e) => {
       e.preventDefault();
@@ -122,6 +124,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Load first active tab (delivery)
     loadManagerDeliveryList();
+    loadManagerArchivedDeliveryList();
     loadDeliveryStats();
 
     const logoutBtn = document.getElementById('logoutBtn');
@@ -160,11 +163,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const name = document.getElementById('managerEditInventoryName').value;
         const itemCode = document.getElementById('managerEditInventoryItemCode').value.trim();
         const category = document.getElementById('managerEditInventoryCategory').value;
-        const quantity = parseInt(document.getElementById('managerEditInventoryQuantity').value);
         const price = parseFloat(document.getElementById('managerEditInventoryPrice').value);
-        if (!itemCode || !category || quantity < 0) { showToast('Please fill all fields correctly', 'error'); return; }
+        if (!itemCode || !category) { showToast('Please fill all fields correctly', 'error'); return; }
         if (!Number.isFinite(price) || price <= 0) { showToast('Please enter a valid price greater than 0', 'error'); return; }
-        const data = { name, item_code: itemCode, category, quantity, price };
+        const data = { name, item_code: itemCode, category, price };
         if (currentManagerStockImage) data.image = currentManagerStockImage; // only send image if a new one was picked, so the existing one is preserved otherwise
         try {
           const result = await API.updateInventory(id, data);
@@ -173,9 +175,6 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) { showToast('Failed to update inventory', 'error'); }
       }, { button: kdEventButton(e), loadingText: 'Saving...', progress: 'Saving changes...' }));
     }
-
-    const managerQtyInput = document.getElementById('managerEditInventoryQuantity');
-    if (managerQtyInput) managerQtyInput.addEventListener('input', (e) => updateManagerStockPreview(e.target.value));
 
     // Manager Add/Edit Inventory image + button wiring
     const addManagerStockBtn = document.getElementById('addManagerStockBtn');
@@ -331,15 +330,15 @@ if (window.location.pathname.includes('customer-support')) {
 function onDashboardTabOpened(targetTab, { isAdmin, isStaff, isManager }) {
         if (targetTab === 'furniture') loadFurnitureList();
         else if (targetTab === 'business') loadBusinessInfo();
-        else if (targetTab === 'inventory' && isAdmin) loadInventoryList();
-        else if (targetTab === 'inventory' && isManager) loadManagerInventoryList();
-        else if (targetTab === 'inventory' && isStaff) loadStaffInventoryList();
-        else if (targetTab === 'delivery' && isAdmin) { loadDeliveryList(); loadDeliveryStats(); }
-        else if (targetTab === 'delivery' && isManager) { loadManagerDeliveryList(); loadDeliveryStats(); }
-        else if (targetTab === 'delivery' && isStaff) { loadStaffDeliveryList(); loadDeliveryStats(); }
-        else if (targetTab === 'sales' && isAdmin) { loadSalesList(); loadSalesAnalytics(); }
-        else if (targetTab === 'sales' && isStaff) { loadStaffSalesList(); loadStaffSalesAnalytics(); loadSalesProductOptions('salesProduct'); }
-        else if (targetTab === 'sales' && isManager) { loadManagerSalesList(); loadManagerSalesAnalytics(); loadSalesProductOptions('managerSalesProduct'); }
+        else if (targetTab === 'inventory' && isAdmin) { loadInventoryList(); loadArchivedInventoryList(); }
+        else if (targetTab === 'inventory' && isManager) { loadManagerInventoryList(); loadManagerArchivedInventoryList(); }
+        else if (targetTab === 'inventory' && isStaff) { loadStaffInventoryList(); loadStaffArchivedInventoryList(); }
+        else if (targetTab === 'delivery' && isAdmin) { loadDeliveryList(); loadArchivedDeliveryList(); loadDeliveryStats(); }
+        else if (targetTab === 'delivery' && isManager) { loadManagerDeliveryList(); loadManagerArchivedDeliveryList(); loadDeliveryStats(); }
+        else if (targetTab === 'delivery' && isStaff) { loadStaffDeliveryList(); loadStaffArchivedDeliveryList(); loadDeliveryStats(); }
+        else if (targetTab === 'sales' && isAdmin) { loadSalesList(); loadArchivedSalesList(); loadSalesAnalytics(); }
+        else if (targetTab === 'sales' && isStaff) { loadStaffSalesList(); loadStaffArchivedSalesList(); loadStaffSalesAnalytics(); loadSalesProductOptions('salesProduct'); }
+        else if (targetTab === 'sales' && isManager) { loadManagerSalesList(); loadManagerArchivedSalesList(); loadManagerSalesAnalytics(); loadSalesProductOptions('managerSalesProduct'); }
         else if (targetTab === 'staff') loadStaffAccountsList();
          else if (targetTab === 'chatbot') loadChatbotList();
         else if (targetTab === 'feedback') { loadAdminInquiries(); loadAdminFeedback(); }
@@ -354,6 +353,11 @@ function onDashboardTabOpened(targetTab, { isAdmin, isStaff, isManager }) {
 // =============================================================================
 Object.assign(window, {
   activateStaffAccount,
+  adjustAdminInventoryQuantity,
+  adjustManagerInventoryQuantity,
+  archiveDelivery,
+  archiveInventory,
+  archiveSales,
   closeEditStaffModal,
   closeMyAccountModal,
   deactivateStaffAccount,
@@ -371,6 +375,9 @@ Object.assign(window, {
   editManagerSalesRecord,
   editStaffSalesRecord,
   hideModal,
+  loadArchivedDeliveryList,
+  loadArchivedInventoryList,
+  loadArchivedSalesList,
   loadDriverDeliveryList,
   markDeliveryAsDelivered,
   openAddStaffModal,
@@ -378,6 +385,20 @@ Object.assign(window, {
   openManagerEditInventoryModal,
   openMyAccountModal,
   openSmsModal,
+  restoreDelivery,
+  restoreInventory,
+  restoreSales,
+  setAdminInventoryQuantity,
+  setManagerInventoryQuantity,
+  switchAdminDeliverySubtab,
+  switchAdminInventorySubtab,
+  switchAdminSalesSubtab,
+  switchManagerDeliverySubtab,
+  switchManagerInventorySubtab,
+  switchManagerSalesSubtab,
+  switchStaffDeliverySubtab,
+  switchStaffInventorySubtab,
+  switchStaffSalesSubtab,
   toggleDeliverySelection,
   updateDeliveryStatus,
   syncDeliveredSalesRecords,

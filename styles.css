@@ -1754,3 +1754,240 @@ body.bs-dashboard .sidebar-backdrop { display: none; }
   body.bs-dashboard .dash-sidebar,
   body.bs-dashboard .sidebar-backdrop { transition: none !important; }
 }
+
+
+/* =============================================================================
+   K-DESK · ARCHIVE SYSTEM STYLES (Admin Dashboard Subtabs & Actions)
+   ============================================================================= */
+.kd-subtabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.kd-subtab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 1.15rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  border-radius: 0.5rem;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  color: #4b5563;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.kd-subtab-btn:hover {
+  background: #f3f4f6;
+  color: #111827;
+  border-color: #d1d5db;
+}
+
+.kd-subtab-btn.active {
+  background: #DC143C;
+  color: #ffffff;
+  border-color: #DC143C;
+  box-shadow: 0 4px 10px -2px rgba(220, 20, 60, 0.35);
+}
+
+.kd-subtab-badge {
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 9999px;
+  background: rgba(0, 0, 0, 0.08);
+  font-weight: 700;
+}
+
+.kd-subtab-btn.active .kd-subtab-badge {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+
+.action-btn.archive {
+  color: #d97706;
+}
+
+.action-btn.archive:hover {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.action-btn.restore {
+  color: #059669;
+}
+
+.action-btn.restore:hover {
+  background: #d1fae5;
+  color: #047857;
+}
+
+/* =============================================================================
+   K-DESK · INVENTORY PAGINATION STYLES (Admin, Manager, Staff Dashboards)
+   ============================================================================= */
+.kd-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid #f3f4f6;
+}
+
+.kd-pagination-info {
+  font-size: 0.875rem;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.kd-pagination-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.kd-page-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.25rem;
+  height: 2.25rem;
+  padding: 0 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  border-radius: 0.375rem;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  color: #374151;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+  user-select: none;
+}
+
+.kd-page-btn:hover:not(:disabled):not(.active) {
+  background: #f9fafb;
+  border-color: #d1d5db;
+  color: #111827;
+}
+
+.kd-page-btn.active {
+  background: #DC143C;
+  border-color: #DC143C;
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(220, 20, 60, 0.3);
+  cursor: default;
+}
+
+.kd-page-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: #f9fafb;
+  border-color: #e5e7eb;
+  color: #9ca3af;
+}
+
+.kd-page-ellipsis {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.75rem;
+  height: 2.25rem;
+  font-size: 0.875rem;
+  color: #9ca3af;
+  user-select: none;
+}
+
+@media (max-width: 640px) {
+  .kd-pagination {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 0.75rem;
+  }
+}
+
+/* =============================================================================
+   K-DESK · INLINE QUANTITY STEPPER (Admin Inventory Table)
+   ============================================================================= */
+.kd-qty-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.375rem;
+  padding: 0.15rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+  vertical-align: middle;
+}
+
+.kd-qty-control:focus-within {
+  border-color: #DC143C;
+  box-shadow: 0 0 0 2px rgba(220, 20, 60, 0.12);
+  background: #ffffff;
+}
+
+.kd-qty-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: #ffffff;
+  color: #374151;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.kd-qty-btn:hover:not(:disabled) {
+  background: #DC143C;
+  color: #ffffff;
+}
+
+.kd-qty-btn:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+.kd-qty-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  background: #f3f4f6;
+  color: #9ca3af;
+  box-shadow: none;
+}
+
+.kd-qty-input {
+  width: 48px;
+  height: 26px;
+  padding: 0 0.25rem;
+  text-align: center;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: #111827;
+  border: none;
+  background: transparent;
+  outline: none;
+  -moz-appearance: textfield;
+}
+
+.kd-qty-input::-webkit-outer-spin-button,
+.kd-qty-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.kd-qty-control.is-loading {
+  opacity: 0.55;
+  pointer-events: none;
+  cursor: wait;
+}
