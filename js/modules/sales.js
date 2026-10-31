@@ -34,6 +34,37 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
+export function formatPaymentMode(mode) {
+  if (!mode || mode === 'Not Specified') {
+    return '<span style="color:#9ca3af;font-size:0.8125rem;">Not Specified</span>';
+  }
+  let color = '#374151';
+  let bg = '#f3f4f6';
+  let border = '#e5e7eb';
+  if (mode.includes('COD') || mode.includes('Cash on Delivery')) {
+    color = '#9a3412';
+    bg = '#ffedd5';
+    border = '#fdba74';
+  } else if (mode.includes('GCash')) {
+    color = '#1e40af';
+    bg = '#dbeafe';
+    border = '#bfdbfe';
+  } else if (mode.includes('Installment')) {
+    color = '#6b21a8';
+    bg = '#f3e8ff';
+    border = '#d8b4fe';
+  } else if (mode.includes('Card')) {
+    color = '#065f46';
+    bg = '#d1fae5';
+    border = '#a7f3d0';
+  } else if (mode === 'Cash') {
+    color = '#15803d';
+    bg = '#dcfce7';
+    border = '#bbf7d0';
+  }
+  return `<span style="display:inline-block;padding:0.25rem 0.5rem;font-size:0.75rem;font-weight:600;border-radius:0.375rem;background:${bg};color:${color};border:1px solid ${border};white-space:normal;line-height:1.2;max-width:180px;">${escapeHtml(mode)}</span>`;
+}
+
 function toLocalDateKey(dateVal) {
   if (!dateVal) return '';
   if (typeof dateVal === 'string' && /^\d{4}-\d{2}-\d{2}/.test(dateVal)) {
@@ -395,7 +426,7 @@ function renderAdminSalesTableRows(filteredSales, allSalesCount) {
     const emptyMsg = allSalesCount > 0
       ? 'No sales records match your selected filters.'
       : 'No sales records found';
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#9ca3af;padding:2rem;">${emptyMsg}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#9ca3af;padding:2rem;">${emptyMsg}</td></tr>`;
     return;
   }
 
@@ -408,8 +439,8 @@ function renderAdminSalesTableRows(filteredSales, allSalesCount) {
         <td>${formatSaleProduct(item)}</td>
         <td><span class="status-badge" style="background:#f3f4f6;color:#374151;font-weight:500;">${escapeHtml(category)}</span></td>
         <td>${formatCurrency(item.amount)}</td>
+        <td>${formatPaymentMode(item.mode_of_payment)}</td>
         <td>
-          <button class="action-btn edit" onclick="editAdminSalesRecord(${item.id})" title="Edit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
           <button class="action-btn archive" onclick="archiveSales(${item.id})" title="Archive Sales Record"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="21 8 21 21 3 21 3 8"></polyline><rect x="1" y="3" width="22" height="5"></rect><line x1="10" y1="12" x2="14" y2="12"></line></svg></button>
         </td>
       </tr>`;
@@ -1007,7 +1038,7 @@ function renderManagerSalesTableRows(filteredSales, allSalesCount) {
         <td>${formatSaleProduct(item)}</td>
         <td><span class="status-badge" style="background:#f3f4f6;color:#374151;font-weight:500;">${escapeHtml(category)}</span></td>
         <td>${formatCurrency(item.amount)}</td>
-        <td><button class="action-btn edit" onclick="editManagerSalesRecord(${item.id})" title="Edit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Edit</button></td>
+        <td>${formatPaymentMode(item.mode_of_payment)}</td>
       </tr>`;
   });
 }
@@ -1395,7 +1426,7 @@ function renderStaffSalesTableRows(filteredSales, allSalesCount) {
     const emptyMsg = allSalesCount > 0
       ? 'No sales records match your selected filters.'
       : 'No sales records found';
-    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:#9ca3af;padding:2rem;">${emptyMsg}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#9ca3af;padding:2rem;">${emptyMsg}</td></tr>`;
     return;
   }
 
@@ -1406,6 +1437,7 @@ function renderStaffSalesTableRows(filteredSales, allSalesCount) {
         <td>${escapeHtml(item.customer_name)}</td>
         <td>${formatSaleProduct(item)}</td>
         <td>${formatCurrency(item.amount)}</td>
+        <td>${formatPaymentMode(item.mode_of_payment)}</td>
       </tr>`;
   });
 }
@@ -2190,11 +2222,11 @@ function renderArchivedSalesTableRows(items) {
   if (!tbody) return;
   tbody.innerHTML = '';
   if (adminArchivedSalesCache.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#9ca3af;padding:2rem;">No archived sales records found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#9ca3af;padding:2rem;">No archived sales records found</td></tr>';
     return;
   }
   if (items.length === 0) {
-    tbody.innerHTML = '<tr class="no-data-row"><td colspan="7" style="text-align:center;color:#9ca3af;padding:2rem;">No archived sales records match your selected filters.</td></tr>';
+    tbody.innerHTML = '<tr class="no-data-row"><td colspan="8" style="text-align:center;color:#9ca3af;padding:2rem;">No archived sales records match your selected filters.</td></tr>';
     return;
   }
   items.forEach(item => {
@@ -2207,6 +2239,7 @@ function renderArchivedSalesTableRows(items) {
         <td>${formatSaleProduct(item)}</td>
         <td><span class="status-badge" style="background:#f3f4f6;color:#374151;font-weight:500;">${escapeHtml(category)}</span></td>
         <td>${formatCurrency(item.amount)}</td>
+        <td>${formatPaymentMode(item.mode_of_payment)}</td>
         <td>${archivedDate}</td>
         <td>
           <button class="action-btn restore" onclick="restoreSales(${item.id})" title="Restore Sales Record" style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.8125rem;font-weight:600;padding:0.3rem 0.65rem;border-radius:0.375rem;border:1px solid #059669;color:#059669;background:transparent;cursor:pointer;">
@@ -2364,11 +2397,11 @@ function renderManagerArchivedSalesTableRows(items) {
   if (!tbody) return;
   tbody.innerHTML = '';
   if (managerArchivedSalesCache.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#9ca3af;padding:2rem;">No archived sales records found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#9ca3af;padding:2rem;">No archived sales records found</td></tr>';
     return;
   }
   if (items.length === 0) {
-    tbody.innerHTML = '<tr class="no-data-row"><td colspan="7" style="text-align:center;color:#9ca3af;padding:2rem;">No archived sales records match your selected filters.</td></tr>';
+    tbody.innerHTML = '<tr class="no-data-row"><td colspan="8" style="text-align:center;color:#9ca3af;padding:2rem;">No archived sales records match your selected filters.</td></tr>';
     return;
   }
   items.forEach(item => {
@@ -2381,6 +2414,7 @@ function renderManagerArchivedSalesTableRows(items) {
         <td>${formatSaleProduct(item)}</td>
         <td><span class="status-badge" style="background:#f3f4f6;color:#374151;font-weight:500;">${escapeHtml(category)}</span></td>
         <td>${formatCurrency(item.amount)}</td>
+        <td>${formatPaymentMode(item.mode_of_payment)}</td>
         <td>${archivedDate}</td>
         <td>
           <span class="badge" style="background:#f3f4f6;color:#6b7280;font-weight:600;padding:0.25rem 0.6rem;border-radius:0.375rem;font-size:0.75rem;display:inline-block;">Archived</span>
@@ -2535,11 +2569,11 @@ function renderStaffArchivedSalesTableRows(items) {
   if (!tbody) return;
   tbody.innerHTML = '';
   if (staffArchivedSalesCache.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#9ca3af;padding:2rem;">No archived sales records found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#9ca3af;padding:2rem;">No archived sales records found</td></tr>';
     return;
   }
   if (items.length === 0) {
-    tbody.innerHTML = '<tr class="no-data-row"><td colspan="7" style="text-align:center;color:#9ca3af;padding:2rem;">No archived sales records match your selected filters.</td></tr>';
+    tbody.innerHTML = '<tr class="no-data-row"><td colspan="8" style="text-align:center;color:#9ca3af;padding:2rem;">No archived sales records match your selected filters.</td></tr>';
     return;
   }
   items.forEach(item => {
@@ -2552,6 +2586,7 @@ function renderStaffArchivedSalesTableRows(items) {
         <td>${formatSaleProduct(item)}</td>
         <td><span class="status-badge" style="background:#f3f4f6;color:#374151;font-weight:500;">${escapeHtml(category)}</span></td>
         <td>${formatCurrency(item.amount)}</td>
+        <td>${formatPaymentMode(item.mode_of_payment)}</td>
         <td>${archivedDate}</td>
         <td>
           <span class="badge" style="background:#f3f4f6;color:#6b7280;font-weight:600;padding:0.25rem 0.6rem;border-radius:0.375rem;font-size:0.75rem;display:inline-block;">Archived</span>

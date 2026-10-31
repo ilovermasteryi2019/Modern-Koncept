@@ -1584,6 +1584,7 @@ function toPositiveIntSafe(v) {
 const fallbackInventoryArchive = new Map(); // id (number) -> { is_archived: true, archived_at: string, archived_by: string }
 const fallbackDeliveryArchive = new Map();  // id (number) -> { is_archived: true, archived_at: string, archived_by: string }
 const fallbackSalesArchive = new Map();     // id (number) -> { is_archived: true, archived_at: string, archived_by: string }
+const fallbackSalesMeta = new Map();        // id (number) -> { mode_of_payment: string }
 
 let inventoryArchiveCache = { at: 0, supported: null };
 async function getInventoryArchiveSupported() {
@@ -1903,14 +1904,25 @@ const DELIVERY_STATUSES = ['Pending', 'Processing', 'In Transit', 'Delivered'];
 const DELIVERY_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const BULK_DELIVERY_LIMIT = 200;
 
-// Optional columns added by deliveries-date-range-migration.sql and delivery-driver-migration.sql
-// (delivery window end, actual completion time, last status-change time, driver assignment).
+const ALLOWED_PAYMENT_MODES = [
+  'Cash on Delivery (COD)',
+  'Cash',
+  'GCash',
+  'Installment Through Salmon Financing',
+  'Installment Through Home Credit',
+  'Credit Card',
+  'Debit Card/ATM Card'
+];
+
+// Optional columns added by deliveries-date-range-migration.sql, delivery-driver-migration.sql,
+// and mode-of-payment-migration.sql.
 // They are detected at runtime so the server keeps working exactly as before until migrations have been
 // run in Supabase. Re-checked every minute so no restart is needed afterwards.
 const DELIVERY_OPTIONAL_COLUMNS = [
   'delivery_end_date', 'delivered_at', 'status_updated_at',
   'assigned_driver_id', 'assigned_driver_name',
-  'inventory_id', 'quantity', 'amount', 'sales_record_id'
+  'inventory_id', 'quantity', 'amount', 'sales_record_id',
+  'mode_of_payment'
 ];
 let deliveryColumnCache = { at: 0, cols: null };
 async function getDeliveryOptionalColumns() {
@@ -1924,7 +1936,7 @@ async function getDeliveryOptionalColumns() {
   return cols;
 }
 
-const SALES_OPTIONAL_COLUMNS = ['delivery_id', 'inventory_id', 'quantity'];
+const SALES_OPTIONAL_COLUMNS = ['delivery_id', 'inventory_id', 'quantity', 'mode_of_payment'];
 let salesColumnCache = { at: 0, cols: null };
 async function getSalesOptionalColumns() {
   if (salesColumnCache.cols && Date.now() - salesColumnCache.at < 60 * 1000) return salesColumnCache.cols;
@@ -1971,11 +1983,14 @@ function deliveryStatusChangeFields(cols, previousStatus, nextStatus) {
 
 // Runtime fallback cache for optional delivery fields before SQL migrations are applied in Supabase.
 // Once migrations are run, PostgreSQL stores these columns directly.
-const fallbackDeliveryMeta = new Map(); // id (number) -> { delivery_end_date, delivered_at, status_updated_at, assigned_driver_id, assigned_driver_name, inventory_id, quantity, amount, sales_record_id }
+const fallbackDeliveryMeta = new Map(); // id (number) -> { delivery_end_date, delivered_at, status_updated_at, assigned_driver_id, assigned_driver_name, inventory_id, quantity, amount, sales_record_id, mode_of_payment }
 
 function mergeDeliveryFallbackMeta(row) {
   if (!row || row.id == null) return row;
   const meta = fallbackDeliveryMeta.get(Number(row.id));
+  const rawMop = row.mode_of_payment !== undefined && row.mode_of_payment !== null && row.mode_of_payment !== ''
+    ? row.mode_of_payment
+    : (meta && meta.mode_of_payment ? meta.mode_of_payment : 'Not Specified');
   const base = meta ? {
     ...row,
     delivery_end_date: row.delivery_end_date !== undefined ? row.delivery_end_date : (meta.delivery_end_date || null),
@@ -1986,8 +2001,12 @@ function mergeDeliveryFallbackMeta(row) {
     inventory_id: row.inventory_id !== undefined ? row.inventory_id : (meta.inventory_id || null),
     quantity: row.quantity !== undefined ? row.quantity : (meta.quantity != null ? meta.quantity : 1),
     amount: row.amount !== undefined ? row.amount : (meta.amount != null ? meta.amount : null),
-    sales_record_id: row.sales_record_id !== undefined ? row.sales_record_id : (meta.sales_record_id || null)
-  } : row;
+    sales_record_id: row.sales_record_id !== undefined ? row.sales_record_id : (meta.sales_record_id || null),
+    mode_of_payment: rawMop
+  } : {
+    ...row,
+    mode_of_payment: rawMop
+  };
   return mergeArchiveRecord(base, fallbackDeliveryArchive);
 }
 
@@ -2062,7 +2081,7 @@ app.get('/deliveries/stats', async (req, res) => {
 });
 
 app.post('/deliveries', requireRole('admin', 'manager', 'staff'), withIdempotency('deliveries', async (req, res) => {
-  const { customer_name, contact_number, address, product, status, delivery_type, delivery_date, delivery_end_date, assigned_driver_id, assigned_driver_name, inventory_id, quantity } = req.body;
+  const { customer_name, contact_number, address, product, status, delivery_type, delivery_date, delivery_end_date, assigned_driver_id, assigned_driver_name, inventory_id, quantity, mode_of_payment } = req.body;
   if (!customer_name || !address) return res.status(400).json({ success: false, message: 'Customer name and address are required' });
   if (status && !DELIVERY_STATUSES.includes(status)) return res.status(400).json({ success: false, message: 'Invalid status' });
   if (status === 'Delivered') return res.status(403).json({ success: false, message: 'New deliveries cannot be initially created with Delivered status. Only delivery drivers may mark a delivery as Delivered.' });
@@ -2070,6 +2089,21 @@ app.post('/deliveries', requireRole('admin', 'manager', 'staff'), withIdempotenc
   const end = parseDeliveryDateInput(delivery_end_date);
   const windowError = validateDeliveryWindow(start, end);
   if (windowError) return res.status(400).json({ success: false, message: windowError });
+
+  const callerRole = req.authUser ? normalizeRole(req.authUser.role) : null;
+  let finalPaymentMode = null;
+  if (['admin', 'manager'].includes(callerRole)) {
+    if (mode_of_payment !== undefined && mode_of_payment !== null && String(mode_of_payment).trim() !== '') {
+      if (!ALLOWED_PAYMENT_MODES.includes(mode_of_payment)) {
+        return res.status(400).json({ success: false, message: 'Invalid mode of payment' });
+      }
+      finalPaymentMode = mode_of_payment;
+    } else {
+      return res.status(400).json({ success: false, message: 'Mode of Payment is required' });
+    }
+  } else if (mode_of_payment) {
+    return res.status(403).json({ success: false, message: 'Staff cannot set or change the mode of payment.' });
+  }
 
   let invId = toPositiveInt(inventory_id);
   let qty = toPositiveInt(quantity) || 1;
@@ -2095,6 +2129,7 @@ app.post('/deliveries', requireRole('admin', 'manager', 'staff'), withIdempotenc
   if (cols.inventory_id) row.inventory_id = invId;
   if (cols.quantity) row.quantity = qty;
   if (cols.amount) row.amount = validatedAmount;
+  if (cols.mode_of_payment && finalPaymentMode) row.mode_of_payment = finalPaymentMode;
   Object.assign(row, deliveryStatusChangeFields(cols, null, finalStatus));
   const { data, error } = await db.from('deliveries').insert(row).select().single();
   if (error) return res.status(500).json({ success: false, message: 'Failed to create delivery' });
@@ -2108,26 +2143,33 @@ app.post('/deliveries', requireRole('admin', 'manager', 'staff'), withIdempotenc
     inventory_id: invId,
     quantity: qty,
     amount: validatedAmount,
-    sales_record_id: null
+    sales_record_id: null,
+    mode_of_payment: finalPaymentMode || 'Not Specified'
   });
-  res.status(201).json({ success: true, message: 'Delivery created successfully', id: data.id, ref_code, delivery_end_date: normalizedEnd, amount: validatedAmount });
+  res.status(201).json({ success: true, message: 'Delivery created successfully', id: data.id, ref_code, delivery_end_date: normalizedEnd, amount: validatedAmount, mode_of_payment: finalPaymentMode || 'Not Specified' });
 }));
 
 app.put('/deliveries/:id', requireRole('admin', 'manager'), async (req, res) => {
-  const { customer_name, contact_number, address, product, status, delivery_type, delivery_date, delivery_end_date, assigned_driver_id, assigned_driver_name, inventory_id, quantity } = req.body || {};
+  const { customer_name, contact_number, address, product, status, delivery_type, delivery_date, delivery_end_date, assigned_driver_id, assigned_driver_name, inventory_id, quantity, mode_of_payment } = req.body || {};
   if (!customer_name || !String(customer_name).trim() || !address || !String(address).trim()) {
     return res.status(400).json({ success: false, message: 'Customer name and address are required' });
   }
   if (status !== undefined && !DELIVERY_STATUSES.includes(status)) {
     return res.status(400).json({ success: false, message: 'Invalid status' });
   }
-  // Admin and Manager can only set status up to In Transit; they cannot mark a delivery as Delivered
-  if (status === 'Delivered') {
-    return res.status(403).json({ success: false, message: 'Only delivery drivers can mark a delivery as Delivered.' });
+  if (mode_of_payment !== undefined && mode_of_payment !== null && String(mode_of_payment).trim() !== '') {
+    if (!ALLOWED_PAYMENT_MODES.includes(mode_of_payment)) {
+      return res.status(400).json({ success: false, message: 'Invalid mode of payment' });
+    }
   }
   const { data: existing, error: fetchError } = await db.from('deliveries').select('*').eq('id', req.params.id).maybeSingle();
   if (fetchError) return res.status(500).json({ success: false, message: 'Failed to update delivery' });
   if (!existing) return res.status(404).json({ success: false, message: 'Delivery not found' });
+
+  // Admin and Manager can only set status up to In Transit; they cannot transition a delivery to Delivered
+  if (status === 'Delivered' && existing.status !== 'Delivered') {
+    return res.status(403).json({ success: false, message: 'Only delivery drivers can mark a delivery as Delivered.' });
+  }
 
   const mergedDelivery = mergeDeliveryFallbackMeta(existing);
   if (mergedDelivery.is_archived) {
@@ -2158,6 +2200,10 @@ app.put('/deliveries/:id', requireRole('admin', 'manager'), async (req, res) => 
     if (invItem && invItem.name && (!product || product === 'N/A')) productName = invItem.name;
   }
 
+  const finalPaymentMode = mode_of_payment !== undefined
+    ? (mode_of_payment || null)
+    : (existing.mode_of_payment || prevMeta.mode_of_payment || null);
+
   const normalizedEnd = end && end !== start ? end : null;
   const update = { customer_name, contact_number, address, product: productName, delivery_type, delivery_date };
   if (status !== undefined) update.status = status;
@@ -2167,9 +2213,27 @@ app.put('/deliveries/:id', requireRole('admin', 'manager'), async (req, res) => 
   if (cols.inventory_id && inventory_id !== undefined) update.inventory_id = invId;
   if (cols.quantity && quantity !== undefined) update.quantity = qty;
   if (cols.amount) update.amount = validatedAmount;
+  if (cols.mode_of_payment && mode_of_payment !== undefined) update.mode_of_payment = finalPaymentMode;
   Object.assign(update, deliveryStatusChangeFields(cols, existing.status, status));
   const { error } = await db.from('deliveries').update(update).eq('id', req.params.id);
   if (error) return res.status(500).json({ success: false, message: 'Failed to update delivery' });
+
+  // Propagate updated payment method to linked sales record if one exists
+  if (finalPaymentMode) {
+    try {
+      const salesCols = await getSalesOptionalColumns();
+      if (salesCols.mode_of_payment) {
+        await db.from('sales').update({ mode_of_payment: finalPaymentMode }).eq('delivery_id', req.params.id);
+        const sid = prevMeta.sales_record_id || existing.sales_record_id;
+        if (sid) {
+          await db.from('sales').update({ mode_of_payment: finalPaymentMode }).eq('id', sid);
+          fallbackSalesMeta.set(Number(sid), { mode_of_payment: finalPaymentMode });
+        }
+      }
+    } catch (e) {
+      console.error('Failed to sync updated payment mode to sales record:', e && e.message);
+    }
+  }
   const statusChanged = status && status !== existing.status;
   const nowIso = new Date().toISOString();
   fallbackDeliveryMeta.set(Number(existing.id), {
@@ -2181,9 +2245,10 @@ app.put('/deliveries/:id', requireRole('admin', 'manager'), async (req, res) => 
     inventory_id: invId,
     quantity: qty,
     amount: validatedAmount,
-    sales_record_id: prevMeta.sales_record_id || null
+    sales_record_id: prevMeta.sales_record_id || null,
+    mode_of_payment: finalPaymentMode || prevMeta.mode_of_payment || 'Not Specified'
   });
-  res.json({ success: true, message: 'Delivery updated successfully', delivery_end_date: normalizedEnd, amount: validatedAmount });
+  res.json({ success: true, message: 'Delivery updated successfully', delivery_end_date: normalizedEnd, amount: validatedAmount, mode_of_payment: finalPaymentMode });
 });
 
 // Bulk status update (Admin + Manager). Only the status (and, when the migration exists, the status/completion
@@ -2340,6 +2405,9 @@ app.patch('/deliveries/:id/status', requireRole('admin', 'manager', 'delivery_dr
         }
 
         // 3. Construct safe sales row (respects existing database columns)
+        const deliveryPayment = (mergedExisting.mode_of_payment && mergedExisting.mode_of_payment !== 'Not Specified')
+          ? mergedExisting.mode_of_payment
+          : (existing.mode_of_payment || prevMeta.mode_of_payment || 'Not Specified');
         const saleRow = {
           customer_name: customer,
           product_name: productName,
@@ -2349,6 +2417,7 @@ app.patch('/deliveries/:id/status', requireRole('admin', 'manager', 'delivery_dr
         if (salesCols.delivery_id) saleRow.delivery_id = existing.id;
         if (salesCols.inventory_id && invId) saleRow.inventory_id = invId;
         if (salesCols.quantity) saleRow.quantity = qty;
+        if (salesCols.mode_of_payment) saleRow.mode_of_payment = deliveryPayment;
 
         // 4. If inventory item is identified, attempt stock deduction
         let stockDeducted = false;
@@ -2389,11 +2458,21 @@ app.patch('/deliveries/:id/status', requireRole('admin', 'manager', 'delivery_dr
               amount: finalAmount,
               sale_date: nowIso
             };
+            if (salesCols.mode_of_payment && deliveryPayment) minimalRow.mode_of_payment = deliveryPayment;
             const { data: minSale, error: minErr } = await db.from('sales').insert(minimalRow).select('id').maybeSingle();
             if (minSale) autoCreatedSaleId = minSale.id;
             else if (minErr) console.error('Minimal sales insert failed:', minErr.message);
           } else if (directSale) {
             autoCreatedSaleId = directSale.id;
+          }
+
+          if (autoCreatedSaleId) {
+            fallbackSalesMeta.set(Number(autoCreatedSaleId), { mode_of_payment: deliveryPayment });
+            if (salesCols.mode_of_payment) {
+              try {
+                await db.from('sales').update({ mode_of_payment: deliveryPayment }).eq('id', autoCreatedSaleId);
+              } catch (_) {}
+            }
           }
 
           // Direct inventory stock deduction if RPC was not used
@@ -2657,6 +2736,9 @@ async function syncDeliveredDeliveriesToSales() {
           finalAmount = 1000;
         }
 
+        const deliveryPayment = (mergedDel.mode_of_payment && mergedDel.mode_of_payment !== 'Not Specified')
+          ? mergedDel.mode_of_payment
+          : (del.mode_of_payment || 'Not Specified');
         const saleDate = del.delivered_at || del.delivery_date || del.created_at || new Date().toISOString();
         const saleRow = {
           customer_name: customer,
@@ -2667,6 +2749,7 @@ async function syncDeliveredDeliveriesToSales() {
         if (salesCols.delivery_id) saleRow.delivery_id = del.id;
         if (salesCols.inventory_id && invId) saleRow.inventory_id = invId;
         if (salesCols.quantity) saleRow.quantity = qty;
+        if (salesCols.mode_of_payment) saleRow.mode_of_payment = deliveryPayment;
 
         const { data: insertedSale, error: insErr } = await db.from('sales').insert(saleRow).select().maybeSingle();
         if (!insErr && insertedSale) {
@@ -2675,6 +2758,7 @@ async function syncDeliveredDeliveriesToSales() {
             ...(fallbackDeliveryMeta.get(Number(del.id)) || {}),
             sales_record_id: insertedSale.id
           });
+          fallbackSalesMeta.set(Number(insertedSale.id), { mode_of_payment: deliveryPayment });
           console.log(`✅ [AutoSync] Generated sales record #${insertedSale.id} for delivered delivery #${del.id} (${customer} - ${productName})`);
         } else if (insErr) {
           const minRow = {
@@ -2683,9 +2767,11 @@ async function syncDeliveredDeliveriesToSales() {
             amount: finalAmount,
             sale_date: saleDate
           };
+          if (salesCols.mode_of_payment) minRow.mode_of_payment = deliveryPayment;
           const { data: minSale } = await db.from('sales').insert(minRow).select().maybeSingle();
           if (minSale) {
             existingSales.push(minSale);
+            fallbackSalesMeta.set(Number(minSale.id), { mode_of_payment: deliveryPayment });
             console.log(`✅ [AutoSync] Generated minimal sales record #${minSale.id} for delivered delivery #${del.id}`);
           }
         }
@@ -2698,12 +2784,22 @@ async function syncDeliveredDeliveriesToSales() {
 
 app.get('/sales', async (req, res) => {
   await syncDeliveredDeliveriesToSales();
-  const [salesRes, invRes, prodRes] = await Promise.all([
+  const [salesRes, invRes, prodRes, delRes] = await Promise.all([
     db.from('sales').select('*').order('sale_date', { ascending: false }),
     db.from('inventory').select('id, name, category'),
-    db.from('products').select('name, category')
+    db.from('products').select('name, category'),
+    db.from('deliveries').select('id, mode_of_payment')
   ]);
   if (salesRes.error) return res.status(500).json({ success: false, message: 'Failed to fetch sales' });
+
+  const delPaymentMap = new Map();
+  if (delRes && Array.isArray(delRes.data)) {
+    delRes.data.forEach(d => {
+      const meta = fallbackDeliveryMeta.get(Number(d.id));
+      const mop = (d && d.mode_of_payment) || (meta && meta.mode_of_payment);
+      if (mop && mop !== 'Not Specified') delPaymentMap.set(Number(d.id), mop);
+    });
+  }
 
   const invById = new Map();
   const invByName = new Map();
@@ -2729,8 +2825,15 @@ app.get('/sales', async (req, res) => {
     const normName = typeof sale.product_name === 'string' ? sale.product_name.trim().toLowerCase() : '';
     const byInvName = normName ? invByName.get(normName) : null;
     const byProdName = normName ? prodByName.get(normName) : null;
+    const resolvedPayment = (sale.mode_of_payment && sale.mode_of_payment !== 'Not Specified')
+      ? sale.mode_of_payment
+      : (sale.delivery_id && delPaymentMap.get(Number(sale.delivery_id)))
+      || (fallbackSalesMeta.get(Number(sale.id))?.mode_of_payment)
+      || 'Not Specified';
+
     return {
       ...sale,
+      mode_of_payment: resolvedPayment,
       category: existingCat || byId || byInvName || byProdName || 'Uncategorized'
     };
   });
@@ -2739,12 +2842,22 @@ app.get('/sales', async (req, res) => {
 });
 
 app.get('/sales/archived', requireRole('admin', 'manager', 'staff'), async (req, res) => {
-  const [salesRes, invRes, prodRes] = await Promise.all([
+  const [salesRes, invRes, prodRes, delRes] = await Promise.all([
     db.from('sales').select('*').order('sale_date', { ascending: false }),
     db.from('inventory').select('id, name, category'),
-    db.from('products').select('name, category')
+    db.from('products').select('name, category'),
+    db.from('deliveries').select('id, mode_of_payment')
   ]);
   if (salesRes.error) return res.status(500).json({ success: false, message: 'Failed to fetch archived sales' });
+
+  const delPaymentMap = new Map();
+  if (delRes && Array.isArray(delRes.data)) {
+    delRes.data.forEach(d => {
+      const meta = fallbackDeliveryMeta.get(Number(d.id));
+      const mop = (d && d.mode_of_payment) || (meta && meta.mode_of_payment);
+      if (mop && mop !== 'Not Specified') delPaymentMap.set(Number(d.id), mop);
+    });
+  }
 
   const invById = new Map();
   const invByName = new Map();
@@ -2770,8 +2883,15 @@ app.get('/sales/archived', requireRole('admin', 'manager', 'staff'), async (req,
       const normName = typeof sale.product_name === 'string' ? sale.product_name.trim().toLowerCase() : '';
       const byInvName = normName ? invByName.get(normName) : null;
       const byProdName = normName ? prodByName.get(normName) : null;
+      const resolvedPayment = (sale.mode_of_payment && sale.mode_of_payment !== 'Not Specified')
+        ? sale.mode_of_payment
+        : (sale.delivery_id && delPaymentMap.get(Number(sale.delivery_id)))
+        || (fallbackSalesMeta.get(Number(sale.id))?.mode_of_payment)
+        || 'Not Specified';
+
       return {
         ...sale,
+        mode_of_payment: resolvedPayment,
         category: existingCat || byId || byInvName || byProdName || 'Uncategorized'
       };
     });
@@ -2883,54 +3003,10 @@ app.post('/sales', requireRole('admin', 'manager', 'staff'), async (req, res) =>
 });
 
 app.put('/sales/:id', requireRole('admin', 'manager'), async (req, res) => {
-  const saleId = toPositiveInt(req.params.id);
-  if (!saleId) return res.status(400).json({ success: false, message: 'Invalid sales record' });
-
-  const { data: existingSale } = await db.from('sales').select('*').eq('id', saleId).maybeSingle();
-  if (existingSale) {
-    const mergedSale = mergeArchiveRecord(existingSale, fallbackSalesArchive);
-    if (mergedSale.is_archived) {
-      return res.status(400).json({ success: false, message: 'Archived records cannot be modified.' });
-    }
-  }
-
-  const { customer_name, product_name, amount, sale_date, inventory_id, quantity } = req.body;
-  const customer = typeof customer_name === 'string' ? customer_name.trim() : '';
-  if (!customer) {
-    return res.status(400).json({ success: false, message: 'All fields required' });
-  }
-
-  let invId = null;
-  let qty = null;
-  let amt = Number(amount);
-  if (hasValue(inventory_id)) {
-    invId = toPositiveInt(inventory_id);
-    qty = toPositiveInt(quantity);
-    if (!invId) return res.status(400).json({ success: false, message: 'Please select a valid product from the inventory list' });
-    if (!qty) return res.status(400).json({ success: false, message: 'Quantity must be a positive whole number' });
-    const computed = await computeSaleAmount(invId, qty); // amount is inventory price x quantity, never the browser's value
-    if (!computed.ok) return res.status(computed.status).json(computed.body);
-    amt = computed.amount;
-  } else if (!Number.isFinite(amt) || amt <= 0) {
-    // older record kept as-is (no inventory item): its amount is still entered by hand
-    return res.status(400).json({ success: false, message: 'All fields required' });
-  }
-
-  const { data, error } = await db.rpc('update_sale_with_inventory', {
-    p_sale_id: saleId,
-    p_customer_name: customer,
-    p_amount: amt,
-    p_sale_date: sale_date || null,
-    p_inventory_id: invId,
-    p_quantity: qty,
-    p_product_name: typeof product_name === 'string' ? product_name.trim() : null
+  return res.status(403).json({
+    success: false,
+    message: 'Sales records are automatically generated from completed deliveries and cannot be manually edited.'
   });
-  if (error) {
-    console.error('update_sale_with_inventory error:', error.message);
-    return res.status(500).json({ success: false, message: 'Failed to update sales record' });
-  }
-  if (!data || !data.success) return respondSaleFailure(res, data);
-  res.json({ success: true, message: 'Sales record updated successfully' });
 });
 
 app.post('/sales/:id/archive', requireRole('admin'), async (req, res) => {

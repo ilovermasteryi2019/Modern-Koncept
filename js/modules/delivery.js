@@ -42,8 +42,40 @@ function mergeLocalDeliveryWindow(item) {
   return {
     ...item,
     delivery_end_date: item.delivery_end_date || endFromLocal || null,
-    delivered_at: item.delivered_at || local.delivered_at || null
+    delivered_at: item.delivered_at || local.delivered_at || null,
+    mode_of_payment: item.mode_of_payment || local.mode_of_payment || 'Not Specified'
   };
+}
+
+export function formatPaymentMode(mode) {
+  if (!mode || mode === 'Not Specified') {
+    return '<span style="color:#9ca3af;font-size:0.8125rem;">Not Specified</span>';
+  }
+  let color = '#374151';
+  let bg = '#f3f4f6';
+  let border = '#e5e7eb';
+  if (mode.includes('COD') || mode.includes('Cash on Delivery')) {
+    color = '#9a3412';
+    bg = '#ffedd5';
+    border = '#fdba74';
+  } else if (mode.includes('GCash')) {
+    color = '#1e40af';
+    bg = '#dbeafe';
+    border = '#bfdbfe';
+  } else if (mode.includes('Installment')) {
+    color = '#6b21a8';
+    bg = '#f3e8ff';
+    border = '#d8b4fe';
+  } else if (mode.includes('Card')) {
+    color = '#065f46';
+    bg = '#d1fae5';
+    border = '#a7f3d0';
+  } else if (mode === 'Cash') {
+    color = '#15803d';
+    bg = '#dcfce7';
+    border = '#bbf7d0';
+  }
+  return `<span style="display:inline-block;padding:0.25rem 0.5rem;font-size:0.75rem;font-weight:600;border-radius:0.375rem;background:${bg};color:${color};border:1px solid ${border};white-space:normal;line-height:1.2;max-width:180px;">${escapeDeliveryHtml(mode)}</span>`;
 }
 
 // Public Delivery Tracking
@@ -166,7 +198,7 @@ export async function loadStaffDeliveryList() {
     const result = await API.getDeliveries();
     if (result.success) {
       tbody.innerHTML = '';
-      if (!result.data || result.data.length === 0) { tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#9ca3af;">No deliveries found</td></tr>'; return; }
+      if (!result.data || result.data.length === 0) { tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#9ca3af;">No deliveries found</td></tr>'; return; }
       result.data.forEach(item => {
         tbody.innerHTML += `
           <tr>
@@ -175,17 +207,18 @@ export async function loadStaffDeliveryList() {
             <td>${item.contact_number || 'N/A'}</td>
             <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${item.address}</td>
             <td>${item.product || 'N/A'}</td>
+            <td>${formatPaymentMode(item.mode_of_payment)}</td>
             <td>${getStatusBadge(item.status)}</td>
             <td>${getTypeBadge(item.delivery_type)}</td>
             <td>${formatDate(item.delivery_date)}</td>
           </tr>`;
       });
     } else {
-      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#ef4444;">❌ Failed to load deliveries</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#ef4444;">❌ Failed to load deliveries</td></tr>';
     }
   } catch (error) {
     showToast('❌ Failed to load deliveries', 'error');
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#ef4444;">❌ Failed to load deliveries</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#ef4444;">❌ Failed to load deliveries</td></tr>';
   }
 }
 
@@ -669,7 +702,7 @@ function renderAdminDeliveryTableRows(filteredDeliveries, allDeliveriesCount) {
     const emptyMsg = allDeliveriesCount > 0
       ? 'No deliveries match your selected filters.'
       : 'No deliveries found';
-    tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;color:#9ca3af;padding:2rem;">${emptyMsg}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="13" style="text-align:center;color:#9ca3af;padding:2rem;">${emptyMsg}</td></tr>`;
     syncBulkSelectionUi('admin');
     return;
   }
@@ -692,6 +725,7 @@ function renderAdminDeliveryTableRows(filteredDeliveries, allDeliveriesCount) {
         <td>${escapeDeliveryHtml(item.contact_number || 'N/A')}</td>
         <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeDeliveryHtml(item.address)}">${escapeDeliveryHtml(item.address)}</td>
         <td>${escapeDeliveryHtml(item.product || 'N/A')}${item.quantity && item.quantity > 1 ? ` <span style="font-weight:600;color:#6b7280;font-size:0.8125rem;">(×${item.quantity})</span>` : ''}${item.amount ? `<div style="font-size:0.75rem;color:#16a34a;font-weight:600;">₱${Number(item.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>` : ''}</td>
+        <td>${formatPaymentMode(item.mode_of_payment)}</td>
         <td>${driverDisplay}</td>
         <td>${renderDeliveryDateCell(item)}</td>
         <td>${getStatusBadge(item.status, item)}</td>
@@ -1196,7 +1230,7 @@ function renderDeliveryTableForRole(deliveries, tbodyId, searchTerm) {
   visibleManagerDeliveryIds = filtered.map(d => Number(d.id)).filter(Boolean);
 
   if (filtered.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:2rem;color:#9ca3af;">No deliveries found</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="13" style="text-align:center;padding:2rem;color:#9ca3af;">No deliveries found</td></tr>`;
     syncBulkSelectionUi('manager');
     return;
   }
@@ -1216,6 +1250,7 @@ function renderDeliveryTableForRole(deliveries, tbodyId, searchTerm) {
       <td>${escapeDeliveryHtml(delivery.contact_number || 'N/A')}</td>
       <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeDeliveryHtml(delivery.address)}">${escapeDeliveryHtml(delivery.address)}</td>
       <td>${escapeDeliveryHtml(delivery.product || 'N/A')}${delivery.quantity && delivery.quantity > 1 ? ` <span style="font-weight:600;color:#6b7280;font-size:0.8125rem;">(×${delivery.quantity})</span>` : ''}${delivery.amount ? `<div style="font-size:0.75rem;color:#16a34a;font-weight:600;">₱${Number(delivery.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>` : ''}</td>
+      <td>${formatPaymentMode(delivery.mode_of_payment)}</td>
       <td>${delivery.assigned_driver_name ? `<span style="font-weight:600;color:#1e40af;">${escapeDeliveryHtml(delivery.assigned_driver_name)}</span>` : '<span style="color:#9ca3af;font-size:0.8rem;">Unassigned</span>'}</td>
       <td>${renderDeliveryDateCell(delivery)}</td>
       <td>${getStatusBadge(delivery.status, delivery)}</td>
@@ -1389,6 +1424,15 @@ export function openAddDeliveryModal() {
   if (title) title.textContent = 'Add New Delivery';
   const form = document.getElementById('deliveryForm');
   if (form) form.reset();
+  const statusSelect = document.getElementById('deliveryStatus');
+  if (statusSelect) {
+    const delOpt = statusSelect.querySelector('option[value="Delivered"]');
+    if (delOpt) delOpt.remove();
+    statusSelect.disabled = false;
+    statusSelect.value = 'Pending';
+  }
+  const payEl = document.getElementById('deliveryPaymentMode');
+  if (payEl) payEl.value = '';
   const startEl = document.getElementById('deliveryDate');
   const endEl = document.getElementById('deliveryEndDate');
   if (endEl) { endEl.value = ''; endEl.min = ''; }
@@ -1428,8 +1472,16 @@ export async function handleDeliverySubmit(event) {
 
   const normalizedEnd = startDate && endDate && endDate > startDate ? endDate : null;
   const statusVal = document.getElementById('deliveryStatus').value;
-  if (statusVal === 'Delivered') {
+  if (!editingDeliveryId && statusVal === 'Delivered') {
     showToast('New deliveries cannot be created with Delivered status. Only Delivery Drivers mark completion.', 'warning');
+    return;
+  }
+
+  const payEl = document.getElementById('deliveryPaymentMode');
+  const paymentMode = payEl ? payEl.value : null;
+  const isManagerOrAdmin = window.location.pathname.includes('admin') || window.location.pathname.includes('manager');
+  if (isManagerOrAdmin && !paymentMode) {
+    showToast('Please select a Mode of Payment.', 'warning');
     return;
   }
 
@@ -1470,6 +1522,9 @@ export async function handleDeliverySubmit(event) {
     assigned_driver_id: assignedDriverId,
     assigned_driver_name: assignedDriverName
   };
+  if (paymentMode) {
+    data.mode_of_payment = paymentMode;
+  }
   try {
     const result = editingDeliveryId ? await API.updateDelivery(editingDeliveryId, data) : await kdCreateOnce('delivery-create', data, API.createDelivery);
     if (result.success) {
@@ -1481,7 +1536,8 @@ export async function handleDeliverySubmit(event) {
         delivered_at: null,
         status_updated_at: nowIso,
         assigned_driver_id: assignedDriverId,
-        assigned_driver_name: assignedDriverName
+        assigned_driver_name: assignedDriverName,
+        mode_of_payment: paymentMode
       });
       showToast('✅ ' + result.message + (result.ref_code ? ` Reference Code: ${result.ref_code}` : ''), 'success');
       hideModal('deliveryModal');
@@ -1507,12 +1563,31 @@ export async function editDelivery(id) {
       document.getElementById('deliveryCustomer').value = item.customer_name;
       document.getElementById('deliveryContactNumber').value = item.contact_number || '';
       document.getElementById('deliveryAddress').value = item.address;
-      document.getElementById('deliveryStatus').value = item.status;
+      const statusSelect = document.getElementById('deliveryStatus');
+      if (statusSelect) {
+        let delOpt = statusSelect.querySelector('option[value="Delivered"]');
+        if (item.status === 'Delivered') {
+          if (!delOpt) {
+            delOpt = document.createElement('option');
+            delOpt.value = 'Delivered';
+            delOpt.textContent = 'Delivered (Locked)';
+            statusSelect.appendChild(delOpt);
+          }
+          statusSelect.value = 'Delivered';
+          statusSelect.disabled = true;
+        } else {
+          if (delOpt) delOpt.remove();
+          statusSelect.disabled = false;
+          statusSelect.value = item.status || 'Pending';
+        }
+      }
       document.getElementById('deliveryType').value = item.delivery_type || 'Outbound';
       const qtyEl = document.getElementById('deliveryQuantity');
       if (qtyEl) qtyEl.value = item.quantity || 1;
       const amtEl = document.getElementById('deliveryAmount');
       if (amtEl && item.amount) amtEl.value = Number(item.amount).toFixed(2);
+      const payEl = document.getElementById('deliveryPaymentMode');
+      if (payEl) payEl.value = item.mode_of_payment && item.mode_of_payment !== 'Not Specified' ? item.mode_of_payment : '';
       await loadDeliveryProductOptions(item.inventory_id, item.product);
 
       const startVal = item.delivery_date ? item.delivery_date.split('T')[0] : '';
@@ -1602,11 +1677,11 @@ function renderArchivedDeliveryTableRows(items) {
   if (!tbody) return;
   tbody.innerHTML = '';
   if (adminArchivedDeliveriesCache.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#9ca3af;padding:2rem;">No archived deliveries found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#9ca3af;padding:2rem;">No archived deliveries found</td></tr>';
     return;
   }
   if (items.length === 0) {
-    tbody.innerHTML = '<tr class="no-data-row"><td colspan="10" style="text-align:center;color:#9ca3af;padding:2rem;">No archived deliveries match your search or filters.</td></tr>';
+    tbody.innerHTML = '<tr class="no-data-row"><td colspan="11" style="text-align:center;color:#9ca3af;padding:2rem;">No archived deliveries match your search or filters.</td></tr>';
     return;
   }
   items.forEach(item => {
@@ -1620,6 +1695,7 @@ function renderArchivedDeliveryTableRows(items) {
         <td>${escapeHtmlText(item.contact_number || 'N/A')}</td>
         <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtmlText(item.address || '')}">${escapeHtmlText(item.address || 'N/A')}</td>
         <td>${escapeHtmlText(item.product || 'N/A')}</td>
+        <td>${formatPaymentMode(item.mode_of_payment)}</td>
         <td>${escapeHtmlText(item.assigned_driver_name || 'Unassigned')}</td>
         <td>${applicableDate}</td>
         <td><span class="delivery-status-badge ${statusClass}">${escapeHtmlText(item.status || 'Pending')}</span></td>
@@ -1761,11 +1837,11 @@ function renderManagerArchivedDeliveryTableRows(items) {
   if (!tbody) return;
   tbody.innerHTML = '';
   if (managerArchivedDeliveriesCache.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#9ca3af;padding:2rem;">No archived deliveries found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#9ca3af;padding:2rem;">No archived deliveries found</td></tr>';
     return;
   }
   if (items.length === 0) {
-    tbody.innerHTML = '<tr class="no-data-row"><td colspan="10" style="text-align:center;color:#9ca3af;padding:2rem;">No archived deliveries match your search or filters.</td></tr>';
+    tbody.innerHTML = '<tr class="no-data-row"><td colspan="11" style="text-align:center;color:#9ca3af;padding:2rem;">No archived deliveries match your search or filters.</td></tr>';
     return;
   }
   items.forEach(item => {
@@ -1779,6 +1855,7 @@ function renderManagerArchivedDeliveryTableRows(items) {
         <td>${escapeHtmlText(item.contact_number || 'N/A')}</td>
         <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtmlText(item.address || '')}">${escapeHtmlText(item.address || 'N/A')}</td>
         <td>${escapeHtmlText(item.product || 'N/A')}</td>
+        <td>${formatPaymentMode(item.mode_of_payment)}</td>
         <td>${escapeHtmlText(item.assigned_driver_name || 'Unassigned')}</td>
         <td>${applicableDate}</td>
         <td><span class="delivery-status-badge ${statusClass}">${escapeHtmlText(item.status || 'Pending')}</span></td>
@@ -1917,11 +1994,11 @@ function renderStaffArchivedDeliveryTableRows(items) {
   if (!tbody) return;
   tbody.innerHTML = '';
   if (staffArchivedDeliveriesCache.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#9ca3af;padding:2rem;">No archived deliveries found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#9ca3af;padding:2rem;">No archived deliveries found</td></tr>';
     return;
   }
   if (items.length === 0) {
-    tbody.innerHTML = '<tr class="no-data-row"><td colspan="10" style="text-align:center;color:#9ca3af;padding:2rem;">No archived deliveries match your search or filters.</td></tr>';
+    tbody.innerHTML = '<tr class="no-data-row"><td colspan="11" style="text-align:center;color:#9ca3af;padding:2rem;">No archived deliveries match your search or filters.</td></tr>';
     return;
   }
   items.forEach(item => {
@@ -1934,6 +2011,7 @@ function renderStaffArchivedDeliveryTableRows(items) {
         <td>${escapeHtmlText(item.contact_number || 'N/A')}</td>
         <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtmlText(item.address || '')}">${escapeHtmlText(item.address || 'N/A')}</td>
         <td>${escapeHtmlText(item.product || 'N/A')}</td>
+        <td>${formatPaymentMode(item.mode_of_payment)}</td>
         <td>${getStatusBadge(item.status)}</td>
         <td>${getTypeBadge(item.delivery_type)}</td>
         <td>${applicableDate}</td>
@@ -2139,7 +2217,7 @@ export function renderDriverDeliveryTableRows(filtered, allCount) {
 
   if (!filtered || filtered.length === 0) {
     const msg = allCount > 0 ? 'No assigned deliveries match your filter.' : 'No deliveries currently assigned to your account.';
-    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#6b7280;padding:2rem;">${msg}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:#6b7280;padding:2rem;">${msg}</td></tr>`;
     return;
   }
 
@@ -2170,6 +2248,7 @@ export function renderDriverDeliveryTableRows(filtered, allCount) {
         <td>${phoneDisplay}</td>
         <td style="max-width:220px;white-space:normal;font-size:0.8125rem;">${escapeDeliveryHtml(item.address)}</td>
         <td>${escapeDeliveryHtml(item.product || 'N/A')}</td>
+        <td>${formatPaymentMode(item.mode_of_payment)}</td>
         <td>${renderDeliveryDateCell(item)}</td>
         <td>${getStatusBadge(item.status, item)}</td>
         <td style="text-align:center;">${actionHtml}</td>

@@ -974,6 +974,7 @@
                 <th>Contact Number</th>
                 <th>Address</th>
                 <th>Product</th>
+                <th>Mode of Payment</th>
                 <th>Assigned Driver</th>
                 <th>Scheduled / Applicable Date</th>
                 <th>Status</th>
@@ -1044,6 +1045,7 @@
                   <th>Contact Number</th>
                   <th>Address</th>
                   <th>Product</th>
+                  <th>Mode of Payment</th>
                   <th>Assigned Driver</th>
                   <th>Scheduled Date</th>
                   <th>Status</th>
@@ -1227,6 +1229,7 @@
                 <th>Product</th>
                 <th>Category</th>
                 <th>Amount</th>
+                <th>Mode of Payment</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -1291,6 +1294,7 @@
                   <th>Product</th>
                   <th>Category</th>
                   <th>Amount</th>
+                  <th>Mode of Payment</th>
                   <th>Archived Date</th>
                   <th>Actions</th>
                 </tr>
@@ -1662,6 +1666,20 @@
               <input type="text" id="deliveryAmount" class="form-input" readonly placeholder="Auto-computed" style="background:#f3f4f6;cursor:not-allowed;">
             </div>
           </div>
+
+          <div class="form-group">
+            <label class="form-label" for="deliveryPaymentMode">Mode of Payment *</label>
+            <select id="deliveryPaymentMode" class="form-input" required>
+              <option value="">Select Mode of Payment</option>
+              <option value="Cash on Delivery (COD)">Cash on Delivery (COD)</option>
+              <option value="Cash">Cash</option>
+              <option value="GCash">GCash</option>
+              <option value="Installment Through Salmon Financing">Installment Through Salmon Financing</option>
+              <option value="Installment Through Home Credit">Installment Through Home Credit</option>
+              <option value="Credit Card">Credit Card</option>
+              <option value="Debit Card/ATM Card">Debit Card/ATM Card</option>
+            </select>
+          </div>
           
           <div class="form-row">
             <div class="form-group">
@@ -1757,56 +1775,7 @@
   </div>
   <!-- [END PARTIAL: partials/modals/delivery-modals-admin.html] -->
   <!-- [BEGIN PARTIAL: partials/modals/sales-modals-admin.html] -->
-  <!-- Note: Add Sales Record modal removed for Admin; sales are created automatically when deliveries are marked Delivered -->
-
-  <!-- Edit Sales Record Modal -->
-  <div id="editAdminSalesModal" class="modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3 class="modal-title">Edit Sales Record</h3>
-        <button class="modal-close" data-close-modal="editAdminSalesModal">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
-        </button>
-      </div>
-      <div class="modal-body">
-        <form id="editAdminSalesForm">
-          <input type="hidden" id="editAdminSalesId">
-          <div class="form-group">
-            <label class="form-label">Customer Name</label>
-            <input type="text" id="editAdminSalesCustomer" class="form-input" required>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Product</label>
-            <select id="editAdminSalesProduct" class="form-input" required>
-              <option value="">Loading inventory...</option>
-            </select>
-            <small id="editAdminSalesProductHint" style="display:block;margin-top:0.25rem;font-size:0.75rem;color:#6b7280;"></small>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Quantity Sold</label>
-            <input type="number" id="editAdminSalesQuantity" class="form-input" min="1" step="1" value="1" required>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">Amount (₱)</label>
-              <input type="number" id="editAdminSalesAmount" class="form-input" min="0" step="0.01" placeholder="Auto-computed" required readonly style="background-color:#f3f4f6;cursor:not-allowed;">
-            </div>
-            <div class="form-group">
-              <label class="form-label">Date</label>
-              <input type="date" id="editAdminSalesDate" class="form-input" required>
-            </div>
-          </div>
-          <div style="display:flex;gap:0.75rem;">
-            <button type="submit" class="btn btn-accent" style="flex:1;">Save Changes</button>
-            <button type="button" class="btn btn-secondary" data-close-modal="editAdminSalesModal" style="flex:1;">Cancel</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  </div>
+  <!-- Note: Sales record creation and editing modals removed; sales records are automatically generated when deliveries are marked Delivered. -->
   <!-- [END PARTIAL: partials/modals/sales-modals-admin.html] -->
   <!-- [BEGIN PARTIAL: partials/modals/staff-modal.html] -->
   <!-- Edit Staff Account Modal -->
