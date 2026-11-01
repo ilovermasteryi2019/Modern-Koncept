@@ -1961,12 +1961,38 @@ function parseDeliveryDateInput(value) {
   return s;
 }
 
+// Returns the current business date string 'YYYY-MM-DD' in Asia/Manila (UTC+8)
+function getBusinessTodayDateString() {
+  try {
+    return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+  } catch (e) {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+}
+
 // Returns an error message, or '' when the scheduled window is valid
-function validateDeliveryWindow(start, end) {
+function validateDeliveryWindow(start, end, options = {}) {
   if (start === false) return 'Please enter a valid delivery start date.';
   if (end === false) return 'Please enter a valid delivery end date.';
   if (end && !start) return 'Please set the delivery start date before setting an end date.';
   if (start && end && end < start) return 'The delivery end date cannot be earlier than the start date.';
+
+  const today = getBusinessTodayDateString();
+  const enforceFuture = options.enforceFuture !== false;
+
+  if (enforceFuture) {
+    if (start && start < today) {
+      return 'Delivery date cannot be in the past. Please select today or a future date.';
+    }
+    if (end && end < today) {
+      return 'Delivery end date cannot be earlier than today.';
+    }
+  }
+
   return '';
 }
 
@@ -2010,8 +2036,8 @@ function mergeDeliveryFallbackMeta(row) {
   return mergeArchiveRecord(base, fallbackDeliveryArchive);
 }
 
-// List active Delivery Driver accounts (Admin & Manager use this to assign deliveries)
-app.get('/drivers', requireRole('admin', 'manager'), async (req, res) => {
+// List active Delivery Driver accounts (Admin, Manager & Staff use this to assign deliveries)
+app.get('/drivers', requireRole('admin', 'manager', 'staff'), async (req, res) => {
   const { data, error } = await db.from('users').select('*').order('name', { ascending: true });
   if (error) return res.status(500).json({ success: false, message: 'Failed to fetch drivers' });
   const activeDrivers = (data || []).filter(isAccountActive).filter(u => isDriverRole(u.role)).map(u => ({
@@ -2087,7 +2113,7 @@ app.post('/deliveries', requireRole('admin', 'manager', 'staff'), withIdempotenc
   if (status === 'Delivered') return res.status(403).json({ success: false, message: 'New deliveries cannot be initially created with Delivered status. Only delivery drivers may mark a delivery as Delivered.' });
   const start = parseDeliveryDateInput(delivery_date);
   const end = parseDeliveryDateInput(delivery_end_date);
-  const windowError = validateDeliveryWindow(start, end);
+  const windowError = validateDeliveryWindow(start, end, { enforceFuture: true });
   if (windowError) return res.status(400).json({ success: false, message: windowError });
 
   const callerRole = req.authUser ? normalizeRole(req.authUser.role) : null;
@@ -2184,7 +2210,26 @@ app.put('/deliveries/:id', requireRole('admin', 'manager'), async (req, res) => 
   const start = startInput === undefined ? (existing.delivery_date || null) : startInput;
   const existingEnd = cols.delivery_end_date ? (existing.delivery_end_date || null) : (prevMeta.delivery_end_date || null);
   const end = endInput === undefined ? existingEnd : endInput;
-  const windowError = validateDeliveryWindow(start, end);
+
+  const today = getBusinessTodayDateString();
+  const existingStartDate = existing.delivery_date ? String(existing.delivery_date).slice(0, 10) : null;
+  const existingEndDate = existingEnd ? String(existingEnd).slice(0, 10) : null;
+
+  // Validate start date if it is being set or changed to a new date
+  if (startInput !== undefined && startInput !== null) {
+    if (startInput !== existingStartDate && startInput < today) {
+      return res.status(400).json({ success: false, message: 'Delivery date cannot be in the past. Please select today or a future date.' });
+    }
+  }
+
+  // Validate end date if it is being set or changed to a new date
+  if (endInput !== undefined && endInput !== null) {
+    if (endInput !== existingEndDate && endInput < today) {
+      return res.status(400).json({ success: false, message: 'Delivery end date cannot be earlier than today.' });
+    }
+  }
+
+  const windowError = validateDeliveryWindow(start, end, { enforceFuture: false });
   if (windowError) return res.status(400).json({ success: false, message: windowError });
 
   let invId = inventory_id !== undefined ? toPositiveInt(inventory_id) : (existing.inventory_id || prevMeta.inventory_id || null);

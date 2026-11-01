@@ -1070,17 +1070,8 @@ export function initAdminDeliveryControls() {
     bulkClearBtn.addEventListener('click', () => clearDeliverySelection('admin'));
   }
 
-  // Link start date -> end date min attribute in the delivery modal
-  const startDateInput = document.getElementById('deliveryDate');
-  const endDateInput = document.getElementById('deliveryEndDate');
-  if (startDateInput && endDateInput) {
-    startDateInput.addEventListener('change', () => {
-      endDateInput.min = startDateInput.value || '';
-      if (endDateInput.value && startDateInput.value && endDateInput.value < startDateInput.value) {
-        endDateInput.value = startDateInput.value;
-      }
-    });
-  }
+// Link start date -> end date min attribute in the delivery modal
+  setupDeliveryDateRestrictions();
 
   const resetBtn = document.getElementById('adminDeliveryResetFilters');
   if (resetBtn) {
@@ -1167,16 +1158,7 @@ export function initManagerDeliveryControls() {
     bulkClearBtn.addEventListener('click', () => clearDeliverySelection('manager'));
   }
 
-  const startDateInput = document.getElementById('deliveryDate');
-  const endDateInput = document.getElementById('deliveryEndDate');
-  if (startDateInput && endDateInput) {
-    startDateInput.addEventListener('change', () => {
-      endDateInput.min = startDateInput.value || '';
-      if (endDateInput.value && startDateInput.value && endDateInput.value < startDateInput.value) {
-        endDateInput.value = startDateInput.value;
-      }
-    });
-  }
+  setupDeliveryDateRestrictions();
 
   const resetBtn = document.getElementById('managerDeliveryResetFilters');
   if (resetBtn) {
@@ -1418,6 +1400,104 @@ export async function loadDeliveryProductOptions(selectedId = null, selectedName
   }
 }
 
+let editingOriginalStartDate = null;
+let editingOriginalEndDate = null;
+
+export function getTodayDateString() {
+  try {
+    return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+  } catch (e) {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+}
+
+export function setupDeliveryDateRestrictions(existingItem = null) {
+  const startEl = document.getElementById('deliveryDate');
+  const endEl = document.getElementById('deliveryEndDate');
+  if (!startEl) return;
+
+  const today = getTodayDateString();
+
+  if (existingItem) {
+    editingOriginalStartDate = existingItem.delivery_date ? String(existingItem.delivery_date).slice(0, 10) : null;
+    editingOriginalEndDate = existingItem.delivery_end_date ? String(existingItem.delivery_end_date).slice(0, 10) : null;
+  } else {
+    editingOriginalStartDate = null;
+    editingOriginalEndDate = null;
+  }
+
+  // Set the minimum selectable date on the calendar picker
+  startEl.min = today;
+  if (endEl) {
+    const curStart = startEl.value;
+    endEl.min = curStart && curStart > today ? curStart : today;
+  }
+
+  if (!startEl.dataset.dateRestrictionBound) {
+    const onStartChange = () => {
+      const curToday = getTodayDateString();
+      startEl.min = curToday;
+      const val = startEl.value;
+
+      if (val && val < curToday) {
+        if (editingDeliveryId && editingOriginalStartDate && val === editingOriginalStartDate) {
+          // Unchanged historical date, permit display
+        } else {
+          showToast('Delivery date cannot be in the past. Please select today or a future date.', 'warning');
+          startEl.value = (editingDeliveryId && editingOriginalStartDate) ? editingOriginalStartDate : curToday;
+        }
+      }
+
+      if (endEl) {
+        const effectiveStart = startEl.value || curToday;
+        const targetMin = effectiveStart > curToday ? effectiveStart : curToday;
+        endEl.min = targetMin;
+
+        if (endEl.value && startEl.value && endEl.value < startEl.value) {
+          showToast('Delivery End Date cannot be earlier than the Delivery Start Date. Please select a valid end date.', 'warning');
+          endEl.value = '';
+        }
+      }
+    };
+
+    startEl.addEventListener('change', onStartChange);
+    startEl.addEventListener('input', onStartChange);
+
+    if (endEl) {
+      const onEndChange = () => {
+        const curToday = getTodayDateString();
+        const val = endEl.value;
+        const curStart = startEl.value;
+
+        if (val && val < curToday) {
+          if (editingDeliveryId && editingOriginalEndDate && val === editingOriginalEndDate) {
+            // Unchanged historical end date
+          } else {
+            showToast('Delivery End Date cannot be earlier than today.', 'warning');
+            endEl.value = '';
+          }
+        } else if (val && curStart && val < curStart) {
+          showToast('Delivery End Date cannot be earlier than the Delivery Start Date. Please select a valid end date.', 'warning');
+          endEl.value = '';
+        }
+      };
+
+      endEl.addEventListener('change', onEndChange);
+      endEl.addEventListener('input', onEndChange);
+    }
+
+    startEl.dataset.dateRestrictionBound = '1';
+  }
+}
+
+export function initStaffDeliveryControls() {
+  setupDeliveryDateRestrictions();
+}
+
 export function openAddDeliveryModal() {
   editingDeliveryId = null;
   const title = document.getElementById('deliveryModalTitle');
@@ -1435,16 +1515,9 @@ export function openAddDeliveryModal() {
   if (payEl) payEl.value = '';
   const startEl = document.getElementById('deliveryDate');
   const endEl = document.getElementById('deliveryEndDate');
-  if (endEl) { endEl.value = ''; endEl.min = ''; }
-  if (startEl && endEl && !startEl.dataset.windowBound) {
-    startEl.addEventListener('change', () => {
-      endEl.min = startEl.value || '';
-      if (endEl.value && startEl.value && endEl.value < startEl.value) {
-        endEl.value = startEl.value;
-      }
-    });
-    startEl.dataset.windowBound = '1';
-  }
+  if (startEl) startEl.value = '';
+  if (endEl) endEl.value = '';
+  setupDeliveryDateRestrictions(null);
   const driverSelect = document.getElementById('deliveryDriverSelect');
   if (driverSelect) populateDriverDropdown(driverSelect, '');
   const qtyEl = document.getElementById('deliveryQuantity');
@@ -1457,17 +1530,35 @@ export function openAddDeliveryModal() {
 
 export async function handleDeliverySubmit(event) {
   event.preventDefault();
+  const today = getTodayDateString();
   const startDate = document.getElementById('deliveryDate').value || null;
   const endEl = document.getElementById('deliveryEndDate');
   const endDate = endEl && endEl.value ? endEl.value : null;
 
+  // Validate Start Date
+  if (startDate) {
+    const isChangingStart = !editingDeliveryId || (editingDeliveryId && startDate !== editingOriginalStartDate);
+    if (isChangingStart && startDate < today) {
+      showToast('Delivery Start Date cannot be in the past. Please select today or a future date.', 'error');
+      return;
+    }
+  }
+
+  // Validate End Date
   if (endDate && !startDate) {
     showToast('Please select a Delivery Start Date before setting a Delivery End Date.', 'warning');
     return;
   }
-  if (startDate && endDate && endDate < startDate) {
-    showToast('Delivery End Date cannot be earlier than the Delivery Start Date.', 'error');
-    return;
+  if (endDate) {
+    const isChangingEnd = !editingDeliveryId || (editingDeliveryId && endDate !== editingOriginalEndDate);
+    if (isChangingEnd && endDate < today) {
+      showToast('Delivery End Date cannot be earlier than today.', 'error');
+      return;
+    }
+    if (startDate && endDate < startDate) {
+      showToast('Delivery End Date cannot be earlier than the Delivery Start Date.', 'error');
+      return;
+    }
   }
 
   const normalizedEnd = startDate && endDate && endDate > startDate ? endDate : null;
@@ -1595,9 +1686,9 @@ export async function editDelivery(id) {
       document.getElementById('deliveryDate').value = startVal;
       const endEl = document.getElementById('deliveryEndDate');
       if (endEl) {
-        endEl.min = startVal || '';
         endEl.value = endVal && endVal > startVal ? endVal : '';
       }
+      setupDeliveryDateRestrictions(item);
       const driverSelect = document.getElementById('deliveryDriverSelect');
       if (driverSelect) await populateDriverDropdown(driverSelect, item.assigned_driver_id);
       showModal('deliveryModal');
