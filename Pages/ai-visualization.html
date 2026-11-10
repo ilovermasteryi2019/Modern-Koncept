@@ -219,6 +219,70 @@
     }
     .placement-textarea::placeholder { color: #9ca3af; }
 
+    /* AI Instructions & Limitations Callout Card */
+    .viz-ai-guidelines-card {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-left: 4px solid #2563eb;
+      border-radius: 0.625rem;
+      padding: 0.85rem 1rem;
+      margin-top: 0.75rem;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+    }
+    .viz-ai-guidelines-header {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-size: 0.8125rem;
+      font-weight: 700;
+      color: #1e3a8a;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 0.5rem;
+    }
+    .viz-ai-guidelines-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .viz-ai-guidelines-list li {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.55rem;
+      font-size: 0.825rem;
+      line-height: 1.45;
+      color: #334155;
+    }
+    .viz-ai-guidelines-list li span:last-child {
+      flex: 1;
+    }
+    .viz-ai-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.15rem 0.55rem;
+      border-radius: 9999px;
+      font-size: 0.6875rem;
+      font-weight: 700;
+      letter-spacing: 0.025em;
+      text-transform: uppercase;
+      flex-shrink: 0;
+      white-space: nowrap;
+      margin-top: 0.1rem;
+    }
+    .viz-ai-badge-guide {
+      background: #eff6ff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
+    }
+    .viz-ai-badge-limit {
+      background: #fffbeb;
+      color: #b45309;
+      border: 1px solid #fde68a;
+    }
+
     /* ---------- Horizontal numbered stepper ---------- */
     .viz-stepper {
       scroll-margin-top: 5.5rem;
@@ -717,9 +781,26 @@
             maxlength="500"
             placeholder="Describe where to place the furniture, for example:&#10;• Place the sofa beside the window.&#10;• Put the cabinet against the left wall.&#10;• Center the dining table.&#10;• Rotate the chair toward the TV."
           ></textarea>
-          <p style="font-size: 0.78rem; color: #9ca3af; margin-top: 0.5rem;">
-            These instructions guide the AI on where to position the selected furniture. This tool only places furniture; requests for other images or room changes are not accepted.
-          </p>
+          <div class="viz-ai-guidelines-card" role="note" aria-label="AI Placement Instructions and Limitations">
+            <div class="viz-ai-guidelines-header">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="16" x2="12" y2="12"></line>
+                <line x1="12" y1="8" x2="12.01" y2="8"></line>
+              </svg>
+              <span>AI Instructions &amp; Tool Limitations</span>
+            </div>
+            <ul class="viz-ai-guidelines-list">
+              <li>
+                <span class="viz-ai-badge viz-ai-badge-guide">Guideline</span>
+                <span>Use this box to describe <strong>positioning only</strong> (e.g., <em>"beside the window"</em>, <em>"against the left wall"</em>, <em>"centered facing the TV"</em>).</span>
+              </li>
+              <li>
+                <span class="viz-ai-badge viz-ai-badge-limit">Limitation</span>
+                <span>This AI tool <strong>only places the selected furniture</strong> into your room photo. Requests to generate people, remodel walls/flooring, or add unselected items are not accepted.</span>
+              </li>
+            </ul>
+          </div>
           <p class="viz-field-error" id="placementError" role="alert"></p>
         </div>
       </div>
