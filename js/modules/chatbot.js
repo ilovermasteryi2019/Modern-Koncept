@@ -618,6 +618,8 @@ export async function loadChatbotList() {
       const tbody = document.getElementById('chatbotList');
       if (!tbody) return;
       tbody.innerHTML = '';
+      const summaryBadge = document.getElementById('chatbotSummaryBadge');
+      if (summaryBadge) { summaryBadge.textContent = `${result.data.length} Q&A ${result.data.length === 1 ? 'entry' : 'entries'}`; }
       if (result.data.length === 0) {
         tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#9ca3af;padding:2rem;">No Q&A entries found. Click "Add New Q&A" to get started.</td></tr>';
         return;
@@ -634,7 +636,7 @@ export async function loadChatbotList() {
             <td style="max-width:200px;">${escapeHtmlText(item.question || '')}</td>
             <td style="max-width:250px;color:#6b7280;">${escapeHtmlText(String(item.answer || '').substring(0, 80))}${String(item.answer || '').length > 80 ? '...' : ''}</td>
             <td style="white-space:nowrap;">${formatDate(item.created_at)}</td>
-            <td>
+            <td style="text-align: center; white-space: nowrap;">
               <button class="action-btn edit" onclick="editChatbotQA(${item.id})" title="Edit">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
               </button>
@@ -720,7 +722,9 @@ export async function loadAdminInquiries() {
       // Show badge if there are new inquiries
       const newCount = result.data.filter(i => i.status === 'new').length;
       const badge = document.getElementById('inquiriesNewBadge');
-      if (badge) badge.style.display = newCount > 0 ? 'inline' : 'none';
+      if (badge) badge.style.display = newCount > 0 ? 'inline-flex' : 'none';
+      const inqSummary = document.getElementById('inquiriesSummaryBadge');
+      if (inqSummary) { inqSummary.textContent = `${result.data.length} ${result.data.length === 1 ? 'inquiry' : 'inquiries'}`; }
 
       if (result.data.length === 0) {
         tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#9ca3af;padding:2rem;">No inquiries yet.</td></tr>';
@@ -734,7 +738,7 @@ export async function loadAdminInquiries() {
             <td>${item.subject || 'General'}</td>
             <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${item.message}">${item.message.substring(0, 60)}${item.message.length > 60 ? '...' : ''}</td>
             <td style="white-space:nowrap;">${formatDate(item.created_at)}</td>
-            <td>
+            <td style="text-align: center; white-space: nowrap;">
               <button class="action-btn delete" onclick="deleteAdminInquiry(${item.id})" title="Delete">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
               </button>
@@ -761,6 +765,8 @@ export async function loadAdminFeedback() {
       const tbody = document.getElementById('adminFeedbackList');
       if (!tbody) return;
       tbody.innerHTML = '';
+      const fbSummary = document.getElementById('feedbackSummaryBadge');
+      if (fbSummary) { fbSummary.textContent = `${result.data.length} ${result.data.length === 1 ? 'review' : 'reviews'}`; }
       if (result.data.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#9ca3af;padding:2rem;">No feedback submitted yet.</td></tr>';
         return;
@@ -776,7 +782,7 @@ export async function loadAdminFeedback() {
             <td><span style="color:${starColor};font-size:1rem;" title="${item.rating} out of 5">${stars}</span></td>
             <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${item.feedback_text}">${item.feedback_text.substring(0, 60)}${item.feedback_text.length > 60 ? '...' : ''}</td>
             <td style="white-space:nowrap;">${formatDate(item.created_at)}</td>
-            <td>
+            <td style="text-align: center; white-space: nowrap;">
               <button class="action-btn delete" onclick="deleteAdminFeedback(${item.id})" title="Delete">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
               </button>

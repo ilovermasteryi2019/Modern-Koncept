@@ -139,7 +139,15 @@ let adminInventoryItems = [];
 
 // Same rule the table already uses for the Status column
 function inventoryStockStatus(item) {
-  return item.quantity > 10 ? 'in-stock' : 'low-stock';
+  const qty = Number(item && item.quantity !== undefined ? item.quantity : 0);
+  if (isNaN(qty) || qty <= 0) return 'out-of-stock';
+  return qty > 10 ? 'in-stock' : 'low-stock';
+}
+
+function inventoryStockStatusText(status) {
+  if (status === 'in-stock') return 'In Stock';
+  if (status === 'out-of-stock') return 'Out of Stock';
+  return 'Low Stock';
 }
 
 export async function loadInventoryList() {
@@ -169,7 +177,7 @@ function renderAdminInventoryTable(items, totalFilteredCount = items.length) {
   }
   items.forEach(item => {
     const status = inventoryStockStatus(item);
-    const statusText = status === 'in-stock' ? 'In Stock' : 'Low Stock';
+    const statusText = inventoryStockStatusText(status);
     const safeName = (item.name || '').replace(/"/g, '&quot;');
     const qtyVal = Number(item.quantity) || 0;
     const isZero = qtyVal <= 0;
@@ -387,7 +395,7 @@ async function commitAdminInventoryQuantity(id, newQty) {
       const statusCell = document.getElementById(`kdStockStatus_${id}`);
       if (statusCell) {
         const newStatus = inventoryStockStatus(item);
-        const newStatusText = newStatus === 'in-stock' ? 'In Stock' : 'Low Stock';
+        const newStatusText = inventoryStockStatusText(newStatus);
         statusCell.innerHTML = `<span class="stock-status ${newStatus}">${newStatusText}</span>`;
       }
 
@@ -493,7 +501,7 @@ async function commitManagerInventoryQuantity(id, newQty) {
       const statusCell = document.getElementById(`managerKdStockStatus_${id}`);
       if (statusCell) {
         const newStatus = inventoryStockStatus(item);
-        const newStatusText = newStatus === 'in-stock' ? 'In Stock' : 'Low Stock';
+        const newStatusText = inventoryStockStatusText(newStatus);
         statusCell.innerHTML = `<span class="stock-status ${newStatus}">${newStatusText}</span>`;
       }
 
@@ -704,7 +712,7 @@ function renderArchivedInventoryTableRows(items, totalFilteredCount = items.leng
   }
   items.forEach(item => {
     const status = inventoryStockStatus(item);
-    const statusText = status === 'in-stock' ? 'In Stock' : 'Low Stock';
+    const statusText = inventoryStockStatusText(status);
     tbody.innerHTML += `
       <tr>
         <td>${item.image ? `<img src="${item.image}" alt="${item.name}" style="width:50px;height:50px;object-fit:cover;border-radius:0.375rem;">` : '<span style="color:#9ca3af;font-size:0.75rem;">No image</span>'}</td>
@@ -940,8 +948,8 @@ function renderStaffInventoryTable(items, totalFilteredCount = items.length) {
     return;
   }
   items.forEach(item => {
-    const status = item.quantity > 10 ? 'in-stock' : 'low-stock';
-    const statusText = item.quantity > 10 ? 'In Stock' : 'Low Stock';
+    const status = inventoryStockStatus(item);
+    const statusText = inventoryStockStatusText(status);
     tbody.innerHTML += `
       <tr>
         <td>${item.image ? `<img src="${item.image}" alt="${escapeHtml(item.name)}" style="width:50px;height:50px;object-fit:cover;border-radius:0.375rem;">` : '<span style="color:#9ca3af;font-size:0.75rem;">No image</span>'}</td>
@@ -1083,8 +1091,8 @@ function renderManagerInventoryTable(items, totalFilteredCount = items.length) {
   }
   let tableHTML = `<div class="table-container"><table><thead><tr><th>Image</th><th>Item Name</th><th>Item Code</th><th>Category</th><th>Price</th><th>Quantity</th><th>Stock Status</th><th>Last Updated</th><th>Actions</th></tr></thead><tbody>`;
   items.forEach(item => {
-    const status = item.quantity > 10 ? 'in-stock' : 'low-stock';
-    const statusText = item.quantity > 10 ? 'In Stock' : 'Low Stock';
+    const status = inventoryStockStatus(item);
+    const statusText = inventoryStockStatusText(status);
     const safeName = (item.name || '').replace(/"/g, '&quot;');
     const qtyVal = Number(item.quantity) || 0;
     const isZero = qtyVal <= 0;
@@ -1282,7 +1290,7 @@ function renderManagerArchivedInventoryTableRows(items, totalFilteredCount = ite
   }
   items.forEach(item => {
     const status = inventoryStockStatus(item);
-    const statusText = status === 'in-stock' ? 'In Stock' : 'Low Stock';
+    const statusText = inventoryStockStatusText(status);
     tbody.innerHTML += `
       <tr>
         <td>${item.image ? `<img src="${item.image}" alt="${escapeHtml(item.name)}" style="width:50px;height:50px;object-fit:cover;border-radius:0.375rem;">` : '<span style="color:#9ca3af;font-size:0.75rem;">No image</span>'}</td>
@@ -1450,7 +1458,7 @@ function renderStaffArchivedInventoryTableRows(items, totalFilteredCount = items
   }
   items.forEach(item => {
     const status = inventoryStockStatus(item);
-    const statusText = status === 'in-stock' ? 'In Stock' : 'Low Stock';
+    const statusText = inventoryStockStatusText(status);
     tbody.innerHTML += `
       <tr>
         <td>${item.image ? `<img src="${item.image}" alt="${escapeHtml(item.name)}" style="width:50px;height:50px;object-fit:cover;border-radius:0.375rem;">` : '<span style="color:#9ca3af;font-size:0.75rem;">No image</span>'}</td>

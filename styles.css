@@ -2479,6 +2479,72 @@ body.bs-dashboard .sidebar-backdrop { display: none; }
   background: #94a3b8;
 }
 
+/* =============================================================================
+   INVENTORY MODULE: MODERN STOCK STATUS PILL BADGES (Admin, Manager, Staff)
+   ============================================================================= */
+.stock-status {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.45rem !important;
+  padding: 0.28rem 0.75rem !important;
+  border-radius: 9999px !important;
+  font-size: 0.75rem !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.02em !important;
+  white-space: nowrap !important;
+  border: 1px solid transparent !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04) !important;
+  transition: all 0.15s ease-in-out !important;
+  line-height: 1.25 !important;
+}
+
+.stock-status::before {
+  content: "" !important;
+  display: inline-block !important;
+  width: 6px !important;
+  height: 6px !important;
+  border-radius: 50% !important;
+  flex-shrink: 0 !important;
+}
+
+/* In Stock (Healthy / Available) */
+.stock-status.in-stock {
+  background: #ecfdf5 !important;
+  color: #047857 !important;
+  border-color: #a7f3d0 !important;
+}
+.stock-status.in-stock::before {
+  background: #10b981 !important;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2) !important;
+}
+
+/* Low Stock (Warning / Urgent Replenish) - Red */
+.stock-status.low-stock {
+  background: #fef2f2 !important;
+  color: #b91c1c !important;
+  border-color: #fecaca !important;
+}
+.stock-status.low-stock::before {
+  background: #ef4444 !important;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2) !important;
+}
+
+/* Out of Stock (Depleted) */
+.stock-status.out-of-stock {
+  background: #fef2f2 !important;
+  color: #b91c1c !important;
+  border-color: #fecaca !important;
+}
+.stock-status.out-of-stock::before {
+  background: #ef4444 !important;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2) !important;
+}
+
+.stock-status:hover {
+  transform: translateY(-1px) !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.07) !important;
+}
+
 /* Account Role Pills */
 .kd-role-pill {
   display: inline-flex;

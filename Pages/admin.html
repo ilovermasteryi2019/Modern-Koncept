@@ -61,21 +61,58 @@
     }
     
     .stock-status {
-      display: inline-block;
-      padding: 0.25rem 0.75rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.28rem 0.75rem;
       border-radius: 9999px;
       font-size: 0.75rem;
       font-weight: 600;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      border: 1px solid transparent;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+      transition: all 0.15s ease-in-out;
+      line-height: 1.25;
     }
-    
+    .stock-status::before {
+      content: "";
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
     .stock-status.in-stock {
-      background: #d1fae5;
-      color: #065f46;
+      background: #ecfdf5;
+      color: #047857;
+      border-color: #a7f3d0;
     }
-    
+    .stock-status.in-stock::before {
+      background: #10b981;
+      box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+    }
     .stock-status.low-stock {
-      background: #fee2e2;
-      color: #991b1b;
+      background: #fef2f2;
+      color: #b91c1c;
+      border-color: #fecaca;
+    }
+    .stock-status.low-stock::before {
+      background: #ef4444;
+      box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
+    }
+    .stock-status.out-of-stock {
+      background: #fef2f2;
+      color: #b91c1c;
+      border-color: #fecaca;
+    }
+    .stock-status.out-of-stock::before {
+      background: #ef4444;
+      box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
+    }
+    .stock-status:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.07);
     }
     
     .table-container {
@@ -619,6 +656,7 @@
                 <option value="all">All Statuses</option>
                 <option value="in-stock">In Stock</option>
                 <option value="low-stock">Low Stock</option>
+                <option value="out-of-stock">Out of Stock</option>
               </select>
             </div>
             <div class="form-group" style="display:flex;align-items:flex-end;">
@@ -1445,16 +1483,22 @@
       </div>
 
       <div class="card">
-        <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">All Q&amp;A Entries</h3>
-        <div class="table-container">
-          <table>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1.25rem; flex-wrap:wrap; gap:0.5rem;">
+          <div>
+            <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin: 0;">All Q&amp;A Entries</h3>
+            <p style="font-size: 0.8125rem; color: #6b7280; margin: 0.25rem 0 0;">Manage automated question-and-answer pairs for the customer chatbot on the Support page.</p>
+          </div>
+          <span id="chatbotSummaryBadge" style="font-size: 0.8125rem; color: #6b7280; font-weight: 500;"></span>
+        </div>
+        <div class="table-container kd-delivery-table-container">
+          <table class="kd-delivery-table" style="min-width: 820px;">
             <thead>
               <tr>
-                <th>Category</th>
+                <th style="width: 140px;">Category</th>
                 <th>Question</th>
                 <th>Answer</th>
-                <th>Date Added</th>
-                <th>Actions</th>
+                <th style="width: 140px;">Date Added</th>
+                <th style="width: 110px; text-align: center;">Actions</th>
               </tr>
             </thead>
             <tbody id="chatbotList">
@@ -1472,20 +1516,26 @@
 
       <!-- Customer Inquiries -->
       <div class="card" style="margin-bottom: 1.5rem;">
-        <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">
-          Customer Inquiries
-          <span id="inquiriesNewBadge" style="display:none; background:#DC143C; color:white; font-size:0.7rem; font-weight:700; padding:0.15rem 0.5rem; border-radius:9999px; margin-left:0.5rem;">NEW</span>
-        </h3>
-        <div class="table-container">
-          <table>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1.25rem; flex-wrap:wrap; gap:0.5rem;">
+          <div>
+            <div style="display:flex; align-items:center; gap:0.6rem;">
+              <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin: 0;">Customer Inquiries</h3>
+              <span id="inquiriesNewBadge" class="stock-status low-stock" style="display:none; padding:0.18rem 0.55rem; font-size:0.6875rem; font-weight:700; text-transform:uppercase; letter-spacing:0.04em;">NEW</span>
+            </div>
+            <p style="font-size: 0.8125rem; color: #6b7280; margin: 0.25rem 0 0;">Direct customer inquiries and contact requests submitted through the website.</p>
+          </div>
+          <span id="inquiriesSummaryBadge" style="font-size: 0.8125rem; color: #6b7280; font-weight: 500;"></span>
+        </div>
+        <div class="table-container kd-delivery-table-container">
+          <table class="kd-delivery-table" style="min-width: 880px;">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Email</th>
-                <th>Subject</th>
+                <th style="width: 160px;">Name</th>
+                <th style="width: 200px;">Email</th>
+                <th style="width: 160px;">Subject</th>
                 <th>Message</th>
-                <th>Date</th>
-                <th>Actions</th>
+                <th style="width: 140px;">Date</th>
+                <th style="width: 100px; text-align: center;">Actions</th>
               </tr>
             </thead>
             <tbody id="adminInquiriesList">
@@ -1497,18 +1547,24 @@
 
       <!-- Customer Feedback / Ratings -->
       <div class="card">
-        <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin-bottom: 1rem;">Customer Feedback &amp; Ratings</h3>
-        <div class="table-container">
-          <table>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1.25rem; flex-wrap:wrap; gap:0.5rem;">
+          <div>
+            <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin: 0;">Customer Feedback &amp; Ratings</h3>
+            <p style="font-size: 0.8125rem; color: #6b7280; margin: 0.25rem 0 0;">Product ratings, customer reviews, and testimonials submitted by buyers.</p>
+          </div>
+          <span id="feedbackSummaryBadge" style="font-size: 0.8125rem; color: #6b7280; font-weight: 500;"></span>
+        </div>
+        <div class="table-container kd-delivery-table-container">
+          <table class="kd-delivery-table" style="min-width: 920px;">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Email</th>
-                <th>Product / Service</th>
-                <th>Rating</th>
+                <th style="width: 160px;">Name</th>
+                <th style="width: 200px;">Email</th>
+                <th style="width: 160px;">Product / Service</th>
+                <th style="width: 130px;">Rating</th>
                 <th>Feedback</th>
-                <th>Date</th>
-                <th>Actions</th>
+                <th style="width: 140px;">Date</th>
+                <th style="width: 100px; text-align: center;">Actions</th>
               </tr>
             </thead>
             <tbody id="adminFeedbackList">
