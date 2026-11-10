@@ -207,80 +207,7 @@
       padding: 1.5rem;
     }
     
-    .summary-card {
-      --summary-bg: linear-gradient(135deg, #DC143C 0%, #A80728 100%);
-      --summary-text: #ffffff;
-      --summary-subtext: rgba(255, 255, 255, 0.92);
-      --summary-badge-bg: rgba(255, 255, 255, 0.2);
-      --summary-badge-text: #ffffff;
-      background: var(--summary-bg);
-      color: var(--summary-text);
-      padding: 1.5rem;
-      border-radius: 0.75rem;
-      margin-bottom: 1.5rem;
-      box-shadow: 0 4px 12px rgba(17, 24, 39, 0.08);
-    }
-
-    /* Dynamic performance states (Red = Low, Yellow = Middle Range, Green = High) */
-    .summary-card.summary-card--low {
-      --summary-bg: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
-      --summary-text: #ffffff;
-      --summary-subtext: rgba(255, 255, 255, 0.92);
-      --summary-badge-bg: rgba(255, 255, 255, 0.22);
-      --summary-badge-text: #ffffff;
-    }
-
-    .summary-card.summary-card--medium {
-      --summary-bg: linear-gradient(135deg, #fbbf24 0%, #d97706 100%);
-      --summary-text: #111827;
-      --summary-subtext: #1f2937;
-      --summary-badge-bg: rgba(17, 24, 39, 0.14);
-      --summary-badge-text: #111827;
-    }
-
-    .summary-card.summary-card--high {
-      --summary-bg: linear-gradient(135deg, #10b981 0%, #047857 100%);
-      --summary-text: #ffffff;
-      --summary-subtext: rgba(255, 255, 255, 0.92);
-      --summary-badge-bg: rgba(255, 255, 255, 0.22);
-      --summary-badge-text: #ffffff;
-    }
-    
-    .summary-value {
-      font-size: 2.5rem;
-      font-weight: 700;
-      margin-bottom: 0.25rem;
-      color: var(--summary-text);
-    }
-    
-    .summary-label {
-      font-size: 0.875rem;
-      color: var(--summary-subtext);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 0.5rem;
-    }
-
-    .summary-scope {
-      font-size: 0.78rem;
-      color: var(--summary-subtext);
-      margin-top: 0.35rem;
-      line-height: 1.4;
-    }
-
-    .summary-perf-badge {
-      display: inline-flex;
-      align-items: center;
-      padding: 0.18rem 0.6rem;
-      border-radius: 9999px;
-      font-size: 0.72rem;
-      font-weight: 700;
-      letter-spacing: 0.02em;
-      background: var(--summary-badge-bg);
-      color: var(--summary-badge-text);
-      white-space: nowrap;
-    }
+    /* Sales summary-card styling is cleanly managed in styles.css */
 
     .kd-bulk-bar {
       display: flex;
@@ -469,7 +396,7 @@
       <header class="header">
         <div class="header-container">
           <div class="d-flex align-items-center gap-2" style="cursor: pointer;" data-navigate="index.html">
-            <img src="../Images/logo.jpg" alt="Modern Koncept" class="logo logo-sm">
+            <img src="../Images/logo.png" alt="Modern Koncept" class="logo logo-sm">
             <span class="role-pill role-admin">Admin</span>
           </div>
         </div>
@@ -800,30 +727,54 @@
       <div id="adminDeliveryActiveView">
         <!-- Delivery Metrics Panel -->
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
-        <div class="card" style="margin-bottom:0; border-left: 4px solid #f59e0b;">
-          <div style="font-size:0.875rem;color:#6b7280;font-weight:500;margin-bottom:0.25rem;">Pending</div>
-          <div style="font-size:2rem;font-weight:700;color:#111827;" id="deliveryPendingCount">0</div>
-          <div style="font-size:0.75rem;color:#d97706;margin-top:0.25rem;" id="deliveryPendingScope">Awaiting processing</div>
-        </div>
+          <div class="summary-card" style="border-top-color: #f59e0b !important;">
+            <div class="summary-label">
+              <span>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:0.35rem;"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                Pending
+              </span>
+              <span class="summary-perf-badge" style="background:#fffbeb!important;color:#b45309!important;border-color:#fde68a!important;">Queued</span>
+            </div>
+            <div class="summary-value" id="deliveryPendingCount">0</div>
+            <div id="deliveryPendingScope" class="summary-scope">Awaiting processing</div>
+          </div>
 
-        <div class="card" style="margin-bottom:0; border-left: 4px solid #f59e0b;">
-          <div style="font-size:0.875rem;color:#6b7280;font-weight:500;margin-bottom:0.25rem;">Processing</div>
-          <div style="font-size:2rem;font-weight:700;color:#111827;" id="deliveryProcessingCount">0</div>
-          <div style="font-size:0.75rem;color:#d97706;margin-top:0.25rem;" id="deliveryProcessingScope">Preparing shipment</div>
-        </div>
+          <div class="summary-card" style="border-top-color: #3b82f6 !important;">
+            <div class="summary-label">
+              <span>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:0.35rem;"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 10"></polyline></svg>
+                Processing
+              </span>
+              <span class="summary-perf-badge" style="background:#eff6ff!important;color:#1d4ed8!important;border-color:#bfdbfe!important;">Preparing</span>
+            </div>
+            <div class="summary-value" id="deliveryProcessingCount">0</div>
+            <div id="deliveryProcessingScope" class="summary-scope">Preparing shipment</div>
+          </div>
 
-        <div class="card" style="margin-bottom:0; border-left: 4px solid #3b82f6;">
-          <div style="font-size:0.875rem;color:#6b7280;font-weight:500;margin-bottom:0.25rem;">In Transit</div>
-          <div style="font-size:2rem;font-weight:700;color:#111827;" id="deliveryInTransitCount">0</div>
-          <div style="font-size:0.75rem;color:#2563eb;margin-top:0.25rem;" id="deliveryInTransitScope">Active on route</div>
-        </div>
+          <div class="summary-card" style="border-top-color: #8b5cf6 !important;">
+            <div class="summary-label">
+              <span>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:0.35rem;"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
+                In Transit
+              </span>
+              <span class="summary-perf-badge" style="background:#faf5ff!important;color:#7e22ce!important;border-color:#f3e8ff!important;">On Route</span>
+            </div>
+            <div class="summary-value" id="deliveryInTransitCount">0</div>
+            <div id="deliveryInTransitScope" class="summary-scope">Active on route</div>
+          </div>
 
-        <div class="card" style="margin-bottom:0; border-left: 4px solid #10b981;">
-          <div style="font-size:0.875rem;color:#6b7280;font-weight:500;margin-bottom:0.25rem;">Delivered</div>
-          <div style="font-size:2rem;font-weight:700;color:#111827;" id="deliveryDeliveredCount">0</div>
-          <div style="font-size:0.75rem;color:#059669;margin-top:0.25rem;" id="deliveryDeliveredScope">Completed</div>
+          <div class="summary-card" style="border-top-color: #10b981 !important;">
+            <div class="summary-label">
+              <span>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:0.35rem;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                Delivered
+              </span>
+              <span class="summary-perf-badge" style="background:#ecfdf5!important;color:#047857!important;border-color:#a7f3d0!important;">Completed</span>
+            </div>
+            <div class="summary-value" id="deliveryDeliveredCount">0</div>
+            <div id="deliveryDeliveredScope" class="summary-scope">Completed</div>
+          </div>
         </div>
-      </div>
 
       <!-- Delivery Line Graph Card -->
       <div class="card" style="margin-bottom: 1.5rem;">
@@ -938,9 +889,12 @@
         </div>
       </div>
       
-      <div class="card">
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem;">
-          <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin: 0;">All Deliveries</h3>
+      <div class="card kd-delivery-card">
+        <div class="kd-delivery-card-header">
+          <div>
+            <h3>All Deliveries</h3>
+            <p>Manage dispatch schedules, customer deliveries, and live driver assignments.</p>
+          </div>
           <span id="adminDeliveryFilterSummary" style="font-size: 0.8125rem; color: #6b7280; font-weight: 500;"></span>
         </div>
 
@@ -1031,9 +985,12 @@
           </div>
         </div>
 
-        <div class="card">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem; flex-wrap:wrap; gap:0.5rem;">
-            <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin: 0;">Archived Deliveries</h3>
+        <div class="card kd-delivery-card">
+          <div class="kd-delivery-card-header">
+            <div>
+              <h3>Archived Deliveries</h3>
+              <p>Historical record of completed or archived delivery dispatches.</p>
+            </div>
             <span id="adminArchivedDeliveryFilterSummary" style="font-size: 0.8125rem; color: #6b7280; font-weight: 500;"></span>
           </div>
           <div class="table-container kd-delivery-table-container">
@@ -1089,7 +1046,10 @@
         <!-- Total Sales Card -->
         <div class="summary-card summary-card--low" id="totalSalesCard" data-performance-level="low">
           <div class="summary-label">
-            <span>Total Sales</span>
+            <span>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:0.35rem;color:#64748b;"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+              Total Sales
+            </span>
             <span class="summary-perf-badge" id="totalSalesPerfBadge" role="status">Low Performance</span>
           </div>
           <div class="summary-value" id="totalSales">₱0.00</div>
@@ -1099,7 +1059,10 @@
         <!-- Total Records Card -->
         <div class="summary-card summary-card--low" id="totalRecordsCard" data-performance-level="low">
           <div class="summary-label">
-            <span>Total Records</span>
+            <span>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:0.35rem;color:#64748b;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+              Total Records
+            </span>
             <span class="summary-perf-badge" id="totalRecordsPerfBadge" role="status">Low Performance</span>
           </div>
           <div class="summary-value" id="totalRecords">0</div>
@@ -1109,7 +1072,10 @@
         <!-- Average Sale Card -->
         <div class="summary-card summary-card--low" id="averageSaleCard" data-performance-level="low">
           <div class="summary-label">
-            <span>Average Sale</span>
+            <span>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:0.35rem;color:#64748b;"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+              Average Sale
+            </span>
             <span class="summary-perf-badge" id="averageSalePerfBadge" role="status">Low Performance</span>
           </div>
           <div class="summary-value" id="averageSale">₱0.00</div>
@@ -1139,9 +1105,10 @@
             <div>
               <label for="salesChartComparison" style="display:block;font-size:0.75rem;font-weight:600;color:#4b5563;margin-bottom:0.2rem;">Period Comparison</label>
               <select id="salesChartComparison" class="form-input" style="padding: 0.4rem 0.65rem; font-size: 0.8125rem; min-width: 210px;">
-                <option value="none">Single Trend (No Comparison)</option>
-                <option value="month_over_month">This Month vs. Previous Month</option>
+                <option value="year_over_year" selected>Year-over-Year (Jan – Dec: Reference Style)</option>
+                <option value="month_over_month">Previous Month vs. Current Month</option>
                 <option value="previous_period">Selected Range vs. Prior Period</option>
+                <option value="none">Single Trend (No Comparison)</option>
               </select>
             </div>
           </div>
@@ -1149,7 +1116,7 @@
 
         <div id="salesComparisonSummary" style="display:none; margin-bottom: 0.85rem; padding: 0.6rem 0.9rem; border-radius: 0.5rem; font-size: 0.8125rem; background: #f8fafc; border: 1px solid #e2e8f0; color: #334155;"></div>
 
-        <div style="position: relative; min-height: 300px;">
+        <div class="kd-line-graph-frame">
           <canvas id="salesLineChart" style="max-height: 340px;"></canvas>
         </div>
 
@@ -1210,27 +1177,30 @@
       </div>
       
       <div class="card">
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1.25rem;">
           <div style="display:flex;align-items:center;gap:0.75rem;">
-            <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin: 0;">All Sales Records</h3>
-            <button type="button" class="btn btn-secondary" onclick="syncDeliveredSalesRecords()" style="font-size:0.75rem;padding:0.25rem 0.6rem;display:inline-flex;align-items:center;gap:0.35rem;" title="Sync delivered orders to sales records">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+            <div>
+              <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin: 0;">All Sales Records</h3>
+              <p style="font-size: 0.8125rem; color: #6b7280; margin: 0.25rem 0 0;">Transaction records, customer details, and payment methods.</p>
+            </div>
+            <button type="button" class="btn btn-secondary" onclick="syncDeliveredSalesRecords()" style="font-size:0.75rem;padding:0.35rem 0.75rem;display:inline-flex;align-items:center;gap:0.4rem;" title="Sync delivered orders to sales records">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
               Sync Deliveries
             </button>
           </div>
           <span id="adminSalesFilterSummary" style="font-size: 0.8125rem; color: #6b7280; font-weight: 500;"></span>
         </div>
-        <div class="table-container">
-          <table>
+        <div class="table-container kd-delivery-table-container kd-sales-table-container">
+          <table class="kd-delivery-table kd-sales-table" style="min-width: 900px;">
             <thead>
               <tr>
-                <th>Date</th>
+                <th>Sale Date</th>
                 <th>Customer</th>
                 <th>Product</th>
                 <th>Category</th>
-                <th>Amount</th>
+                <th class="text-right">Amount</th>
                 <th>Mode of Payment</th>
-                <th>Actions</th>
+                <th class="text-center">Actions</th>
               </tr>
             </thead>
             <tbody id="adminSalesList">
@@ -1281,22 +1251,25 @@
         </div>
 
         <div class="card">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem; flex-wrap:wrap; gap:0.5rem;">
-            <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin: 0;">Archived Sales Records</h3>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1.25rem; flex-wrap:wrap; gap:0.75rem;">
+            <div>
+              <h3 style="font-size: 1.125rem; font-weight: 600; color: #111827; margin: 0;">Archived Sales Records</h3>
+              <p style="font-size: 0.8125rem; color: #6b7280; margin: 0.25rem 0 0;">Previously archived transaction history.</p>
+            </div>
             <span id="adminArchivedSalesFilterSummary" style="font-size: 0.8125rem; color: #6b7280; font-weight: 500;"></span>
           </div>
-          <div class="table-container">
-            <table>
+          <div class="table-container kd-delivery-table-container kd-sales-table-container">
+            <table class="kd-delivery-table kd-sales-table" style="min-width: 980px;">
               <thead>
                 <tr>
-                  <th>Date</th>
+                  <th>Sale Date</th>
                   <th>Customer</th>
                   <th>Product</th>
                   <th>Category</th>
-                  <th>Amount</th>
+                  <th class="text-right">Amount</th>
                   <th>Mode of Payment</th>
                   <th>Archived Date</th>
-                  <th>Actions</th>
+                  <th class="text-center">Actions</th>
                 </tr>
               </thead>
               <tbody id="adminArchivedSalesList">
@@ -1553,7 +1526,7 @@
   <footer class="footer">
     <div class="footer-container">
       <div>
-        <img src="../Images/logo.jpg" alt="Modern Koncept" class="logo logo-sm" style="margin-bottom: 0.5rem;">
+        <img src="../Images/logo.png" alt="Modern Koncept" class="logo logo-sm" style="margin-bottom: 0.5rem;">
         <p class="footer-text">Quality furniture for your home</p>
       </div>
       <div style="text-align: right;">

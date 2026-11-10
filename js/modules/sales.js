@@ -177,7 +177,7 @@ function getAdminSalesFilterState() {
   const dateTo = dateToEl ? dateToEl.value : '';
   const sort = sortEl ? sortEl.value : 'date-desc';
   const interval = intervalEl ? intervalEl.value : 'auto';
-  const comparison = comparisonEl ? comparisonEl.value : 'none';
+  const comparison = comparisonEl && comparisonEl.value ? comparisonEl.value : 'year_over_year';
 
   const hasActiveFilters = Boolean(search || (category && category !== 'all') || dateFrom || dateTo);
   return { search, category, dateFrom, dateTo, sort, interval, comparison, hasActiveFilters };
@@ -423,25 +423,30 @@ function renderAdminSalesTableRows(filteredSales, allSalesCount) {
     const emptyMsg = allSalesCount > 0
       ? 'No sales records match your selected filters.'
       : 'No sales records found';
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#9ca3af;padding:2rem;">${emptyMsg}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:2.5rem 1rem;font-weight:500;">${emptyMsg}</td></tr>`;
     return;
   }
 
-  filteredSales.forEach(item => {
+  const rowsHtml = filteredSales.map(item => {
     const category = resolveSaleCategory(item);
-    tbody.innerHTML += `
+    return `
       <tr>
-        <td>${formatDate(item.sale_date)}</td>
-        <td>${escapeHtml(item.customer_name)}</td>
+        <td><span style="color:#475569;font-weight:500;white-space:nowrap;">${formatDate(item.sale_date)}</span></td>
+        <td><span style="font-weight:600;color:#0f172a;">${escapeHtml(item.customer_name || '—')}</span></td>
         <td>${formatSaleProduct(item)}</td>
-        <td><span class="status-badge" style="background:#f3f4f6;color:#374151;font-weight:500;">${escapeHtml(category)}</span></td>
-        <td>${formatCurrency(item.amount)}</td>
+        <td><span class="kd-type-pill">${escapeHtml(category)}</span></td>
+        <td style="text-align:right;"><span style="font-weight:700;color:#16a34a;font-variant-numeric:tabular-nums;white-space:nowrap;">${formatCurrency(item.amount)}</span></td>
         <td>${formatPaymentMode(item.mode_of_payment)}</td>
-        <td>
-          <button class="action-btn archive" onclick="archiveSales(${item.id})" title="Archive Sales Record"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="21 8 21 21 3 21 3 8"></polyline><rect x="1" y="3" width="22" height="5"></rect><line x1="10" y1="12" x2="14" y2="12"></line></svg></button>
+        <td style="text-align:center;">
+          <button class="kd-btn-archive" onclick="archiveSales(${item.id})" title="Archive Sales Record">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="21 8 21 21 3 21 3 8"></polyline><rect x="1" y="3" width="22" height="5"></rect><line x1="10" y1="12" x2="14" y2="12"></line></svg>
+            <span>Archive</span>
+          </button>
         </td>
       </tr>`;
-  });
+  }).join('');
+
+  tbody.innerHTML = rowsHtml;
 }
 
 function chooseEffectiveSalesInterval(salesRows, requestedInterval) {
@@ -488,7 +493,7 @@ function aggregateSalesChronologically(salesRows, interval) {
 }
 
 function buildComparisonSeries(allSales, filteredSales, filterState) {
-  const { comparison, search, category, dateFrom, dateTo } = filterState;
+  const { comparison, search, category, dateFrom, dateTo, interval = 'auto' } = filterState;
   if (comparison === 'none') return null;
 
   // Apply only non-date filters (search & category) when looking up historical comparison window
@@ -503,6 +508,62 @@ function buildComparisonSeries(allSales, filteredSales, filterState) {
     }
     return true;
   });
+
+  if (comparison === 'year_over_year') {
+    const allDates = (filteredSales.length ? filteredSales : baseRows)
+      .map(r => toLocalDateKey(r.sale_date))
+      .filter(Boolean)
+      .sort();
+    const anchorDate = allDates.length ? parseLocalDateKey(allDates[allDates.length - 1]) : new Date();
+    const curYear = anchorDate.getFullYear();
+    const prevYear = curYear - 1;
+
+    const curYearPrefix = `${curYear}-`;
+    const prevYearPrefix = `${prevYear}-`;
+
+    const curMonthTotals = new Array(12).fill(0);
+    const prevMonthTotals = new Array(12).fill(0);
+    let curTotal = 0;
+    let prevTotal = 0;
+    let curCount = 0;
+    let prevCount = 0;
+
+    baseRows.forEach(row => {
+      const dk = toLocalDateKey(row.sale_date);
+      if (!dk) return;
+      const amt = parseFloat(row.amount) || 0;
+      const monthIdx = Number(dk.slice(5, 7)) - 1;
+      if (monthIdx < 0 || monthIdx > 11) return;
+
+      if (dk.startsWith(curYearPrefix)) {
+        curMonthTotals[monthIdx] += amt;
+        curTotal += amt;
+        curCount += 1;
+      } else if (dk.startsWith(prevYearPrefix)) {
+        prevMonthTotals[monthIdx] += amt;
+        prevTotal += amt;
+        prevCount += 1;
+      }
+    });
+
+    const labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const curData = curMonthTotals.map(v => Math.round(v * 100) / 100);
+    const prevData = prevMonthTotals.map(v => Math.round(v * 100) / 100);
+
+    return {
+      mode: 'year_over_year',
+      labels,
+      currentLabel: `Year ${curYear}`,
+      previousLabel: `Year ${prevYear}`,
+      currentData: curData,
+      previousData: prevData,
+      currentTotal: curTotal,
+      previousTotal: prevTotal,
+      currentCount: curCount,
+      previousCount: prevCount,
+      summaryTitle: `Year ${prevYear} vs. Year ${curYear}`
+    };
+  }
 
   if (comparison === 'month_over_month') {
     const allDates = (filteredSales.length ? filteredSales : baseRows)
@@ -544,23 +605,48 @@ function buildComparisonSeries(allSales, filteredSales, filterState) {
       }
     });
 
-    const activeDays = Array.from(new Set([...curMap.keys(), ...prevMap.keys()])).sort((a, b) => a - b);
-    const labels = activeDays.map(d => `Day ${d}`);
-    const curData = activeDays.map(d => curMap.get(d) || 0);
-    const prevData = activeDays.map(d => prevMap.get(d) || 0);
+    let labels = [];
+    let curData = [];
+    let prevData = [];
+
+    if (interval === 'week') {
+      const weeks = [
+        { label: 'Week 1 (Days 1–7)', start: 1, end: 7 },
+        { label: 'Week 2 (Days 8–14)', start: 8, end: 14 },
+        { label: 'Week 3 (Days 15–21)', start: 15, end: 21 },
+        { label: 'Week 4 (Days 22–28)', start: 22, end: 28 },
+        { label: 'Week 5 (Days 29–31)', start: 29, end: 31 }
+      ];
+      labels = weeks.map(w => w.label);
+      curData = weeks.map(w => {
+        let sum = 0;
+        for (let d = w.start; d <= w.end; d++) sum += (curMap.get(d) || 0);
+        return Math.round(sum * 100) / 100;
+      });
+      prevData = weeks.map(w => {
+        let sum = 0;
+        for (let d = w.start; d <= w.end; d++) sum += (prevMap.get(d) || 0);
+        return Math.round(sum * 100) / 100;
+      });
+    } else {
+      const activeDays = Array.from(new Set([...curMap.keys(), ...prevMap.keys()])).sort((a, b) => a - b);
+      labels = activeDays.length ? activeDays.map(d => `Day ${d}`) : ['Day 1'];
+      curData = activeDays.length ? activeDays.map(d => Math.round((curMap.get(d) || 0) * 100) / 100) : [curTotal];
+      prevData = activeDays.length ? activeDays.map(d => Math.round((prevMap.get(d) || 0) * 100) / 100) : [prevTotal];
+    }
 
     return {
       mode: 'month_over_month',
       labels,
-      currentLabel: `${curMonthLabel} (₱)`,
-      previousLabel: `${prevMonthLabel} (₱)`,
+      currentLabel: `Current Month (${curMonthLabel})`,
+      previousLabel: `Previous Month (${prevMonthLabel})`,
       currentData: curData,
       previousData: prevData,
       currentTotal: curTotal,
       previousTotal: prevTotal,
       currentCount: curCount,
       previousCount: prevCount,
-      summaryTitle: `${curMonthLabel} vs. ${prevMonthLabel}`
+      summaryTitle: `${prevMonthLabel} vs. ${curMonthLabel}`
     };
   }
 
@@ -630,6 +716,115 @@ function buildComparisonSeries(allSales, filteredSales, filterState) {
   return null;
 }
 
+/**
+ * Builds standard Chart.js v4 configuration for Sales Revenue Line Graph
+ * matching the reference clean Excel-style layout:
+ * - Centered top title ("Line graph")
+ * - Excel palette: Green (#70ad47) primary series, Rust Orange (#c55a11) comparison series
+ * - Straight angular segments (tension: 0, fill: false, borderWidth: 3)
+ * - Bottom centered legend with line point style
+ * - Horizontal-only grid lines on Y, bottom baseline on X
+ */
+function buildSalesLineChartConfig({ labels, datasets, title = 'Line graph', xTitle = '', tooltipCounts = null }) {
+  const isSinglePoint = (datasets[0]?.data?.length || 0) <= 1;
+
+  const styledDatasets = datasets.map((ds, idx) => {
+    const defaultColor = idx === 0 ? '#70ad47' : '#c55a11';
+    const color = ds.borderColor || defaultColor;
+    return {
+      label: ds.label,
+      data: ds.data,
+      borderColor: color,
+      backgroundColor: color,
+      borderWidth: 3,
+      fill: false,
+      tension: 0,
+      borderDash: ds.borderDash || [],
+      pointRadius: isSinglePoint ? 4.5 : (ds.pointRadius ?? 0),
+      pointHoverRadius: 6,
+      pointBackgroundColor: color,
+      pointBorderColor: '#ffffff',
+      pointBorderWidth: 1.5,
+      pointHoverBorderWidth: 2
+    };
+  });
+
+  return {
+    type: 'line',
+    data: {
+      labels: labels && labels.length ? labels : ['No Data'],
+      datasets: styledDatasets
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        title: {
+          display: true,
+          text: title,
+          font: { size: 18, weight: '500', family: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' },
+          color: '#374151',
+          padding: { top: 6, bottom: 14 },
+          align: 'center'
+        },
+        legend: {
+          display: true,
+          position: 'bottom',
+          align: 'center',
+          labels: {
+            usePointStyle: true,
+            pointStyle: 'line',
+            boxWidth: 28,
+            boxHeight: 3,
+            color: '#4b5563',
+            font: { size: 12, weight: '500' },
+            padding: 16
+          }
+        },
+        tooltip: {
+          backgroundColor: '#1f2937',
+          titleFont: { size: 12, weight: '600' },
+          bodyFont: { size: 12 },
+          padding: 10,
+          cornerRadius: 6,
+          callbacks: {
+            label: context => {
+              const idx = context.dataIndex;
+              const val = context.parsed.y;
+              if (tooltipCounts && tooltipCounts[idx] !== undefined) {
+                const count = tooltipCounts[idx];
+                return ` ${context.dataset.label}: ${formatCurrency(val)} (${count} sale${count === 1 ? '' : 's'})`;
+              }
+              return ` ${context.dataset.label}: ${formatCurrency(val)}`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          border: { display: true, color: '#d1d5db', width: 1.5 },
+          ticks: { color: '#6b7280', font: { size: 11, weight: '500' }, padding: 6 },
+          title: xTitle ? { display: true, text: xTitle, color: '#6b7280', font: { size: 11, weight: '600' }, padding: { top: 6 } } : { display: false }
+        },
+        y: {
+          beginAtZero: true,
+          grid: { color: '#e5e7eb', drawBorder: false },
+          border: { display: false },
+          ticks: {
+            color: '#6b7280',
+            font: { size: 11, weight: '500' },
+            padding: 8,
+            callback: val => '₱' + Number(val).toLocaleString('en-US')
+          },
+          title: { display: false }
+        }
+      }
+    }
+  };
+}
+
 function renderAdminSalesLineChart(filteredSales, allSales, filterState) {
   const ctx = document.getElementById('salesLineChart');
   if (!ctx) return;
@@ -665,78 +860,32 @@ function renderAdminSalesLineChart(filteredSales, allSales, filterState) {
       compSummaryEl.style.display = 'block';
       compSummaryEl.innerHTML = `
         <strong>${escapeHtml(compSeries.summaryTitle)}:</strong>
-        Current Period: <strong>${formatCurrency(compSeries.currentTotal)}</strong> (${compSeries.currentCount} sale${compSeries.currentCount === 1 ? '' : 's'})
+        ${escapeHtml(compSeries.previousLabel)}: <strong>${formatCurrency(compSeries.previousTotal)}</strong> (${compSeries.previousCount} sale${compSeries.previousCount === 1 ? '' : 's'})
         &nbsp;|&nbsp;
-        Prior Period: <strong>${formatCurrency(compSeries.previousTotal)}</strong> (${compSeries.previousCount} sale${compSeries.previousCount === 1 ? '' : 's'})
+        ${escapeHtml(compSeries.currentLabel)}: <strong>${formatCurrency(compSeries.currentTotal)}</strong> (${compSeries.currentCount} sale${compSeries.currentCount === 1 ? '' : 's'})
         &nbsp;|&nbsp;
-        Difference: <strong style="color:${diff >= 0 ? '#059669' : '#d97706'};">${diff >= 0 ? '+' : ''}${formatCurrency(diff)} (${escapeHtml(pctText)})</strong>
+        Net Change: <strong style="color:${diff >= 0 ? '#059669' : '#d97706'};">${diff >= 0 ? '+' : ''}${formatCurrency(diff)} (${escapeHtml(pctText)})</strong>
       `;
     }
 
     if (compSeries.previousCount === 0) {
-      setNotice('Note: The database has no recorded sales in the preceding comparison period. Only real recorded transactions are plotted (no sample points are fabricated).');
+      setNotice(`Comparing <strong>${escapeHtml(compSeries.previousLabel)}</strong> with <strong>${escapeHtml(compSeries.currentLabel)}</strong>. Note: No recorded transactions in prior period database (₱0.00). Plotted using actual database records.`);
     } else {
-      setNotice('');
+      setNotice(`Comparing actual recorded sales revenue between <strong>${escapeHtml(compSeries.previousLabel)}</strong> and <strong>${escapeHtml(compSeries.currentLabel)}</strong>.`);
     }
 
-    window.salesLineChartInstance = new Chart(ctx, {
-      type: 'line',
-      data: {
+    window.salesLineChartInstance = new Chart(
+      ctx,
+      buildSalesLineChartConfig({
         labels: compSeries.labels.length ? compSeries.labels : ['No Data'],
         datasets: [
-          {
-            label: compSeries.currentLabel,
-            data: compSeries.currentData.length ? compSeries.currentData : [0],
-            borderColor: '#2563eb',
-            backgroundColor: 'rgba(37, 99, 235, 0.12)',
-            borderWidth: 3,
-            fill: true,
-            tension: 0.35,
-            pointBackgroundColor: '#2563eb',
-            pointBorderColor: '#ffffff',
-            pointBorderWidth: 2,
-            pointRadius: 5,
-            pointHoverRadius: 7
-          },
-          {
-            label: compSeries.previousLabel,
-            data: compSeries.previousData.length ? compSeries.previousData : [0],
-            borderColor: '#64748b',
-            backgroundColor: 'rgba(100, 116, 139, 0.06)',
-            borderWidth: 2,
-            borderDash: [6, 4],
-            fill: false,
-            tension: 0.35,
-            pointBackgroundColor: '#64748b',
-            pointBorderColor: '#ffffff',
-            pointBorderWidth: 2,
-            pointRadius: 4,
-            pointHoverRadius: 6
-          }
-        ]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
-        plugins: {
-          legend: { display: true, position: 'top' },
-          tooltip: {
-            callbacks: {
-              label: context => `${context.dataset.label}: ${formatCurrency(context.parsed.y)}`
-            }
-          }
-        },
-        scales: {
-          x: { title: { display: true, text: 'Comparison Period Timeline', color: '#4b5563', font: { weight: '600' } } },
-          y: {
-            beginAtZero: true,
-            title: { display: true, text: 'Sales Revenue (₱)', color: '#4b5563', font: { weight: '600' } },
-            ticks: { callback: val => '₱' + Number(val).toLocaleString('en-US') }
-          }
-        }
-      }
-    });
+          { label: compSeries.previousLabel, data: compSeries.previousData.length ? compSeries.previousData : [0], borderColor: '#70ad47', backgroundColor: '#70ad47' },
+          { label: compSeries.currentLabel, data: compSeries.currentData.length ? compSeries.currentData : [0], borderColor: '#c55a11', backgroundColor: '#c55a11' }
+        ],
+        title: 'Line graph',
+        xTitle: compSeries.mode === 'year_over_year' ? '' : 'Timeline Comparison'
+      })
+    );
     return;
   }
 
@@ -747,11 +896,14 @@ function renderAdminSalesLineChart(filteredSales, allSales, filterState) {
 
   if (!filteredSales || filteredSales.length === 0) {
     setNotice('No sales records match the current selection. Adjust your filters or add sales records to view the revenue line graph.', true);
-    window.salesLineChartInstance = new Chart(ctx, {
-      type: 'line',
-      data: { labels: ['No matching records'], datasets: [{ label: 'Sales Revenue (₱)', data: [0], borderColor: '#9ca3af', backgroundColor: 'rgba(156,163,175,0.1)', borderWidth: 2 }] },
-      options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { callback: val => '₱' + Number(val).toLocaleString('en-US') } } } }
-    });
+    window.salesLineChartInstance = new Chart(
+      ctx,
+      buildSalesLineChartConfig({
+        labels: ['No matching records'],
+        datasets: [{ label: 'Sales Revenue (₱)', data: [0], borderColor: '#9ca3af' }],
+        title: 'Line graph'
+      })
+    );
     return;
   }
 
@@ -778,55 +930,22 @@ function renderAdminSalesLineChart(filteredSales, allSales, filterState) {
   const amounts = aggregated.map(b => Math.round(b.total * 100) / 100);
   const counts = aggregated.map(b => b.count);
 
-  window.salesLineChartInstance = new Chart(ctx, {
-    type: 'line',
-    data: {
+  window.salesLineChartInstance = new Chart(
+    ctx,
+    buildSalesLineChartConfig({
       labels,
       datasets: [
         {
           label: `${intervalTitle} Sales Revenue (₱)`,
           data: amounts,
-          borderColor: '#2563eb',
-          backgroundColor: 'rgba(37, 99, 235, 0.12)',
-          borderWidth: 3,
-          fill: true,
-          tension: 0.35,
-          pointBackgroundColor: '#2563eb',
-          pointBorderColor: '#ffffff',
-          pointBorderWidth: 2,
-          pointRadius: 5,
-          pointHoverRadius: 7
+          borderColor: '#70ad47'
         }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { display: true, position: 'top' },
-        tooltip: {
-          callbacks: {
-            label: context => {
-              const idx = context.dataIndex;
-              const txCount = counts[idx] || 0;
-              return `Revenue: ${formatCurrency(context.parsed.y)} (${txCount} sale${txCount === 1 ? '' : 's'})`;
-            }
-          }
-        }
-      },
-      scales: {
-        x: {
-          title: { display: true, text: `Timeline (${intervalTitle})`, color: '#4b5563', font: { weight: '600' } }
-        },
-        y: {
-          beginAtZero: true,
-          title: { display: true, text: 'Sales Revenue (₱)', color: '#4b5563', font: { weight: '600' } },
-          ticks: { callback: val => '₱' + Number(val).toLocaleString('en-US') }
-        }
-      }
-    }
-  });
+      ],
+      title: 'Line graph',
+      xTitle: `Timeline (${intervalTitle})`,
+      tooltipCounts: counts
+    })
+  );
 }
 
 function applyAdminSalesView() {
@@ -893,7 +1012,7 @@ export function initAdminSalesControls() {
       if (dt) dt.value = '';
       if (sort) sort.value = 'date-desc';
       if (interval) interval.value = 'auto';
-      if (comp) comp.value = 'none';
+      if (comp) comp.value = 'year_over_year';
       applyAdminSalesView();
     });
   }
@@ -957,7 +1076,7 @@ function getManagerSalesFilterState() {
   const dateTo = dateToEl ? dateToEl.value : '';
   const sort = sortEl ? sortEl.value : 'date-desc';
   const interval = intervalEl ? intervalEl.value : 'auto';
-  const comparison = comparisonEl ? comparisonEl.value : 'none';
+  const comparison = comparisonEl && comparisonEl.value ? comparisonEl.value : 'year_over_year';
 
   const hasActiveFilters = Boolean(search || (category && category !== 'all') || dateFrom || dateTo);
   return { search, category, dateFrom, dateTo, sort, interval, comparison, hasActiveFilters };
@@ -1022,22 +1141,24 @@ function renderManagerSalesTableRows(filteredSales, allSalesCount) {
     const emptyMsg = allSalesCount > 0
       ? 'No sales records match your selected filters.'
       : 'No sales records found';
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#9ca3af;padding:2rem;">${emptyMsg}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:2.5rem 1rem;font-weight:500;">${emptyMsg}</td></tr>`;
     return;
   }
 
-  filteredSales.forEach(item => {
+  const rowsHtml = filteredSales.map(item => {
     const category = resolveSaleCategory(item);
-    tbody.innerHTML += `
+    return `
       <tr>
-        <td>${formatDate(item.sale_date)}</td>
-        <td>${escapeHtml(item.customer_name)}</td>
+        <td><span style="color:#475569;font-weight:500;white-space:nowrap;">${formatDate(item.sale_date)}</span></td>
+        <td><span style="font-weight:600;color:#0f172a;">${escapeHtml(item.customer_name || '—')}</span></td>
         <td>${formatSaleProduct(item)}</td>
-        <td><span class="status-badge" style="background:#f3f4f6;color:#374151;font-weight:500;">${escapeHtml(category)}</span></td>
-        <td>${formatCurrency(item.amount)}</td>
+        <td><span class="kd-type-pill">${escapeHtml(category)}</span></td>
+        <td style="text-align:right;"><span style="font-weight:700;color:#16a34a;font-variant-numeric:tabular-nums;white-space:nowrap;">${formatCurrency(item.amount)}</span></td>
         <td>${formatPaymentMode(item.mode_of_payment)}</td>
       </tr>`;
-  });
+  }).join('');
+
+  tbody.innerHTML = rowsHtml;
 }
 
 function updateManagerSalesSummaryCards(filteredSales, allSales, filterState = {}) {
@@ -1133,54 +1254,30 @@ function renderManagerSalesLineChart(filteredSales, allSales, filterState) {
       compSummaryEl.style.display = 'block';
       compSummaryEl.innerHTML = `
         <strong>${escapeHtml(compSeries.summaryTitle)}:</strong>
-        Current Period: <strong>${formatCurrency(compSeries.currentTotal)}</strong> (${compSeries.currentCount} sale${compSeries.currentCount === 1 ? '' : 's'})
+        ${escapeHtml(compSeries.previousLabel)}: <strong>${formatCurrency(compSeries.previousTotal)}</strong> (${compSeries.previousCount} sale${compSeries.previousCount === 1 ? '' : 's'})
         &nbsp;|&nbsp;
-        Prior Period: <strong>${formatCurrency(compSeries.previousTotal)}</strong> (${compSeries.previousCount} sale${compSeries.previousCount === 1 ? '' : 's'})
+        ${escapeHtml(compSeries.currentLabel)}: <strong>${formatCurrency(compSeries.currentTotal)}</strong> (${compSeries.currentCount} sale${compSeries.currentCount === 1 ? '' : 's'})
         &nbsp;|&nbsp;
-        Difference: <strong style="color:${diff >= 0 ? '#059669' : '#d97706'};">${diff >= 0 ? '+' : ''}${formatCurrency(diff)} (${escapeHtml(pctText)})</strong>
+        Net Change: <strong style="color:${diff >= 0 ? '#059669' : '#d97706'};">${diff >= 0 ? '+' : ''}${formatCurrency(diff)} (${escapeHtml(pctText)})</strong>
       `;
     }
     if (compSeries.previousCount === 0) {
-      setNotice('Note: The database has no recorded sales in the preceding comparison period. Only real recorded transactions are plotted (no sample points are fabricated).');
+      setNotice(`Comparing <strong>${escapeHtml(compSeries.previousLabel)}</strong> with <strong>${escapeHtml(compSeries.currentLabel)}</strong>. Note: No recorded transactions in prior period database (₱0.00). Plotted using actual database records.`);
     } else {
-      setNotice('');
+      setNotice(`Comparing actual recorded sales revenue between <strong>${escapeHtml(compSeries.previousLabel)}</strong> and <strong>${escapeHtml(compSeries.currentLabel)}</strong>.`);
     }
-    window.managerSalesLineChartInstance = new Chart(ctx, {
-      type: 'line',
-      data: {
+    window.managerSalesLineChartInstance = new Chart(
+      ctx,
+      buildSalesLineChartConfig({
         labels: compSeries.labels.length ? compSeries.labels : ['No Data'],
         datasets: [
-          {
-            label: compSeries.currentLabel,
-            data: compSeries.currentData.length ? compSeries.currentData : [0],
-            borderColor: '#7c3aed', backgroundColor: 'rgba(124,58,237,0.12)',
-            borderWidth: 3, fill: true, tension: 0.35,
-            pointBackgroundColor: '#7c3aed', pointBorderColor: '#ffffff',
-            pointBorderWidth: 2, pointRadius: 5, pointHoverRadius: 7
-          },
-          {
-            label: compSeries.previousLabel,
-            data: compSeries.previousData.length ? compSeries.previousData : [0],
-            borderColor: '#64748b', backgroundColor: 'rgba(100,116,139,0.06)',
-            borderWidth: 2, borderDash: [6, 4], fill: false, tension: 0.35,
-            pointBackgroundColor: '#64748b', pointBorderColor: '#ffffff',
-            pointBorderWidth: 2, pointRadius: 4, pointHoverRadius: 6
-          }
-        ]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
-        plugins: {
-          legend: { display: true, position: 'top' },
-          tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${formatCurrency(ctx.parsed.y)}` } }
-        },
-        scales: {
-          x: { title: { display: true, text: 'Comparison Period Timeline', color: '#4b5563', font: { weight: '600' } } },
-          y: { beginAtZero: true, title: { display: true, text: 'Sales Revenue (₱)', color: '#4b5563', font: { weight: '600' } }, ticks: { callback: val => '₱' + Number(val).toLocaleString('en-US') } }
-        }
-      }
-    });
+          { label: compSeries.previousLabel, data: compSeries.previousData.length ? compSeries.previousData : [0], borderColor: '#70ad47', backgroundColor: '#70ad47' },
+          { label: compSeries.currentLabel, data: compSeries.currentData.length ? compSeries.currentData : [0], borderColor: '#c55a11', backgroundColor: '#c55a11' }
+        ],
+        title: 'Line graph',
+        xTitle: compSeries.mode === 'year_over_year' ? '' : 'Timeline Comparison'
+      })
+    );
     return;
   }
 
@@ -1188,11 +1285,14 @@ function renderManagerSalesLineChart(filteredSales, allSales, filterState) {
 
   if (!filteredSales || filteredSales.length === 0) {
     setNotice('No sales records match the current selection. Adjust your filters or add sales records to view the revenue line graph.', true);
-    window.managerSalesLineChartInstance = new Chart(ctx, {
-      type: 'line',
-      data: { labels: ['No matching records'], datasets: [{ label: 'Sales Revenue (₱)', data: [0], borderColor: '#9ca3af', backgroundColor: 'rgba(156,163,175,0.1)', borderWidth: 2 }] },
-      options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { callback: val => '₱' + Number(val).toLocaleString('en-US') } } } }
-    });
+    window.managerSalesLineChartInstance = new Chart(
+      ctx,
+      buildSalesLineChartConfig({
+        labels: ['No matching records'],
+        datasets: [{ label: 'Sales Revenue (₱)', data: [0], borderColor: '#9ca3af' }],
+        title: 'Line graph'
+      })
+    );
     return;
   }
 
@@ -1219,40 +1319,20 @@ function renderManagerSalesLineChart(filteredSales, allSales, filterState) {
   const amounts = aggregated.map(b => Math.round(b.total * 100) / 100);
   const counts = aggregated.map(b => b.count);
 
-  window.managerSalesLineChartInstance = new Chart(ctx, {
-    type: 'line',
-    data: {
+  window.managerSalesLineChartInstance = new Chart(
+    ctx,
+    buildSalesLineChartConfig({
       labels,
       datasets: [{
         label: `${intervalTitle} Sales Revenue (₱)`,
         data: amounts,
-        borderColor: '#7c3aed', backgroundColor: 'rgba(124,58,237,0.12)',
-        borderWidth: 3, fill: true, tension: 0.35,
-        pointBackgroundColor: '#7c3aed', pointBorderColor: '#ffffff',
-        pointBorderWidth: 2, pointRadius: 5, pointHoverRadius: 7
-      }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { display: true, position: 'top' },
-        tooltip: {
-          callbacks: {
-            label: context => {
-              const idx = context.dataIndex;
-              const txCount = counts[idx] || 0;
-              return `Revenue: ${formatCurrency(context.parsed.y)} (${txCount} sale${txCount === 1 ? '' : 's'})`;
-            }
-          }
-        }
-      },
-      scales: {
-        x: { title: { display: true, text: `Timeline (${intervalTitle})`, color: '#4b5563', font: { weight: '600' } } },
-        y: { beginAtZero: true, title: { display: true, text: 'Sales Revenue (₱)', color: '#4b5563', font: { weight: '600' } }, ticks: { callback: val => '₱' + Number(val).toLocaleString('en-US') } }
-      }
-    }
-  });
+        borderColor: '#70ad47'
+      }],
+      title: 'Line graph',
+      xTitle: `Timeline (${intervalTitle})`,
+      tooltipCounts: counts
+    })
+  );
 }
 
 function applyManagerSalesView() {
@@ -1298,7 +1378,7 @@ export function initManagerSalesControls() {
       if (dt) dt.value = '';
       if (sort) sort.value = 'date-desc';
       if (interval) interval.value = 'auto';
-      if (comp) comp.value = 'none';
+      if (comp) comp.value = 'year_over_year';
       applyManagerSalesView();
     });
   }
@@ -1359,7 +1439,7 @@ function getStaffSalesFilterState() {
   const dateTo = dateToEl ? dateToEl.value : '';
   const sort = sortEl ? sortEl.value : 'date-desc';
   const interval = intervalEl ? intervalEl.value : 'auto';
-  const comparison = comparisonEl ? comparisonEl.value : 'none';
+  const comparison = comparisonEl && comparisonEl.value ? comparisonEl.value : 'year_over_year';
 
   const hasActiveFilters = Boolean(search || (category && category !== 'all') || dateFrom || dateTo);
   return { search, category, dateFrom, dateTo, sort, interval, comparison, hasActiveFilters };
@@ -1423,20 +1503,24 @@ function renderStaffSalesTableRows(filteredSales, allSalesCount) {
     const emptyMsg = allSalesCount > 0
       ? 'No sales records match your selected filters.'
       : 'No sales records found';
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#9ca3af;padding:2rem;">${emptyMsg}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:2.5rem 1rem;font-weight:500;">${emptyMsg}</td></tr>`;
     return;
   }
 
-  filteredSales.forEach(item => {
-    tbody.innerHTML += `
+  const rowsHtml = filteredSales.map(item => {
+    const category = resolveSaleCategory(item);
+    return `
       <tr>
-        <td>${formatDate(item.sale_date)}</td>
-        <td>${escapeHtml(item.customer_name)}</td>
+        <td><span style="color:#475569;font-weight:500;white-space:nowrap;">${formatDate(item.sale_date)}</span></td>
+        <td><span style="font-weight:600;color:#0f172a;">${escapeHtml(item.customer_name || '—')}</span></td>
         <td>${formatSaleProduct(item)}</td>
-        <td>${formatCurrency(item.amount)}</td>
+        <td><span class="kd-type-pill">${escapeHtml(category)}</span></td>
+        <td style="text-align:right;"><span style="font-weight:700;color:#16a34a;font-variant-numeric:tabular-nums;white-space:nowrap;">${formatCurrency(item.amount)}</span></td>
         <td>${formatPaymentMode(item.mode_of_payment)}</td>
       </tr>`;
-  });
+  }).join('');
+
+  tbody.innerHTML = rowsHtml;
 }
 
 function populateStaffSalesCategoryDropdown(salesRows) {
@@ -1552,54 +1636,30 @@ function renderStaffSalesLineChart(filteredSales, allSales, filterState) {
       compSummaryEl.style.display = 'block';
       compSummaryEl.innerHTML = `
         <strong>${escapeHtml(compSeries.summaryTitle)}:</strong>
-        Current Period: <strong>${formatCurrency(compSeries.currentTotal)}</strong> (${compSeries.currentCount} sale${compSeries.currentCount === 1 ? '' : 's'})
+        ${escapeHtml(compSeries.previousLabel)}: <strong>${formatCurrency(compSeries.previousTotal)}</strong> (${compSeries.previousCount} sale${compSeries.previousCount === 1 ? '' : 's'})
         &nbsp;|&nbsp;
-        Prior Period: <strong>${formatCurrency(compSeries.previousTotal)}</strong> (${compSeries.previousCount} sale${compSeries.previousCount === 1 ? '' : 's'})
+        ${escapeHtml(compSeries.currentLabel)}: <strong>${formatCurrency(compSeries.currentTotal)}</strong> (${compSeries.currentCount} sale${compSeries.currentCount === 1 ? '' : 's'})
         &nbsp;|&nbsp;
-        Difference: <strong style="color:${diff >= 0 ? '#059669' : '#d97706'};">${diff >= 0 ? '+' : ''}${formatCurrency(diff)} (${escapeHtml(pctText)})</strong>
+        Net Change: <strong style="color:${diff >= 0 ? '#059669' : '#d97706'};">${diff >= 0 ? '+' : ''}${formatCurrency(diff)} (${escapeHtml(pctText)})</strong>
       `;
     }
     if (compSeries.previousCount === 0) {
-      setNotice('Note: The database has no recorded sales in the preceding comparison period. Only real recorded transactions are plotted (no sample points are fabricated).');
+      setNotice(`Comparing <strong>${escapeHtml(compSeries.previousLabel)}</strong> with <strong>${escapeHtml(compSeries.currentLabel)}</strong>. Note: No recorded transactions in prior period database (₱0.00). Plotted using actual database records.`);
     } else {
-      setNotice('');
+      setNotice(`Comparing actual recorded sales revenue between <strong>${escapeHtml(compSeries.previousLabel)}</strong> and <strong>${escapeHtml(compSeries.currentLabel)}</strong>.`);
     }
-    window.staffSalesLineChartInstance = new Chart(ctx, {
-      type: 'line',
-      data: {
+    window.staffSalesLineChartInstance = new Chart(
+      ctx,
+      buildSalesLineChartConfig({
         labels: compSeries.labels.length ? compSeries.labels : ['No Data'],
         datasets: [
-          {
-            label: compSeries.currentLabel,
-            data: compSeries.currentData.length ? compSeries.currentData : [0],
-            borderColor: '#DC143C', backgroundColor: 'rgba(220,20,60,0.12)',
-            borderWidth: 3, fill: true, tension: 0.35,
-            pointBackgroundColor: '#DC143C', pointBorderColor: '#ffffff',
-            pointBorderWidth: 2, pointRadius: 5, pointHoverRadius: 7
-          },
-          {
-            label: compSeries.previousLabel,
-            data: compSeries.previousData.length ? compSeries.previousData : [0],
-            borderColor: '#64748b', backgroundColor: 'rgba(100,116,139,0.06)',
-            borderWidth: 2, borderDash: [6, 4], fill: false, tension: 0.35,
-            pointBackgroundColor: '#64748b', pointBorderColor: '#ffffff',
-            pointBorderWidth: 2, pointRadius: 4, pointHoverRadius: 6
-          }
-        ]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
-        plugins: {
-          legend: { display: true, position: 'top' },
-          tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${formatCurrency(ctx.parsed.y)}` } }
-        },
-        scales: {
-          x: { title: { display: true, text: 'Comparison Period Timeline', color: '#4b5563', font: { weight: '600' } } },
-          y: { beginAtZero: true, title: { display: true, text: 'Sales Revenue (₱)', color: '#4b5563', font: { weight: '600' } }, ticks: { callback: val => '₱' + Number(val).toLocaleString('en-US') } }
-        }
-      }
-    });
+          { label: compSeries.previousLabel, data: compSeries.previousData.length ? compSeries.previousData : [0], borderColor: '#70ad47', backgroundColor: '#70ad47' },
+          { label: compSeries.currentLabel, data: compSeries.currentData.length ? compSeries.currentData : [0], borderColor: '#c55a11', backgroundColor: '#c55a11' }
+        ],
+        title: 'Line graph',
+        xTitle: compSeries.mode === 'year_over_year' ? '' : 'Timeline Comparison'
+      })
+    );
     return;
   }
 
@@ -1607,11 +1667,14 @@ function renderStaffSalesLineChart(filteredSales, allSales, filterState) {
 
   if (!filteredSales || filteredSales.length === 0) {
     setNotice('No sales records match the current selection. Adjust your filters or add sales records to view the revenue line graph.', true);
-    window.staffSalesLineChartInstance = new Chart(ctx, {
-      type: 'line',
-      data: { labels: ['No matching records'], datasets: [{ label: 'Sales Revenue (₱)', data: [0], borderColor: '#9ca3af', backgroundColor: 'rgba(156,163,175,0.1)', borderWidth: 2 }] },
-      options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { callback: val => '₱' + Number(val).toLocaleString('en-US') } } } }
-    });
+    window.staffSalesLineChartInstance = new Chart(
+      ctx,
+      buildSalesLineChartConfig({
+        labels: ['No matching records'],
+        datasets: [{ label: 'Sales Revenue (₱)', data: [0], borderColor: '#9ca3af' }],
+        title: 'Line graph'
+      })
+    );
     return;
   }
 
@@ -1638,40 +1701,20 @@ function renderStaffSalesLineChart(filteredSales, allSales, filterState) {
   const amounts = aggregated.map(b => Math.round(b.total * 100) / 100);
   const counts = aggregated.map(b => b.count);
 
-  window.staffSalesLineChartInstance = new Chart(ctx, {
-    type: 'line',
-    data: {
+  window.staffSalesLineChartInstance = new Chart(
+    ctx,
+    buildSalesLineChartConfig({
       labels,
       datasets: [{
         label: `${intervalTitle} Sales Revenue (₱)`,
         data: amounts,
-        borderColor: '#DC143C', backgroundColor: 'rgba(220,20,60,0.12)',
-        borderWidth: 3, fill: true, tension: 0.35,
-        pointBackgroundColor: '#DC143C', pointBorderColor: '#ffffff',
-        pointBorderWidth: 2, pointRadius: 5, pointHoverRadius: 7
-      }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { display: true, position: 'top' },
-        tooltip: {
-          callbacks: {
-            label: context => {
-              const idx = context.dataIndex;
-              const txCount = counts[idx] || 0;
-              return `Revenue: ${formatCurrency(context.parsed.y)} (${txCount} sale${txCount === 1 ? '' : 's'})`;
-            }
-          }
-        }
-      },
-      scales: {
-        x: { title: { display: true, text: `${intervalTitle} Timeline`, color: '#4b5563', font: { weight: '600' } } },
-        y: { beginAtZero: true, title: { display: true, text: 'Sales Revenue (₱)', color: '#4b5563', font: { weight: '600' } }, ticks: { callback: val => '₱' + Number(val).toLocaleString('en-US') } }
-      }
-    }
-  });
+        borderColor: '#70ad47'
+      }],
+      title: 'Line graph',
+      xTitle: `Timeline (${intervalTitle})`,
+      tooltipCounts: counts
+    })
+  );
 }
 
 function applyStaffSalesView() {
@@ -1718,7 +1761,7 @@ export function initStaffSalesControls() {
       if (dt) dt.value = '';
       if (sort) sort.value = 'date-desc';
       if (interval) interval.value = 'auto';
-      if (comp) comp.value = 'none';
+      if (comp) comp.value = 'year_over_year';
       applyStaffSalesView();
     });
   }
@@ -1889,8 +1932,11 @@ function newSaleRequestId() {
 
 // Product cell for the All Sales Records table (adds "× qty" for sales that deducted stock)
 function formatSaleProduct(item) {
-  const qty = item.stock_deducted && item.quantity ? ` <span style="color:#6b7280;">× ${item.quantity}</span>` : '';
-  return `${item.product_name}${qty}`;
+  const name = escapeHtml(item.product_name || '—');
+  const qty = item.quantity && Number(item.quantity) > 1
+    ? `<span style="display:inline-block;padding:0.1rem 0.45rem;background:#f1f5f9;color:#475569;border-radius:9999px;font-size:0.75rem;font-weight:600;margin-left:0.35rem;white-space:nowrap;">× ${item.quantity}</span>`
+    : (item.quantity == 1 && item.stock_deducted ? `<span style="display:inline-block;padding:0.1rem 0.45rem;background:#f8fafc;color:#94a3b8;border-radius:9999px;font-size:0.75rem;font-weight:500;margin-left:0.35rem;white-space:nowrap;">× 1</span>` : '');
+  return `<span style="font-weight:500;color:#1e293b;word-break:break-word;">${name}</span>${qty}`;
 }
 
 function updateSalesStockHint(selectId) {
@@ -2219,33 +2265,35 @@ function renderArchivedSalesTableRows(items) {
   if (!tbody) return;
   tbody.innerHTML = '';
   if (adminArchivedSalesCache.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#9ca3af;padding:2rem;">No archived sales records found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:2.5rem 1rem;font-weight:500;">No archived sales records found</td></tr>';
     return;
   }
   if (items.length === 0) {
-    tbody.innerHTML = '<tr class="no-data-row"><td colspan="8" style="text-align:center;color:#9ca3af;padding:2rem;">No archived sales records match your selected filters.</td></tr>';
+    tbody.innerHTML = '<tr class="no-data-row"><td colspan="8" style="text-align:center;color:#94a3b8;padding:2.5rem 1rem;font-weight:500;">No archived sales records match your selected filters.</td></tr>';
     return;
   }
-  items.forEach(item => {
+  const rowsHtml = items.map(item => {
     const category = resolveSaleCategory(item);
     const archivedDate = item.archived_at ? formatDateTime(item.archived_at) : 'N/A';
-    tbody.innerHTML += `
+    return `
       <tr>
-        <td>${formatDate(item.sale_date)}</td>
-        <td>${escapeHtml(item.customer_name)}</td>
+        <td><span style="color:#475569;font-weight:500;white-space:nowrap;">${formatDate(item.sale_date)}</span></td>
+        <td><span style="font-weight:600;color:#0f172a;">${escapeHtml(item.customer_name || '—')}</span></td>
         <td>${formatSaleProduct(item)}</td>
-        <td><span class="status-badge" style="background:#f3f4f6;color:#374151;font-weight:500;">${escapeHtml(category)}</span></td>
-        <td>${formatCurrency(item.amount)}</td>
+        <td><span class="kd-type-pill">${escapeHtml(category)}</span></td>
+        <td style="text-align:right;"><span style="font-weight:700;color:#16a34a;font-variant-numeric:tabular-nums;white-space:nowrap;">${formatCurrency(item.amount)}</span></td>
         <td>${formatPaymentMode(item.mode_of_payment)}</td>
-        <td>${archivedDate}</td>
-        <td>
-          <button class="action-btn restore" onclick="restoreSales(${item.id})" title="Restore Sales Record" style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.8125rem;font-weight:600;padding:0.3rem 0.65rem;border-radius:0.375rem;border:1px solid #059669;color:#059669;background:transparent;cursor:pointer;">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
-            Restore
+        <td><span style="color:#64748b;font-size:0.8125rem;white-space:nowrap;">${archivedDate}</span></td>
+        <td style="text-align:center;">
+          <button class="kd-btn-restore" onclick="restoreSales(${item.id})" title="Restore Sales Record">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+            <span>Restore</span>
           </button>
         </td>
       </tr>`;
-  });
+  }).join('');
+
+  tbody.innerHTML = rowsHtml;
 }
 
 function filterArchivedSales() {
@@ -2394,30 +2442,35 @@ function renderManagerArchivedSalesTableRows(items) {
   if (!tbody) return;
   tbody.innerHTML = '';
   if (managerArchivedSalesCache.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#9ca3af;padding:2rem;">No archived sales records found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:2.5rem 1rem;font-weight:500;">No archived sales records found</td></tr>';
     return;
   }
   if (items.length === 0) {
-    tbody.innerHTML = '<tr class="no-data-row"><td colspan="8" style="text-align:center;color:#9ca3af;padding:2rem;">No archived sales records match your selected filters.</td></tr>';
+    tbody.innerHTML = '<tr class="no-data-row"><td colspan="8" style="text-align:center;color:#94a3b8;padding:2.5rem 1rem;font-weight:500;">No archived sales records match your selected filters.</td></tr>';
     return;
   }
-  items.forEach(item => {
+  const rowsHtml = items.map(item => {
     const category = resolveSaleCategory(item);
     const archivedDate = item.archived_at ? formatDateTime(item.archived_at) : 'N/A';
-    tbody.innerHTML += `
+    return `
       <tr>
-        <td>${formatDate(item.sale_date)}</td>
-        <td>${escapeHtml(item.customer_name)}</td>
+        <td><span style="color:#475569;font-weight:500;white-space:nowrap;">${formatDate(item.sale_date)}</span></td>
+        <td><span style="font-weight:600;color:#0f172a;">${escapeHtml(item.customer_name || '—')}</span></td>
         <td>${formatSaleProduct(item)}</td>
-        <td><span class="status-badge" style="background:#f3f4f6;color:#374151;font-weight:500;">${escapeHtml(category)}</span></td>
-        <td>${formatCurrency(item.amount)}</td>
+        <td><span class="kd-type-pill">${escapeHtml(category)}</span></td>
+        <td style="text-align:right;"><span style="font-weight:700;color:#16a34a;font-variant-numeric:tabular-nums;white-space:nowrap;">${formatCurrency(item.amount)}</span></td>
         <td>${formatPaymentMode(item.mode_of_payment)}</td>
-        <td>${archivedDate}</td>
-        <td>
-          <span class="badge" style="background:#f3f4f6;color:#6b7280;font-weight:600;padding:0.25rem 0.6rem;border-radius:0.375rem;font-size:0.75rem;display:inline-block;">Archived</span>
+        <td><span style="color:#64748b;font-size:0.8125rem;white-space:nowrap;">${archivedDate}</span></td>
+        <td style="text-align:center;">
+          <span class="kd-status-pill kd-status-archived">
+            <span class="kd-status-pill-dot"></span>
+            Archived
+          </span>
         </td>
       </tr>`;
-  });
+  }).join('');
+
+  tbody.innerHTML = rowsHtml;
 }
 
 function filterManagerArchivedSales() {
@@ -2566,30 +2619,35 @@ function renderStaffArchivedSalesTableRows(items) {
   if (!tbody) return;
   tbody.innerHTML = '';
   if (staffArchivedSalesCache.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#9ca3af;padding:2rem;">No archived sales records found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:2.5rem 1rem;font-weight:500;">No archived sales records found</td></tr>';
     return;
   }
   if (items.length === 0) {
-    tbody.innerHTML = '<tr class="no-data-row"><td colspan="8" style="text-align:center;color:#9ca3af;padding:2rem;">No archived sales records match your selected filters.</td></tr>';
+    tbody.innerHTML = '<tr class="no-data-row"><td colspan="8" style="text-align:center;color:#94a3b8;padding:2.5rem 1rem;font-weight:500;">No archived sales records match your selected filters.</td></tr>';
     return;
   }
-  items.forEach(item => {
+  const rowsHtml = items.map(item => {
     const category = resolveSaleCategory(item);
     const archivedDate = item.archived_at ? formatDateTime(item.archived_at) : 'N/A';
-    tbody.innerHTML += `
+    return `
       <tr>
-        <td>${formatDate(item.sale_date)}</td>
-        <td>${escapeHtml(item.customer_name)}</td>
+        <td><span style="color:#475569;font-weight:500;white-space:nowrap;">${formatDate(item.sale_date)}</span></td>
+        <td><span style="font-weight:600;color:#0f172a;">${escapeHtml(item.customer_name || '—')}</span></td>
         <td>${formatSaleProduct(item)}</td>
-        <td><span class="status-badge" style="background:#f3f4f6;color:#374151;font-weight:500;">${escapeHtml(category)}</span></td>
-        <td>${formatCurrency(item.amount)}</td>
+        <td><span class="kd-type-pill">${escapeHtml(category)}</span></td>
+        <td style="text-align:right;"><span style="font-weight:700;color:#16a34a;font-variant-numeric:tabular-nums;white-space:nowrap;">${formatCurrency(item.amount)}</span></td>
         <td>${formatPaymentMode(item.mode_of_payment)}</td>
-        <td>${archivedDate}</td>
-        <td>
-          <span class="badge" style="background:#f3f4f6;color:#6b7280;font-weight:600;padding:0.25rem 0.6rem;border-radius:0.375rem;font-size:0.75rem;display:inline-block;">Archived</span>
+        <td><span style="color:#64748b;font-size:0.8125rem;white-space:nowrap;">${archivedDate}</span></td>
+        <td style="text-align:center;">
+          <span class="kd-status-pill kd-status-archived">
+            <span class="kd-status-pill-dot"></span>
+            Archived
+          </span>
         </td>
       </tr>`;
-  });
+  }).join('');
+
+  tbody.innerHTML = rowsHtml;
 }
 
 function filterStaffArchivedSales() {

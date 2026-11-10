@@ -70,18 +70,21 @@ body {
 }
 
 .logo {
-  height: 80px;
-  width: 80px;
+  height: 70px;
+  width: auto;
+  max-width: 120px;
   cursor: pointer;
-  object-fit: cover;
+  object-fit: contain;
   flex-shrink: 0;
-  border-radius: 50%;
+  border-radius: 0;
 }
 
 .header .logo {
-  height: 80px;
-  width: 80px;
-  border-radius: 50%;
+  height: 65px;
+  width: auto;
+  max-width: 120px;
+  border-radius: 0;
+  object-fit: contain;
 }
 
 .nav {
@@ -173,11 +176,12 @@ body {
 
 .footer .logo {
   filter: none;
-  height: 64px;
-  width: 64px;
+  height: 55px;
+  width: auto;
+  max-width: 100px;
   margin-bottom: 0.5rem;
-  border-radius: 50%;
-  object-fit: cover;
+  border-radius: 0;
+  object-fit: contain;
 }
 
 .footer-text {
@@ -1372,9 +1376,9 @@ body.bs-customer .toast-close {
    ============================================================================= */
 
 /* Smaller logos (was 80px header / 64px footer / 10rem login card) */
-.header .logo.logo-sm { height: 60px; width: 60px; }
-.footer .logo.logo-sm { height: 48px; width: 48px; }
-.logo.logo-md { height: 7rem; width: 7rem; }
+.header .logo.logo-sm { height: 55px; width: auto; max-width: 100px; border-radius: 0; object-fit: contain; }
+.footer .logo.logo-sm { height: 45px; width: auto; max-width: 80px; border-radius: 0; object-fit: contain; }
+.logo.logo-md { height: 7rem; width: auto; max-width: 200px; border-radius: 0; object-fit: contain; }
 
 /* 1. Undo Bootstrap "reboot" defaults so existing spacing/typography stay the same. */
 :where(body.bs-dashboard) :is(p, h1, h2, h3, h4, h5, h6, ul, ol, dl, blockquote, figure, pre) { margin: 0; }
@@ -1535,7 +1539,10 @@ body.bs-dashboard .dash-sidebar .header-container {
 
 body.bs-dashboard .dash-sidebar .header-container .logo {
   height: 48px;
-  width: 48px;
+  width: auto;
+  max-width: 95px;
+  border-radius: 0;
+  object-fit: contain;
 }
 
 /* Existing dashboard header (title + welcome) and the navigation tabs */
@@ -2462,6 +2469,16 @@ body.bs-dashboard .sidebar-backdrop { display: none; }
   background: #dc2626;
 }
 
+.kd-status-pill.kd-status-archived {
+  background: #f1f5f9;
+  color: #64748b;
+  border-color: #cbd5e1;
+}
+.kd-status-pill.kd-status-archived .kd-chip-dot,
+.kd-status-pill.kd-status-archived .kd-status-pill-dot {
+  background: #94a3b8;
+}
+
 /* Account Role Pills */
 .kd-role-pill {
   display: inline-flex;
@@ -2545,5 +2562,332 @@ body.bs-dashboard .sidebar-backdrop { display: none; }
   color: #ffffff;
   border-color: #dc2626;
   box-shadow: 0 1px 2px rgba(220, 38, 38, 0.2);
+}
+
+/* =============================================================================
+   K-DESK — POLISHED ALL SALES RECORDS TABLE & LINE GRAPH (Admin, Manager, Staff)
+   ============================================================================= */
+
+/* Modern Sales Table Container & Base Table */
+.kd-sales-table-container {
+  overflow-x: auto;
+  border-radius: 0.5rem;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+  -webkit-overflow-scrolling: touch;
+}
+
+.kd-sales-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.875rem;
+  text-align: left;
+}
+
+.kd-sales-table thead th {
+  background: #f8fafc !important;
+  color: #475569 !important;
+  font-size: 0.75rem !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  padding: 0.875rem 1rem !important;
+  border-bottom: 2px solid #e2e8f0 !important;
+  border-top: none !important;
+  white-space: nowrap !important;
+  vertical-align: middle !important;
+  user-select: none;
+}
+
+.kd-sales-table thead th.text-center {
+  text-align: center !important;
+}
+
+.kd-sales-table thead th.text-right {
+  text-align: right !important;
+}
+
+.kd-sales-table tbody tr {
+  transition: background-color 0.15s ease-in-out;
+}
+
+.kd-sales-table tbody tr:hover {
+  background-color: #f8fafc !important;
+}
+
+.kd-sales-table tbody td {
+  padding: 0.875rem 1rem !important;
+  border-bottom: 1px solid #f1f5f9 !important;
+  vertical-align: middle !important;
+  color: #334155;
+  font-size: 0.875rem;
+  background: transparent;
+}
+
+.kd-sales-table tbody tr:last-child td {
+  border-bottom: none !important;
+}
+
+/* Sales Action Buttons */
+.kd-btn-archive {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+  white-space: nowrap;
+}
+
+.kd-btn-archive:hover {
+  background: #d97706;
+  color: #ffffff;
+  border-color: #d97706;
+  box-shadow: 0 1px 2px rgba(217, 119, 6, 0.2);
+}
+
+.kd-btn-restore {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #059669;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+  white-space: nowrap;
+}
+
+.kd-btn-restore:hover {
+  background: #059669;
+  color: #ffffff;
+  border-color: #059669;
+  box-shadow: 0 1px 2px rgba(5, 150, 105, 0.2);
+}
+
+/* Excel Reference Styled Line Graph Outer Frame */
+.kd-line-graph-frame {
+  position: relative;
+  min-height: 330px;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 0.375rem;
+  padding: 1.25rem 1.25rem 0.75rem;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+}
+
+/* =============================================================================
+   Sales Records Module: Summary Cards Redesign (Executive Dashboard Style)
+   ============================================================================= */
+.summary-card {
+  position: relative;
+  background: #ffffff !important;
+  color: #0f172a !important;
+  padding: 1.35rem 1.5rem !important;
+  border-radius: 0.75rem !important;
+  border: 1px solid #e2e8f0 !important;
+  border-top: 3.5px solid #cbd5e1 !important;
+  box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.05), 0 1px 2px -1px rgba(15, 23, 42, 0.04) !important;
+  margin-bottom: 0 !important;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: space-between !important;
+  overflow: hidden;
+}
+
+.summary-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 15px -3px rgba(15, 23, 42, 0.08), 0 4px 6px -4px rgba(15, 23, 42, 0.04) !important;
+}
+
+/* Dynamic State Top Border Indicators */
+.summary-card.summary-card--high,
+.summary-card.summary-card--green {
+  border-top-color: #10b981 !important;
+}
+
+.summary-card.summary-card--medium,
+.summary-card.summary-card--yellow {
+  border-top-color: #f59e0b !important;
+}
+
+.summary-card.summary-card--low,
+.summary-card.summary-card--red {
+  border-top-color: #ef4444 !important;
+}
+
+/* Card Header Label */
+.summary-label {
+  font-size: 0.8125rem !important;
+  font-weight: 600 !important;
+  color: #64748b !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.04em !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 0.5rem !important;
+  margin-bottom: 0.5rem !important;
+}
+
+.summary-label > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  color: #475569;
+}
+
+/* Performance Status Pill Badge */
+.summary-perf-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  padding: 0.22rem 0.65rem !important;
+  border-radius: 9999px !important;
+  font-size: 0.75rem !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.01em !important;
+  text-transform: none !important;
+  white-space: nowrap !important;
+  background: #f8fafc !important;
+  color: #475569 !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03) !important;
+  transition: all 0.2s ease !important;
+}
+
+.summary-perf-badge::before {
+  content: "" !important;
+  display: inline-block !important;
+  width: 6px !important;
+  height: 6px !important;
+  border-radius: 50% !important;
+  margin-right: 0.4rem !important;
+  background: currentColor !important;
+  flex-shrink: 0 !important;
+}
+
+/* Performance State Colors for Badges */
+.summary-card--high .summary-perf-badge,
+.summary-card--green .summary-perf-badge {
+  background: #ecfdf5 !important;
+  color: #047857 !important;
+  border-color: #a7f3d0 !important;
+}
+
+.summary-card--medium .summary-perf-badge,
+.summary-card--yellow .summary-perf-badge {
+  background: #fffbeb !important;
+  color: #b45309 !important;
+  border-color: #fde68a !important;
+}
+
+.summary-card--low .summary-perf-badge,
+.summary-card--red .summary-perf-badge {
+  background: #fef2f2 !important;
+  color: #b91c1c !important;
+  border-color: #fecaca !important;
+}
+
+/* Card Value (Hero Metric) */
+.summary-value {
+  font-size: 2.125rem !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.025em !important;
+  color: #0f172a !important;
+  font-variant-numeric: tabular-nums !important;
+  line-height: 1.2 !important;
+  margin: 0.25rem 0 0.5rem 0 !important;
+}
+
+/* Card Scope / Subtitle */
+.summary-scope {
+  font-size: 0.775rem !important;
+  color: #64748b !important;
+  line-height: 1.45 !important;
+  border-top: 1px solid #f1f5f9 !important;
+  padding-top: 0.6rem !important;
+  margin-top: 0.35rem !important;
+}
+
+/* =============================================================================
+   Delivery Module: All Deliveries Card & Table Container Enhancement
+   ============================================================================= */
+.kd-delivery-card,
+.card.kd-delivery-card {
+  position: relative;
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 0.75rem !important;
+  padding: 1.5rem !important;
+  box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.05), 0 1px 2px -1px rgba(15, 23, 42, 0.04) !important;
+  margin-bottom: 1.5rem !important;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease !important;
+}
+
+.kd-delivery-card:hover,
+.card.kd-delivery-card:hover {
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.07), 0 2px 4px -2px rgba(15, 23, 42, 0.05) !important;
+}
+
+.kd-delivery-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.kd-delivery-card-header h3 {
+  font-size: 1.125rem !important;
+  font-weight: 600 !important;
+  color: #111827 !important;
+  margin: 0 !important;
+}
+
+.kd-delivery-card-header p {
+  font-size: 0.8125rem !important;
+  color: #6b7280 !important;
+  margin: 0.25rem 0 0 !important;
+}
+
+/* Driver Mark as Delivered Action Button */
+.kd-btn-deliver {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 0.4rem !important;
+  padding: 0.35rem 0.85rem !important;
+  font-size: 0.75rem !important;
+  font-weight: 600 !important;
+  color: #047857 !important;
+  background: #ecfdf5 !important;
+  border: 1px solid #a7f3d0 !important;
+  border-radius: 9999px !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease-in-out !important;
+  white-space: nowrap !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03) !important;
+}
+
+.kd-btn-deliver:hover {
+  background: #10b981 !important;
+  color: #ffffff !important;
+  border-color: #10b981 !important;
+  box-shadow: 0 2px 5px rgba(16, 185, 129, 0.25) !important;
+  transform: translateY(-1px) !important;
 }
 

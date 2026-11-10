@@ -2384,30 +2384,30 @@ export function renderDriverDeliveryTableRows(filtered, allCount) {
   filtered.forEach(item => {
     const norm = normalizeDeliveryStatus(item.status);
     const phoneDisplay = item.contact_number
-      ? `<a href="tel:${escapeDeliveryHtml(item.contact_number)}" style="color:#2563eb;text-decoration:underline;font-weight:500;">${escapeDeliveryHtml(item.contact_number)}</a>`
-      : '<span style="color:#9ca3af;">N/A</span>';
+      ? `<span style="color:#4b5563;font-variant-numeric:tabular-nums;font-weight:500;">${escapeDeliveryHtml(item.contact_number)}</span>`
+      : '<span style="color:#94a3b8;">N/A</span>';
 
     let actionHtml = '';
     if (norm === 'In Transit') {
       actionHtml = `
-        <button type="button" class="action-btn deliver-btn" onclick="markDeliveryAsDelivered('${item.id}')" title="Mark as Delivered">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          Mark as Delivered
+        <button type="button" class="kd-btn-deliver action-btn deliver-btn" onclick="markDeliveryAsDelivered('${item.id}')" title="Mark as Delivered">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <span>Mark as Delivered</span>
         </button>
       `;
     } else if (norm === 'Delivered') {
-      actionHtml = `<span style="color:#059669;font-weight:600;font-size:0.875rem;display:inline-flex;align-items:center;gap:0.3rem;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg> Delivered</span>`;
+      actionHtml = `<span class="kd-status-pill kd-status-delivered" style="background:#ecfdf5;color:#047857;border-color:#a7f3d0;"><span class="kd-status-pill-dot" style="background:#10b981;"></span>Delivered</span>`;
     } else {
-      actionHtml = `<span style="color:#6b7280;font-size:0.8125rem;">Awaiting Transit</span>`;
+      actionHtml = `<span style="color:#94a3b8;font-size:0.8125rem;font-weight:500;">Awaiting Transit</span>`;
     }
 
     tbody.innerHTML += `
       <tr>
-        <td><strong>${escapeDeliveryHtml(item.ref_code)}</strong></td>
-        <td>${escapeDeliveryHtml(item.customer_name)}</td>
+        <td><span class="kd-ref-code">${escapeDeliveryHtml(item.ref_code)}</span></td>
+        <td><span style="font-weight:600;color:#0f172a;">${escapeDeliveryHtml(item.customer_name)}</span></td>
         <td>${phoneDisplay}</td>
-        <td style="max-width:220px;white-space:normal;font-size:0.8125rem;">${escapeDeliveryHtml(item.address)}</td>
-        <td>${escapeDeliveryHtml(item.product || 'N/A')}</td>
+        <td><div style="max-width:220px;white-space:normal;font-size:0.8125rem;line-height:1.35;color:#475569;">${escapeDeliveryHtml(item.address)}</div></td>
+        <td><span style="font-weight:500;color:#1e293b;">${escapeDeliveryHtml(item.product || 'N/A')}</span></td>
         <td>${formatPaymentMode(item.mode_of_payment)}</td>
         <td>${renderDeliveryDateCell(item)}</td>
         <td>${getStatusBadge(item.status, item)}</td>
