@@ -11,7 +11,7 @@ import { adjustAdminInventoryQuantity, adjustManagerInventoryQuantity, archiveIn
 import { archiveSales, deleteSales, editAdminSalesRecord, editManagerSalesRecord, editStaffSalesRecord, handleManagerSalesSubmit, handleSalesSubmit, handleStaffSalesSubmit, initAdminSalesControls, initManagerSalesControls, initStaffSalesControls, loadArchivedSalesList, loadManagerArchivedSalesList, loadManagerSalesAnalytics, loadManagerSalesList, loadSalesAnalytics, loadSalesList, loadSalesProductOptions, loadStaffArchivedSalesList, loadStaffSalesAnalytics, loadStaffSalesList, openAddSalesModal, restoreSales, submitSalesEdit, switchAdminSalesSubtab, switchManagerSalesSubtab, switchStaffSalesSubtab, syncDeliveredSalesRecords } from './modules/sales.js';
 import { archiveDelivery, confirmSendSms, deleteDelivery, editDelivery, handleDeliverySubmit, handlePublicTrackDelivery, handleStaffDeliverySubmit, initAdminDeliveryControls, initDriverDeliveryControls, initManagerDeliveryControls, initStaffDeliveryControls, loadArchivedDeliveryList, loadDeliveryList, loadDeliveryStats, loadDriverDeliveryList, loadManagerArchivedDeliveryList, loadManagerDeliveryList, loadStaffArchivedDeliveryList, loadStaffDeliveryList, markDeliveryAsDelivered, openAddDeliveryModal, openSmsModal, openStaffAddDeliveryModal, restoreDelivery, switchAdminDeliverySubtab, switchManagerDeliverySubtab, switchStaffDeliverySubtab, toggleDeliverySelection, updateDeliveryStatus } from './modules/delivery.js';
 import { handleContactFormSubmit, loadAboutPageContent, loadBusinessInfo, loadContactPageContent } from './modules/business-info.js';
-import { activateStaffAccount, closeEditStaffModal, closeMyAccountModal, deactivateStaffAccount, loadStaffAccountsList, openAddStaffModal, openEditStaffModal, openMyAccountModal } from './modules/staff-accounts.js';
+import { activateStaffAccount, closeEditStaffModal, closeMyAccountModal, deactivateStaffAccount, initAdminStaffControls, loadStaffAccountsList, openAddStaffModal, openEditStaffModal, openMyAccountModal, switchAdminStaffSubtab } from './modules/staff-accounts.js';
 import { deleteAdminFeedback, deleteAdminInquiry, deleteChatbotItem, editChatbotQA, handleChatbotSubmit, initChatbot, initCustomerSupportPage, loadAdminFeedback, loadAdminInquiries, loadChatbotList, openAddChatbotModal } from './modules/chatbot.js';
 import { initVisualizationPage } from './modules/ai-visualization.js';
 
@@ -32,6 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initAdminInventorySearch();
     initAdminSalesControls();
     initAdminDeliveryControls();
+    initAdminStaffControls();
 
     // ── Click handlers ──
     const bind = (id, handler) => { const el = document.getElementById(id); if (el) el.addEventListener('click', handler); };
@@ -394,6 +395,7 @@ Object.assign(window, {
   switchAdminDeliverySubtab,
   switchAdminInventorySubtab,
   switchAdminSalesSubtab,
+  switchAdminStaffSubtab,
   switchManagerDeliverySubtab,
   switchManagerInventorySubtab,
   switchManagerSalesSubtab,

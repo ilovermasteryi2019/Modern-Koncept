@@ -36,33 +36,30 @@ function escapeHtml(str) {
 
 export function formatPaymentMode(mode) {
   if (!mode || mode === 'Not Specified') {
-    return '<span style="color:#9ca3af;font-size:0.8125rem;">Not Specified</span>';
+    return '<span class="kd-pay-chip kd-pay-default"><span class="kd-pay-chip-dot"></span>Not Specified</span>';
   }
-  let color = '#374151';
-  let bg = '#f3f4f6';
-  let border = '#e5e7eb';
-  if (mode.includes('COD') || mode.includes('Cash on Delivery')) {
-    color = '#9a3412';
-    bg = '#ffedd5';
-    border = '#fdba74';
-  } else if (mode.includes('GCash')) {
-    color = '#1e40af';
-    bg = '#dbeafe';
-    border = '#bfdbfe';
-  } else if (mode.includes('Installment')) {
-    color = '#6b21a8';
-    bg = '#f3e8ff';
-    border = '#d8b4fe';
-  } else if (mode.includes('Card')) {
-    color = '#065f46';
-    bg = '#d1fae5';
-    border = '#a7f3d0';
-  } else if (mode === 'Cash') {
-    color = '#15803d';
-    bg = '#dcfce7';
-    border = '#bbf7d0';
+  let cls = 'kd-pay-default';
+  const m = String(mode).toLowerCase();
+  if (m.includes('salmon')) {
+    cls = 'kd-pay-salmon';
+  } else if (m.includes('home credit') || m.includes('homecredit')) {
+    cls = 'kd-pay-homecredit';
+  } else if (m.includes('cod') || m.includes('cash on delivery')) {
+    cls = 'kd-pay-cod';
+  } else if (m.includes('gcash')) {
+    cls = 'kd-pay-gcash';
+  } else if (m.includes('credit card')) {
+    cls = 'kd-pay-credit';
+  } else if (m.includes('debit') || m.includes('atm')) {
+    cls = 'kd-pay-debit';
+  } else if (m.includes('installment')) {
+    cls = 'kd-pay-salmon';
+  } else if (m.includes('card')) {
+    cls = 'kd-pay-credit';
+  } else if (m.trim() === 'cash' || m.startsWith('cash')) {
+    cls = 'kd-pay-cash';
   }
-  return `<span style="display:inline-block;padding:0.25rem 0.5rem;font-size:0.75rem;font-weight:600;border-radius:0.375rem;background:${bg};color:${color};border:1px solid ${border};white-space:normal;line-height:1.2;max-width:180px;">${escapeHtml(mode)}</span>`;
+  return `<span class="kd-pay-chip ${cls}"><span class="kd-pay-chip-dot"></span>${escapeHtml(mode)}</span>`;
 }
 
 function toLocalDateKey(dateVal) {

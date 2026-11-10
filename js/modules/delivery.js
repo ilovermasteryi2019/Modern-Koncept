@@ -49,33 +49,30 @@ function mergeLocalDeliveryWindow(item) {
 
 export function formatPaymentMode(mode) {
   if (!mode || mode === 'Not Specified') {
-    return '<span style="color:#9ca3af;font-size:0.8125rem;">Not Specified</span>';
+    return '<span class="kd-pay-chip kd-pay-default"><span class="kd-pay-chip-dot"></span>Not Specified</span>';
   }
-  let color = '#374151';
-  let bg = '#f3f4f6';
-  let border = '#e5e7eb';
-  if (mode.includes('COD') || mode.includes('Cash on Delivery')) {
-    color = '#9a3412';
-    bg = '#ffedd5';
-    border = '#fdba74';
-  } else if (mode.includes('GCash')) {
-    color = '#1e40af';
-    bg = '#dbeafe';
-    border = '#bfdbfe';
-  } else if (mode.includes('Installment')) {
-    color = '#6b21a8';
-    bg = '#f3e8ff';
-    border = '#d8b4fe';
-  } else if (mode.includes('Card')) {
-    color = '#065f46';
-    bg = '#d1fae5';
-    border = '#a7f3d0';
-  } else if (mode === 'Cash') {
-    color = '#15803d';
-    bg = '#dcfce7';
-    border = '#bbf7d0';
+  let cls = 'kd-pay-default';
+  const m = String(mode).toLowerCase();
+  if (m.includes('salmon')) {
+    cls = 'kd-pay-salmon';
+  } else if (m.includes('home credit') || m.includes('homecredit')) {
+    cls = 'kd-pay-homecredit';
+  } else if (m.includes('cod') || m.includes('cash on delivery')) {
+    cls = 'kd-pay-cod';
+  } else if (m.includes('gcash')) {
+    cls = 'kd-pay-gcash';
+  } else if (m.includes('credit card')) {
+    cls = 'kd-pay-credit';
+  } else if (m.includes('debit') || m.includes('atm')) {
+    cls = 'kd-pay-debit';
+  } else if (m.includes('installment')) {
+    cls = 'kd-pay-salmon';
+  } else if (m.includes('card')) {
+    cls = 'kd-pay-credit';
+  } else if (m.trim() === 'cash' || m.startsWith('cash')) {
+    cls = 'kd-pay-cash';
   }
-  return `<span style="display:inline-block;padding:0.25rem 0.5rem;font-size:0.75rem;font-weight:600;border-radius:0.375rem;background:${bg};color:${color};border:1px solid ${border};white-space:normal;line-height:1.2;max-width:180px;">${escapeDeliveryHtml(mode)}</span>`;
+  return `<span class="kd-pay-chip ${cls}"><span class="kd-pay-chip-dot"></span>${escapeDeliveryHtml(mode)}</span>`;
 }
 
 // Public Delivery Tracking
@@ -168,7 +165,12 @@ export function openSmsModal(deliveryId) {
   document.getElementById('smsRefCode').textContent = delivery.ref_code;
   document.getElementById('smsProduct').textContent = delivery.product || 'N/A';
   document.getElementById('smsStatus').textContent = delivery.status || 'Pending';
-  document.getElementById('smsMessagePreview').value = buildSmsPreviewMessage(delivery);
+  const msgPreviewEl = document.getElementById('smsMessagePreview');
+  if (msgPreviewEl) {
+    const text = buildSmsPreviewMessage(delivery);
+    if ('value' in msgPreviewEl) msgPreviewEl.value = text;
+    msgPreviewEl.textContent = text;
+  }
 
   const btn = document.getElementById('confirmSendSmsBtn');
   if (btn) { btn.disabled = false; btn.textContent = 'Send SMS'; }
@@ -198,27 +200,42 @@ export async function loadStaffDeliveryList() {
     const result = await API.getDeliveries();
     if (result.success) {
       tbody.innerHTML = '';
-      if (!result.data || result.data.length === 0) { tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#9ca3af;">No deliveries found</td></tr>'; return; }
-      result.data.forEach(item => {
+      if (!result.data || result.data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#9ca3af;padding:2rem;">No deliveries found</td></tr>';
+        return;
+      }
+      result.data.forEach(rawItem => {
+        const item = mergeLocalDeliveryWindow(rawItem);
+        const driverDisplay = item.assigned_driver_name
+          ? `<span class="kd-driver-chip"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h7l5 5v5z"></path><circle cx="6.5" cy="16.5" r="2.5"></circle><circle cx="16.5" cy="16.5" r="2.5"></circle></svg>${escapeDeliveryHtml(item.assigned_driver_name)}</span>`
+          : '<span class="kd-driver-unassigned">Unassigned</span>';
+
         tbody.innerHTML += `
           <tr>
-            <td><strong>${item.ref_code}</strong></td>
-            <td>${item.customer_name}</td>
-            <td>${item.contact_number || 'N/A'}</td>
-            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${item.address}</td>
-            <td>${item.product || 'N/A'}</td>
+            <td><span class="kd-ref-code">${escapeDeliveryHtml(item.ref_code)}</span></td>
+            <td><span style="font-weight:600;color:#111827;">${escapeDeliveryHtml(item.customer_name)}</span></td>
+            <td><span style="color:#4b5563;font-variant-numeric:tabular-nums;">${escapeDeliveryHtml(item.contact_number || 'N/A')}</span></td>
+            <td style="max-width:220px;line-height:1.35;color:#374151;word-break:break-word;" title="${escapeDeliveryHtml(item.address)}">${escapeDeliveryHtml(item.address)}</td>
+            <td>
+              <div style="max-width:210px;line-height:1.35;word-break:break-word;">
+                <span style="font-weight:500;color:#111827;">${escapeDeliveryHtml(item.product || 'N/A')}</span>
+                ${item.quantity && item.quantity > 1 ? ` <span style="font-weight:600;color:#6b7280;font-size:0.75rem;">(×${item.quantity})</span>` : ''}
+                ${item.amount ? `<div style="font-size:0.75rem;color:#16a34a;font-weight:600;margin-top:0.15rem;">₱${Number(item.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>` : ''}
+              </div>
+            </td>
             <td>${formatPaymentMode(item.mode_of_payment)}</td>
-            <td>${getStatusBadge(item.status)}</td>
+            <td>${driverDisplay}</td>
+            <td>${renderDeliveryDateCell(item)}</td>
+            <td>${getStatusBadge(item.status, item)}</td>
             <td>${getTypeBadge(item.delivery_type)}</td>
-            <td>${formatDate(item.delivery_date)}</td>
           </tr>`;
       });
     } else {
-      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#ef4444;">❌ Failed to load deliveries</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#ef4444;padding:2rem;">❌ Failed to load deliveries</td></tr>';
     }
   } catch (error) {
     showToast('❌ Failed to load deliveries', 'error');
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#ef4444;">❌ Failed to load deliveries</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#ef4444;padding:2rem;">❌ Failed to load deliveries</td></tr>';
   }
 }
 
@@ -327,12 +344,12 @@ function formatDeliveryWindowText(item) {
 function renderDeliveryDateCell(item) {
   const { start, isRange } = getDeliveryWindow(item);
   const applicable = getApplicableDeliveryDate(item);
-  if (!start && applicable.basis !== 'delivered') return 'N/A';
+  if (!start && applicable.basis !== 'delivered') return '<span style="color:#9ca3af;">N/A</span>';
   const main = applicable.key ? formatReadableDeliveryDay(applicable.key) : 'N/A';
-  const windowLine = isRange ? `<div class="kd-delivery-window">Window: ${escapeDeliveryHtml(formatDeliveryWindowText(item))}</div>` : '';
+  const windowLine = isRange ? `<div class="kd-delivery-date-window">Window: ${escapeDeliveryHtml(formatDeliveryWindowText(item))}</div>` : '';
   const showBasis = isRange || applicable.basis === 'delivered' || applicable.basis === 'delivered-unrecorded';
-  const basisLine = showBasis ? `<div class="kd-delivery-basis">${escapeDeliveryHtml(applicable.label)}</div>` : '';
-  return `<div class="kd-delivery-date"><strong>${escapeDeliveryHtml(main)}</strong>${basisLine}${windowLine}</div>`;
+  const basisLine = showBasis ? `<div class="kd-delivery-date-basis">${escapeDeliveryHtml(applicable.label)}</div>` : '';
+  return `<div class="kd-delivery-date-block"><span class="kd-delivery-date-main">${escapeDeliveryHtml(main)}</span>${basisLine}${windowLine}</div>`;
 }
 
 function isDeliveryOverdue(item) {
@@ -711,38 +728,48 @@ function renderAdminDeliveryTableRows(filteredDeliveries, allDeliveriesCount) {
     const isChecked = selectedAdminDeliveryIds.has(Number(item.id));
     const normStatus = normalizeDeliveryStatus(item.status);
     const driverDisplay = item.assigned_driver_name
-      ? `<span style="font-weight:600;color:#1e40af;">${escapeDeliveryHtml(item.assigned_driver_name)}</span>`
-      : '<span style="color:#9ca3af;font-size:0.8rem;">Unassigned</span>';
+      ? `<span class="kd-driver-chip"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h7l5 5v5z"></path><circle cx="6.5" cy="16.5" r="2.5"></circle><circle cx="16.5" cy="16.5" r="2.5"></circle></svg>${escapeDeliveryHtml(item.assigned_driver_name)}</span>`
+      : '<span class="kd-driver-unassigned">Unassigned</span>';
 
     tbody.innerHTML += `
       <tr class="${isChecked ? 'kd-row-selected' : ''}">
         <td style="text-align:center;">
           <input type="checkbox" class="delivery-row-checkbox" data-role="admin" data-delivery-id="${item.id}" ${isChecked ? 'checked' : ''} onchange="toggleDeliverySelection(${item.id}, this.checked, 'admin')" aria-label="Select delivery ${escapeDeliveryHtml(item.ref_code)}">
         </td>
-        <td><button class="action-btn edit" onclick="openSmsModal(${item.id})" style="color:#2563eb;border-color:#2563eb;" title="Send SMS"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg> Send SMS</button></td>
-        <td><strong>${escapeDeliveryHtml(item.ref_code)}</strong></td>
-        <td>${escapeDeliveryHtml(item.customer_name)}</td>
-        <td>${escapeDeliveryHtml(item.contact_number || 'N/A')}</td>
-        <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeDeliveryHtml(item.address)}">${escapeDeliveryHtml(item.address)}</td>
-        <td>${escapeDeliveryHtml(item.product || 'N/A')}${item.quantity && item.quantity > 1 ? ` <span style="font-weight:600;color:#6b7280;font-size:0.8125rem;">(×${item.quantity})</span>` : ''}${item.amount ? `<div style="font-size:0.75rem;color:#16a34a;font-weight:600;">₱${Number(item.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>` : ''}</td>
+        <td style="text-align:center;"><button class="kd-btn-sms" onclick="openSmsModal(${item.id})" title="Send SMS notification"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg><span>Send SMS</span></button></td>
+        <td><span class="kd-ref-code">${escapeDeliveryHtml(item.ref_code)}</span></td>
+        <td><span style="font-weight:600;color:#111827;">${escapeDeliveryHtml(item.customer_name)}</span></td>
+        <td><span style="color:#4b5563;font-variant-numeric:tabular-nums;">${escapeDeliveryHtml(item.contact_number || 'N/A')}</span></td>
+        <td><div style="max-width:220px;line-height:1.35;color:#374151;word-break:break-word;" title="${escapeDeliveryHtml(item.address)}">${escapeDeliveryHtml(item.address)}</div></td>
+        <td>
+          <div style="max-width:210px;line-height:1.35;word-break:break-word;">
+            <span style="font-weight:500;color:#111827;">${escapeDeliveryHtml(item.product || 'N/A')}</span>
+            ${item.quantity && item.quantity > 1 ? ` <span style="font-weight:600;color:#6b7280;font-size:0.75rem;">(×${item.quantity})</span>` : ''}
+            ${item.amount ? `<div style="font-size:0.75rem;color:#16a34a;font-weight:600;margin-top:0.15rem;">₱${Number(item.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>` : ''}
+          </div>
+        </td>
         <td>${formatPaymentMode(item.mode_of_payment)}</td>
         <td>${driverDisplay}</td>
         <td>${renderDeliveryDateCell(item)}</td>
         <td>${getStatusBadge(item.status, item)}</td>
         <td>
-          <select class="status-select" data-delivery-id="${item.id}" style="padding:0.375rem 0.65rem;border:2px solid #e5e7eb;border-radius:0.375rem;font-size:0.875rem;cursor:pointer;">
-            <option value="Pending" ${normStatus === 'Pending' ? 'selected' : ''}>Pending</option>
-            <option value="Processing" ${normStatus === 'Processing' ? 'selected' : ''}>Processing</option>
-            <option value="In Transit" ${normStatus === 'In Transit' ? 'selected' : ''}>In Transit</option>
-            ${normStatus === 'Delivered' ? '<option value="Delivered" selected disabled>Delivered (Locked)</option>' : ''}
-          </select>
-          <button class="action-btn edit" onclick="updateDeliveryStatus(${item.id})" style="margin-left:0.4rem;" title="Update Status" ${normStatus === 'Delivered' ? 'disabled style="opacity:0.4;cursor:not-allowed;"' : ''}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          </button>
+          <div class="kd-status-update-group">
+            <select class="status-select" data-delivery-id="${item.id}">
+              <option value="Pending" ${normStatus === 'Pending' ? 'selected' : ''}>Pending</option>
+              <option value="Processing" ${normStatus === 'Processing' ? 'selected' : ''}>Processing</option>
+              <option value="In Transit" ${normStatus === 'In Transit' ? 'selected' : ''}>In Transit</option>
+              ${normStatus === 'Delivered' ? '<option value="Delivered" selected disabled>Delivered (Locked)</option>' : ''}
+            </select>
+            <button class="kd-btn-update-status" onclick="updateDeliveryStatus(${item.id})" title="Update Status" ${normStatus === 'Delivered' ? 'disabled style="opacity:0.4;cursor:not-allowed;"' : ''}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            </button>
+          </div>
         </td>
         <td>
-          <button class="action-btn edit" onclick="editDelivery(${item.id})" title="Edit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
-          <button class="action-btn archive" onclick="archiveDelivery(${item.id})" title="Archive Delivery"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="21 8 21 21 3 21 3 8"></polyline><rect x="1" y="3" width="22" height="5"></rect><line x1="10" y1="12" x2="14" y2="12"></line></svg></button>
+          <div class="kd-action-icons">
+            <button class="kd-icon-btn edit" onclick="editDelivery(${item.id})" title="Edit Delivery"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
+            <button class="kd-icon-btn archive" onclick="archiveDelivery(${item.id})" title="Archive Delivery"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="21 8 21 21 3 21 3 8"></polyline><rect x="1" y="3" width="22" height="5"></rect><line x1="10" y1="12" x2="14" y2="12"></line></svg></button>
+          </div>
         </td>
       </tr>`;
   });
@@ -1220,37 +1247,51 @@ function renderDeliveryTableForRole(deliveries, tbodyId, searchTerm) {
   filtered.forEach(delivery => {
     const isChecked = selectedManagerDeliveryIds.has(Number(delivery.id));
     const normStatus = normalizeDeliveryStatus(delivery.status);
+    const driverDisplay = delivery.assigned_driver_name
+      ? `<span class="kd-driver-chip"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h7l5 5v5z"></path><circle cx="6.5" cy="16.5" r="2.5"></circle><circle cx="16.5" cy="16.5" r="2.5"></circle></svg>${escapeDeliveryHtml(delivery.assigned_driver_name)}</span>`
+      : '<span class="kd-driver-unassigned">Unassigned</span>';
+
     const row = document.createElement('tr');
     if (isChecked) row.className = 'kd-row-selected';
     row.innerHTML = `
       <td style="text-align:center;">
         <input type="checkbox" class="delivery-row-checkbox" data-role="manager" data-delivery-id="${delivery.id}" ${isChecked ? 'checked' : ''} onchange="toggleDeliverySelection(${delivery.id}, this.checked, 'manager')" aria-label="Select delivery ${escapeDeliveryHtml(delivery.ref_code)}">
       </td>
-      <td><button class="action-btn edit" onclick="openSmsModal(${delivery.id})" style="color:#2563eb;border-color:#2563eb;" title="Send SMS"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg> Send SMS</button></td>
-      <td><strong>${escapeDeliveryHtml(delivery.ref_code)}</strong></td>
-      <td>${escapeDeliveryHtml(delivery.customer_name)}</td>
-      <td>${escapeDeliveryHtml(delivery.contact_number || 'N/A')}</td>
-      <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeDeliveryHtml(delivery.address)}">${escapeDeliveryHtml(delivery.address)}</td>
-      <td>${escapeDeliveryHtml(delivery.product || 'N/A')}${delivery.quantity && delivery.quantity > 1 ? ` <span style="font-weight:600;color:#6b7280;font-size:0.8125rem;">(×${delivery.quantity})</span>` : ''}${delivery.amount ? `<div style="font-size:0.75rem;color:#16a34a;font-weight:600;">₱${Number(delivery.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>` : ''}</td>
+      <td style="text-align:center;"><button class="kd-btn-sms" onclick="openSmsModal(${delivery.id})" title="Send SMS notification"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg><span>Send SMS</span></button></td>
+      <td><span class="kd-ref-code">${escapeDeliveryHtml(delivery.ref_code)}</span></td>
+      <td><span style="font-weight:600;color:#111827;">${escapeDeliveryHtml(delivery.customer_name)}</span></td>
+      <td><span style="color:#4b5563;font-variant-numeric:tabular-nums;">${escapeDeliveryHtml(delivery.contact_number || 'N/A')}</span></td>
+      <td><div style="max-width:220px;line-height:1.35;color:#374151;word-break:break-word;" title="${escapeDeliveryHtml(delivery.address)}">${escapeDeliveryHtml(delivery.address)}</div></td>
+      <td>
+        <div style="max-width:210px;line-height:1.35;word-break:break-word;">
+          <span style="font-weight:500;color:#111827;">${escapeDeliveryHtml(delivery.product || 'N/A')}</span>
+          ${delivery.quantity && delivery.quantity > 1 ? ` <span style="font-weight:600;color:#6b7280;font-size:0.75rem;">(×${delivery.quantity})</span>` : ''}
+          ${delivery.amount ? `<div style="font-size:0.75rem;color:#16a34a;font-weight:600;margin-top:0.15rem;">₱${Number(delivery.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>` : ''}
+        </div>
+      </td>
       <td>${formatPaymentMode(delivery.mode_of_payment)}</td>
-      <td>${delivery.assigned_driver_name ? `<span style="font-weight:600;color:#1e40af;">${escapeDeliveryHtml(delivery.assigned_driver_name)}</span>` : '<span style="color:#9ca3af;font-size:0.8rem;">Unassigned</span>'}</td>
+      <td>${driverDisplay}</td>
       <td>${renderDeliveryDateCell(delivery)}</td>
       <td>${getStatusBadge(delivery.status, delivery)}</td>
       <td>
-        <select class="status-select" data-delivery-id="${delivery.id}" style="padding:0.375rem 0.75rem;border:2px solid #e5e7eb;border-radius:0.375rem;font-size:0.875rem;cursor:pointer;">
-          <option value="Pending" ${normStatus === 'Pending' ? 'selected' : ''}>Pending</option>
-          <option value="Processing" ${normStatus === 'Processing' ? 'selected' : ''}>Processing</option>
-          <option value="In Transit" ${normStatus === 'In Transit' ? 'selected' : ''}>In Transit</option>
-          ${normStatus === 'Delivered' ? '<option value="Delivered" selected disabled>Delivered (Locked)</option>' : ''}
-        </select>
-        <button class="action-btn edit" onclick="updateDeliveryStatus(${delivery.id})" style="margin-left:0.5rem;" title="Update Status" ${normStatus === 'Delivered' ? 'disabled style="opacity:0.4;cursor:not-allowed;"' : ''}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
-        </button>
+        <div class="kd-status-update-group">
+          <select class="status-select" data-delivery-id="${delivery.id}">
+            <option value="Pending" ${normStatus === 'Pending' ? 'selected' : ''}>Pending</option>
+            <option value="Processing" ${normStatus === 'Processing' ? 'selected' : ''}>Processing</option>
+            <option value="In Transit" ${normStatus === 'In Transit' ? 'selected' : ''}>In Transit</option>
+            ${normStatus === 'Delivered' ? '<option value="Delivered" selected disabled>Delivered (Locked)</option>' : ''}
+          </select>
+          <button class="kd-btn-update-status" onclick="updateDeliveryStatus(${delivery.id})" title="Update Status" ${normStatus === 'Delivered' ? 'disabled style="opacity:0.4;cursor:not-allowed;"' : ''}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </button>
+        </div>
       </td>
       <td>
-        <button class="action-btn edit" onclick="editDelivery(${delivery.id})" title="Edit delivery">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-        </button>
+        <div class="kd-action-icons">
+          <button class="kd-icon-btn edit" onclick="editDelivery(${delivery.id})" title="Edit Delivery">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+          </button>
+        </div>
       </td>`;
     tbody.appendChild(row);
   });
@@ -1275,26 +1316,25 @@ export async function loadManagerDeliveryList() {
 
 function getStatusBadge(status, itemOrDate) {
   const norm = normalizeDeliveryStatus(status);
-  const styleMap = {
-    'Delivered': 'background:#d1fae5;color:#065f46;border:1px solid #a7f3d0;',
-    'In Transit': 'background:#dbeafe;color:#1e40af;border:1px solid #bfdbfe;',
-    'Processing': 'background:#fef3c7;color:#92400e;border:1px solid #fde68a;',
-    'Pending': 'background:#ffedd5;color:#9a3412;border:1px solid #fed7aa;'
-  };
-  const badgeStyle = styleMap[norm] || 'background:#f3f4f6;color:#374151;';
+  let cls = 'kd-status-pending';
+  if (norm === 'Delivered') cls = 'kd-status-delivered';
+  else if (norm === 'In Transit') cls = 'kd-status-intransit';
+  else if (norm === 'Processing') cls = 'kd-status-processing';
+  else if (norm === 'Pending') cls = 'kd-status-pending';
+
   const recordObj = itemOrDate && typeof itemOrDate === 'object'
     ? itemOrDate
     : (itemOrDate ? { status: norm, delivery_date: itemOrDate } : null);
   const overdue = recordObj && isDeliveryOverdue(recordObj);
   const overdueBadge = overdue
-    ? ' <span class="status-badge" style="background:#fee2e2;color:#991b1b;border:1px solid #fecaca;font-size:0.7rem;margin-left:0.25rem;" title="Scheduled delivery window has passed">Overdue</span>'
+    ? ` <span class="kd-status-pill kd-status-overdue" style="margin-left:0.25rem;" title="Scheduled delivery window has passed"><span class="kd-status-pill-dot"></span>Overdue</span>`
     : '';
-  return `<span class="status-badge" style="${badgeStyle}">${escapeDeliveryHtml(norm)}</span>${overdueBadge}`;
+  return `<span class="kd-status-pill ${cls}"><span class="kd-status-pill-dot"></span>${escapeDeliveryHtml(norm)}</span>${overdueBadge}`;
 }
 
 function getTypeBadge(type) {
-  const t = type || 'N/A';
-  return `<span style="color:#4b5563;font-size:0.875rem;font-weight:500;">${escapeDeliveryHtml(t)}</span>`;
+  const t = type || 'Standard';
+  return `<span class="kd-type-pill">${escapeDeliveryHtml(t)}</span>`;
 }
 
 export async function populateDriverDropdown(selectEl, selectedId) {
@@ -1776,24 +1816,33 @@ function renderArchivedDeliveryTableRows(items) {
     return;
   }
   items.forEach(item => {
-    const statusClass = (item.status || 'Pending').toLowerCase().replace(/\s+/g, '-');
     const applicableDate = item.delivery_date ? formatDate(item.delivery_date) : 'N/A';
     const archivedDate = item.archived_at ? formatDateTime(item.archived_at) : 'N/A';
+    const driverDisplay = item.assigned_driver_name
+      ? `<span class="kd-driver-chip"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h7l5 5v5z"></path><circle cx="6.5" cy="16.5" r="2.5"></circle><circle cx="16.5" cy="16.5" r="2.5"></circle></svg>${escapeHtmlText(item.assigned_driver_name)}</span>`
+      : '<span class="kd-driver-unassigned">Unassigned</span>';
+
     tbody.innerHTML += `
       <tr>
-        <td style="font-family:monospace;font-weight:600;">${escapeHtmlText(item.ref_code || '#' + item.id)}</td>
-        <td>${escapeHtmlText(item.customer_name || 'N/A')}</td>
-        <td>${escapeHtmlText(item.contact_number || 'N/A')}</td>
-        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtmlText(item.address || '')}">${escapeHtmlText(item.address || 'N/A')}</td>
-        <td>${escapeHtmlText(item.product || 'N/A')}</td>
-        <td>${formatPaymentMode(item.mode_of_payment)}</td>
-        <td>${escapeHtmlText(item.assigned_driver_name || 'Unassigned')}</td>
-        <td>${applicableDate}</td>
-        <td><span class="delivery-status-badge ${statusClass}">${escapeHtmlText(item.status || 'Pending')}</span></td>
-        <td>${archivedDate}</td>
+        <td><span class="kd-ref-code">${escapeHtmlText(item.ref_code || '#' + item.id)}</span></td>
+        <td><span style="font-weight:600;color:#111827;">${escapeHtmlText(item.customer_name || 'N/A')}</span></td>
+        <td><span style="color:#4b5563;font-variant-numeric:tabular-nums;">${escapeHtmlText(item.contact_number || 'N/A')}</span></td>
+        <td><div style="max-width:220px;line-height:1.35;color:#374151;word-break:break-word;" title="${escapeHtmlText(item.address || '')}">${escapeHtmlText(item.address || 'N/A')}</div></td>
         <td>
-          <button class="action-btn restore" onclick="restoreDelivery(${item.id})" title="Restore Delivery" style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.8125rem;font-weight:600;padding:0.3rem 0.65rem;border-radius:0.375rem;border:1px solid #059669;color:#059669;background:transparent;cursor:pointer;">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+          <div style="max-width:210px;line-height:1.35;word-break:break-word;">
+            <span style="font-weight:500;color:#111827;">${escapeHtmlText(item.product || 'N/A')}</span>
+            ${item.quantity && item.quantity > 1 ? ` <span style="font-weight:600;color:#6b7280;font-size:0.75rem;">(×${item.quantity})</span>` : ''}
+            ${item.amount ? `<div style="font-size:0.75rem;color:#16a34a;font-weight:600;margin-top:0.15rem;">₱${Number(item.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>` : ''}
+          </div>
+        </td>
+        <td>${formatPaymentMode(item.mode_of_payment)}</td>
+        <td>${driverDisplay}</td>
+        <td>${applicableDate}</td>
+        <td>${getStatusBadge(item.status, item)}</td>
+        <td><span style="font-size:0.8125rem;color:#4b5563;">${archivedDate}</span></td>
+        <td>
+          <button class="kd-icon-btn edit" onclick="restoreDelivery(${item.id})" title="Restore Delivery" style="color:#059669;border-color:#a7f3d0;background:#ecfdf5;display:inline-flex;align-items:center;gap:0.35rem;padding:0.35rem 0.65rem;width:auto;height:auto;font-size:0.75rem;font-weight:600;border-radius:9999px;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
             Restore
           </button>
         </td>
@@ -1936,23 +1985,32 @@ function renderManagerArchivedDeliveryTableRows(items) {
     return;
   }
   items.forEach(item => {
-    const statusClass = (item.status || 'Pending').toLowerCase().replace(/\s+/g, '-');
     const applicableDate = item.delivery_date ? formatDate(item.delivery_date) : 'N/A';
     const archivedDate = item.archived_at ? formatDateTime(item.archived_at) : 'N/A';
+    const driverDisplay = item.assigned_driver_name
+      ? `<span class="kd-driver-chip"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h7l5 5v5z"></path><circle cx="6.5" cy="16.5" r="2.5"></circle><circle cx="16.5" cy="16.5" r="2.5"></circle></svg>${escapeHtmlText(item.assigned_driver_name)}</span>`
+      : '<span class="kd-driver-unassigned">Unassigned</span>';
+
     tbody.innerHTML += `
       <tr>
-        <td style="font-family:monospace;font-weight:600;">${escapeHtmlText(item.ref_code || '#' + item.id)}</td>
-        <td>${escapeHtmlText(item.customer_name || 'N/A')}</td>
-        <td>${escapeHtmlText(item.contact_number || 'N/A')}</td>
-        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtmlText(item.address || '')}">${escapeHtmlText(item.address || 'N/A')}</td>
-        <td>${escapeHtmlText(item.product || 'N/A')}</td>
-        <td>${formatPaymentMode(item.mode_of_payment)}</td>
-        <td>${escapeHtmlText(item.assigned_driver_name || 'Unassigned')}</td>
-        <td>${applicableDate}</td>
-        <td><span class="delivery-status-badge ${statusClass}">${escapeHtmlText(item.status || 'Pending')}</span></td>
-        <td>${archivedDate}</td>
+        <td><span class="kd-ref-code">${escapeHtmlText(item.ref_code || '#' + item.id)}</span></td>
+        <td><span style="font-weight:600;color:#111827;">${escapeHtmlText(item.customer_name || 'N/A')}</span></td>
+        <td><span style="color:#4b5563;font-variant-numeric:tabular-nums;">${escapeHtmlText(item.contact_number || 'N/A')}</span></td>
+        <td><div style="max-width:220px;line-height:1.35;color:#374151;word-break:break-word;" title="${escapeHtmlText(item.address || '')}">${escapeHtmlText(item.address || 'N/A')}</div></td>
         <td>
-          <span class="badge" style="background:#f3f4f6;color:#6b7280;font-weight:600;padding:0.25rem 0.6rem;border-radius:0.375rem;font-size:0.75rem;display:inline-block;">Archived</span>
+          <div style="max-width:210px;line-height:1.35;word-break:break-word;">
+            <span style="font-weight:500;color:#111827;">${escapeHtmlText(item.product || 'N/A')}</span>
+            ${item.quantity && item.quantity > 1 ? ` <span style="font-weight:600;color:#6b7280;font-size:0.75rem;">(×${item.quantity})</span>` : ''}
+            ${item.amount ? `<div style="font-size:0.75rem;color:#16a34a;font-weight:600;margin-top:0.15rem;">₱${Number(item.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>` : ''}
+          </div>
+        </td>
+        <td>${formatPaymentMode(item.mode_of_payment)}</td>
+        <td>${driverDisplay}</td>
+        <td>${applicableDate}</td>
+        <td>${getStatusBadge(item.status, item)}</td>
+        <td><span style="font-size:0.8125rem;color:#4b5563;">${archivedDate}</span></td>
+        <td>
+          <span class="kd-status-pill" style="background:#f1f5f9;color:#64748b;border-color:#e2e8f0;"><span class="kd-status-pill-dot" style="background:#94a3b8;"></span>Archived</span>
         </td>
       </tr>`;
   });
@@ -2085,30 +2143,41 @@ function renderStaffArchivedDeliveryTableRows(items) {
   if (!tbody) return;
   tbody.innerHTML = '';
   if (staffArchivedDeliveriesCache.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#9ca3af;padding:2rem;">No archived deliveries found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:#9ca3af;padding:2rem;">No archived deliveries found</td></tr>';
     return;
   }
   if (items.length === 0) {
-    tbody.innerHTML = '<tr class="no-data-row"><td colspan="11" style="text-align:center;color:#9ca3af;padding:2rem;">No archived deliveries match your search or filters.</td></tr>';
+    tbody.innerHTML = '<tr class="no-data-row"><td colspan="12" style="text-align:center;color:#9ca3af;padding:2rem;">No archived deliveries match your search or filters.</td></tr>';
     return;
   }
   items.forEach(item => {
     const applicableDate = item.delivery_date ? formatDate(item.delivery_date) : 'N/A';
     const archivedDate = item.archived_at ? formatDateTime(item.archived_at) : 'N/A';
+    const driverDisplay = item.assigned_driver_name
+      ? `<span class="kd-driver-chip"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h7l5 5v5z"></path><circle cx="6.5" cy="16.5" r="2.5"></circle><circle cx="16.5" cy="16.5" r="2.5"></circle></svg>${escapeHtmlText(item.assigned_driver_name)}</span>`
+      : '<span class="kd-driver-unassigned">Unassigned</span>';
+
     tbody.innerHTML += `
       <tr>
-        <td style="font-family:monospace;font-weight:600;">${escapeHtmlText(item.ref_code || '#' + item.id)}</td>
-        <td>${escapeHtmlText(item.customer_name || 'N/A')}</td>
-        <td>${escapeHtmlText(item.contact_number || 'N/A')}</td>
-        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtmlText(item.address || '')}">${escapeHtmlText(item.address || 'N/A')}</td>
-        <td>${escapeHtmlText(item.product || 'N/A')}</td>
-        <td>${formatPaymentMode(item.mode_of_payment)}</td>
-        <td>${getStatusBadge(item.status)}</td>
-        <td>${getTypeBadge(item.delivery_type)}</td>
-        <td>${applicableDate}</td>
-        <td>${archivedDate}</td>
+        <td><span class="kd-ref-code">${escapeHtmlText(item.ref_code || '#' + item.id)}</span></td>
+        <td><span style="font-weight:600;color:#111827;">${escapeHtmlText(item.customer_name || 'N/A')}</span></td>
+        <td><span style="color:#4b5563;font-variant-numeric:tabular-nums;">${escapeHtmlText(item.contact_number || 'N/A')}</span></td>
+        <td><div style="max-width:220px;line-height:1.35;color:#374151;word-break:break-word;" title="${escapeHtmlText(item.address || '')}">${escapeHtmlText(item.address || 'N/A')}</div></td>
         <td>
-          <span class="badge" style="background:#f3f4f6;color:#6b7280;font-weight:600;padding:0.25rem 0.6rem;border-radius:0.375rem;font-size:0.75rem;display:inline-block;">Archived</span>
+          <div style="max-width:210px;line-height:1.35;word-break:break-word;">
+            <span style="font-weight:500;color:#111827;">${escapeHtmlText(item.product || 'N/A')}</span>
+            ${item.quantity && item.quantity > 1 ? ` <span style="font-weight:600;color:#6b7280;font-size:0.75rem;">(×${item.quantity})</span>` : ''}
+            ${item.amount ? `<div style="font-size:0.75rem;color:#16a34a;font-weight:600;margin-top:0.15rem;">₱${Number(item.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>` : ''}
+          </div>
+        </td>
+        <td>${formatPaymentMode(item.mode_of_payment)}</td>
+        <td>${driverDisplay}</td>
+        <td>${applicableDate}</td>
+        <td>${getStatusBadge(item.status, item)}</td>
+        <td>${getTypeBadge(item.delivery_type)}</td>
+        <td><span style="font-size:0.8125rem;color:#4b5563;">${archivedDate}</span></td>
+        <td>
+          <span class="kd-status-pill" style="background:#f1f5f9;color:#64748b;border-color:#e2e8f0;"><span class="kd-status-pill-dot" style="background:#94a3b8;"></span>Archived</span>
         </td>
       </tr>`;
   });

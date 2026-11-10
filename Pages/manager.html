@@ -381,14 +381,14 @@
           </div>
         </div>
 
-        <div class="table-container">
-          <table>
+        <div class="table-container kd-delivery-table-container">
+          <table class="kd-delivery-table">
             <thead>
               <tr>
-                <th style="width:42px;text-align:center;">
+                <th style="width: 44px; text-align: center;">
                   <input type="checkbox" id="managerDeliverySelectAll" title="Select all visible deliveries" aria-label="Select all visible deliveries">
                 </th>
-                <th>Send SMS</th>
+                <th style="width: 110px; text-align: center;">Send SMS</th>
                 <th>Delivery ID</th>
                 <th>Customer</th>
                 <th>Contact</th>
@@ -399,7 +399,7 @@
                 <th>Scheduled / Applicable Date</th>
                 <th>Status</th>
                 <th>Update Status</th>
-                <th>Edit</th>
+                <th style="text-align: center;">Edit</th>
               </tr>
             </thead>
             <tbody id="managerDeliveryList">
@@ -459,8 +459,8 @@
             </div>
             <span id="managerArchivedDeliveryFilterSummary" style="font-size: 0.8125rem; color: #6b7280; font-weight: 500;"></span>
           </div>
-          <div class="table-container">
-            <table>
+          <div class="table-container kd-delivery-table-container">
+            <table class="kd-delivery-table">
               <thead>
                 <tr>
                   <th>Delivery ID</th>
@@ -473,7 +473,7 @@
                   <th>Scheduled Date</th>
                   <th>Status</th>
                   <th>Archived Date</th>
-                  <th>Archive Status</th>
+                  <th style="text-align: center;">Archive Status</th>
                 </tr>
               </thead>
               <tbody id="managerArchivedDeliveryList">
@@ -1128,8 +1128,19 @@
           <p id="smsStatus" style="font-weight:600;color:#111827;margin:0;"></p>
         </div>
         <div class="form-group">
-          <label class="form-label">Message</label>
-          <textarea id="smsMessagePreview" class="form-input" rows="4" readonly style="background:#f9fafb;resize:none;"></textarea>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.35rem;">
+            <label class="form-label" style="margin:0;">Message</label>
+            <span style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.75rem;color:#6b7280;background:#f3f4f6;padding:0.15rem 0.5rem;border-radius:9999px;">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+              Automated • Read-only
+            </span>
+          </div>
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-left:4px solid #7c3aed;border-radius:0.5rem;padding:0.75rem 0.875rem;">
+            <div id="smsMessagePreview" style="font-size:0.875rem;line-height:1.55;color:#1e293b;white-space:pre-wrap;word-break:break-word;"></div>
+          </div>
+          <small style="display:block;margin-top:0.35rem;font-size:0.75rem;color:#9ca3af;">
+            Standard automated notification template dispatched via Semaphore.
+          </small>
         </div>
         <div style="display:flex;gap:0.75rem;">
           <button type="button" class="btn btn-accent" id="confirmSendSmsBtn" style="flex:1;background:#7c3aed;border-color:#7c3aed;">Send SMS</button>

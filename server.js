@@ -3276,9 +3276,13 @@ async function getMfaPhoneForUser(userId) {
   return { ok: true, phone: n.value, maskedPhone: maskPhone(n.value) };
 }
 
+// In-memory audit tracking for account deactivations (fallback when deactivated_at column is not yet in Supabase)
+const staffDeactivatedMemoryStore = new Map();
+
 // Account row as the dashboard receives it (the password hash is never included)
 function publicAccount(row) {
   const active = isAccountActive(row);
+  const deactTime = row.deactivated_at || staffDeactivatedMemoryStore.get(String(row.id)) || null;
   return {
     id: row.id,
     name: row.name,
@@ -3287,26 +3291,43 @@ function publicAccount(row) {
     phone: row[USER_PHONE_COLUMN] || null,
     is_active: active,
     status: active ? 'active' : 'deactivated',
-    created_at: row.created_at
+    created_at: row.created_at,
+    deactivated_at: !active ? deactTime : null
   };
 }
 
 // Updates the account's active status in the database (reusing `is_active` when present,
 // with a seamless fallback to `mfa_secret` if the `is_active` column migration has not been run yet).
 async function setAccountActiveInDb(targetId, isActive) {
+  const deactNow = isActive ? null : new Date().toISOString();
+  if (isActive) {
+    staffDeactivatedMemoryStore.delete(String(targetId));
+  } else {
+    staffDeactivatedMemoryStore.set(String(targetId), deactNow);
+  }
+
   let { data, error } = await db
     .from('users')
-    .update({ [USER_ACTIVE_COLUMN]: Boolean(isActive), mfa_secret: isActive ? null : DEACTIVATED_FALLBACK_MARKER })
+    .update({ [USER_ACTIVE_COLUMN]: Boolean(isActive), mfa_secret: isActive ? null : DEACTIVATED_FALLBACK_MARKER, deactivated_at: deactNow })
     .eq('id', targetId)
     .select('*')
     .single();
+
   if (error && isMissingColumnError(error)) {
     ({ data, error } = await db
       .from('users')
-      .update({ mfa_secret: isActive ? null : DEACTIVATED_FALLBACK_MARKER })
+      .update({ [USER_ACTIVE_COLUMN]: Boolean(isActive), mfa_secret: isActive ? null : DEACTIVATED_FALLBACK_MARKER })
       .eq('id', targetId)
       .select('*')
       .single());
+    if (error && isMissingColumnError(error)) {
+      ({ data, error } = await db
+        .from('users')
+        .update({ mfa_secret: isActive ? null : DEACTIVATED_FALLBACK_MARKER })
+        .eq('id', targetId)
+        .select('*')
+        .single());
+    }
   }
   return { data, error };
 }

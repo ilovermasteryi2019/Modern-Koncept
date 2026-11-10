@@ -1,59 +1,355 @@
 // =============================================================================
 // K-DESK · staff-accounts.js
-// staff-accounts
-// Cut from the original main.js (lines 2893-3740 region). Code is unchanged except where a comment says otherwise.
+// staff-accounts (Active & Deactivated Tabs, Filters, Pagination, and Security)
 // =============================================================================
 
-import { API, escapeHtmlText, formatDate, formatPhoneForDisplay, kdCreateOnce, normalizePhPhoneClient, validatePhPhoneClient } from './core.js';
-import { hideModal, kdConfirm, kdFormOptions as submit, kdGuard, kdWrapLoader, showToast } from './ui.js';
+import { API, escapeHtmlText, formatDate, formatDateTime, formatPhoneForDisplay, kdCreateOnce, normalizePhPhoneClient, validatePhPhoneClient } from './core.js';
+import { hideModal, kdConfirm, kdFormOptions as submit, kdGuard, renderPagination, showToast } from './ui.js';
 import { isDriverRole, normalizeRole } from './auth.js';
 
 let staffAccountsCache = {};
+let activeStaffAccounts = [];
+let deactivatedStaffAccounts = [];
+let currentStaffSubtab = 'active';
 
- // id -> account row from the last GET /staff
+// Active tab pagination & search
+let activeSearchQuery = '';
+let activeRoleFilter = 'all';
+let activeStaffPage = 1;
+
+// Deactivated tab pagination & search
+let deactivatedSearchQuery = '';
+let deactivatedRoleFilter = 'all';
+let deactivatedStaffPage = 1;
+
+const STAFF_PAGE_SIZE = 10;
+let staffControlsInitialized = false;
 let staffEditSubmitting = false;
 
+function renderStaffRoleBadge(role) {
+  const norm = normalizeRole(role);
+  let cls = 'kd-role-staff';
+  let label = 'Staff';
+  if (norm === 'manager') {
+    cls = 'kd-role-manager';
+    label = 'Manager';
+  } else if (norm === 'delivery_driver' || isDriverRole(role)) {
+    cls = 'kd-role-driver';
+    label = 'Delivery Driver';
+  } else if (norm === 'admin') {
+    cls = 'kd-role-admin';
+    label = 'Admin';
+  }
+  return `<span class="kd-role-pill ${cls}">${label}</span>`;
+}
+
+function renderStaffStatusBadge(isActive) {
+  if (isActive) {
+    return `<span class="kd-status-pill kd-status-active"><span class="kd-chip-dot"></span>Active</span>`;
+  }
+  return `<span class="kd-status-pill kd-status-deactivated"><span class="kd-chip-dot"></span>Deactivated</span>`;
+}
+
+export function filterActiveStaffAccounts(page = 1) {
+  activeStaffPage = page;
+  const tbody = document.getElementById('staffAccountsList');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  let filtered = [...activeStaffAccounts];
+  if (activeRoleFilter && activeRoleFilter !== 'all') {
+    filtered = filtered.filter(item => normalizeRole(item.role) === activeRoleFilter);
+  }
+  if (activeSearchQuery) {
+    const q = activeSearchQuery.toLowerCase();
+    filtered = filtered.filter(item => {
+      const name = String(item.name || '').toLowerCase();
+      const email = String(item.email || '').toLowerCase();
+      const phone = String(item.phone || '').toLowerCase();
+      return name.includes(q) || email.includes(q) || phone.includes(q);
+    });
+  }
+
+  const totalItems = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / STAFF_PAGE_SIZE));
+  if (activeStaffPage > totalPages) activeStaffPage = totalPages;
+
+  const startIdx = (activeStaffPage - 1) * STAFF_PAGE_SIZE;
+  const pagedItems = filtered.slice(startIdx, startIdx + STAFF_PAGE_SIZE);
+
+  const summaryEl = document.getElementById('adminActiveStaffSummary');
+  if (summaryEl) {
+    if (totalItems === 0) {
+      summaryEl.textContent = '0 accounts';
+    } else {
+      const endIdx = Math.min(startIdx + STAFF_PAGE_SIZE, totalItems);
+      summaryEl.textContent = `Showing ${startIdx + 1}–${endIdx} of ${totalItems} active accounts`;
+    }
+  }
+
+  if (pagedItems.length === 0) {
+    const msg = activeStaffAccounts.length === 0
+      ? 'No active staff accounts found'
+      : 'No active accounts match your search or filter.';
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#9ca3af;padding:2rem;">${msg}</td></tr>`;
+    renderPagination({
+      containerId: 'adminActiveStaffPagination',
+      totalItems: 0,
+      currentPage: 1,
+      pageSize: STAFF_PAGE_SIZE,
+      onPageChange: () => {},
+      ariaLabel: 'Active Staff Pagination'
+    });
+    return;
+  }
+
+  pagedItems.forEach(item => {
+    const role = normalizeRole(item.role);
+    const canEdit = ['staff', 'manager', 'delivery_driver'].includes(role);
+    const editBtn = canEdit
+      ? `<button class="kd-icon-btn edit" onclick="openEditStaffModal(${item.id})" title="Edit Account" style="margin-right:0.35rem;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>`
+      : '';
+    const deactivateBtn = `<button class="kd-btn-deactivate" onclick="deactivateStaffAccount(${item.id})" title="Deactivate Account"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line></svg><span>Deactivate</span></button>`;
+
+    tbody.innerHTML += `
+      <tr>
+        <td><span style="font-weight:600;color:#111827;">${escapeHtmlText(item.name || '')}</span></td>
+        <td><span style="color:#4b5563;font-size:0.875rem;">${escapeHtmlText(item.email || '')}</span></td>
+        <td>${renderStaffRoleBadge(item.role)}</td>
+        <td>${item.phone ? `<span style="color:#4b5563;font-variant-numeric:tabular-nums;">${escapeHtmlText(formatPhoneForDisplay(item.phone))}</span>` : '<span style="color:#9ca3af;font-size:0.8125rem;">Not set</span>'}</td>
+        <td>${renderStaffStatusBadge(true)}</td>
+        <td><span style="color:#64748b;font-size:0.8125rem;">${formatDate(item.created_at)}</span></td>
+        <td style="text-align:center;">
+          <div style="display:inline-flex;align-items:center;justify-content:center;">
+            ${editBtn}${deactivateBtn}
+          </div>
+        </td>
+      </tr>`;
+  });
+
+  renderPagination({
+    containerId: 'adminActiveStaffPagination',
+    totalItems,
+    currentPage: activeStaffPage,
+    pageSize: STAFF_PAGE_SIZE,
+    onPageChange: (newPage) => filterActiveStaffAccounts(newPage),
+    ariaLabel: 'Active Staff Pagination'
+  });
+}
+
+export function filterDeactivatedStaffAccounts(page = 1) {
+  deactivatedStaffPage = page;
+  const tbody = document.getElementById('deactivatedStaffAccountsList');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  let filtered = [...deactivatedStaffAccounts];
+  if (deactivatedRoleFilter && deactivatedRoleFilter !== 'all') {
+    filtered = filtered.filter(item => normalizeRole(item.role) === deactivatedRoleFilter);
+  }
+  if (deactivatedSearchQuery) {
+    const q = deactivatedSearchQuery.toLowerCase();
+    filtered = filtered.filter(item => {
+      const name = String(item.name || '').toLowerCase();
+      const email = String(item.email || '').toLowerCase();
+      const phone = String(item.phone || '').toLowerCase();
+      return name.includes(q) || email.includes(q) || phone.includes(q);
+    });
+  }
+
+  const totalItems = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / STAFF_PAGE_SIZE));
+  if (deactivatedStaffPage > totalPages) deactivatedStaffPage = totalPages;
+
+  const startIdx = (deactivatedStaffPage - 1) * STAFF_PAGE_SIZE;
+  const pagedItems = filtered.slice(startIdx, startIdx + STAFF_PAGE_SIZE);
+
+  const summaryEl = document.getElementById('adminDeactivatedStaffSummary');
+  if (summaryEl) {
+    if (totalItems === 0) {
+      summaryEl.textContent = '0 accounts';
+    } else {
+      const endIdx = Math.min(startIdx + STAFF_PAGE_SIZE, totalItems);
+      summaryEl.textContent = `Showing ${startIdx + 1}–${endIdx} of ${totalItems} deactivated accounts`;
+    }
+  }
+
+  if (pagedItems.length === 0) {
+    const msg = deactivatedStaffAccounts.length === 0
+      ? 'No deactivated accounts found'
+      : 'No deactivated accounts match your search or filter.';
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#9ca3af;padding:2rem;">${msg}</td></tr>`;
+    renderPagination({
+      containerId: 'adminDeactivatedStaffPagination',
+      totalItems: 0,
+      currentPage: 1,
+      pageSize: STAFF_PAGE_SIZE,
+      onPageChange: () => {},
+      ariaLabel: 'Deactivated Staff Pagination'
+    });
+    return;
+  }
+
+  pagedItems.forEach(item => {
+    const reactivateBtn = `<button class="kd-btn-reactivate" onclick="activateStaffAccount(${item.id})" title="Reactivate Account"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg><span>Reactivate</span></button>`;
+    const deactDate = item.deactivated_at
+      ? formatDate(item.deactivated_at)
+      : (item.created_at ? formatDate(item.created_at) : '<span style="color:#9ca3af;font-size:0.8125rem;">Deactivated</span>');
+
+    tbody.innerHTML += `
+      <tr>
+        <td><span style="font-weight:600;color:#111827;">${escapeHtmlText(item.name || '')}</span></td>
+        <td><span style="color:#4b5563;font-size:0.875rem;">${escapeHtmlText(item.email || '')}</span></td>
+        <td>${renderStaffRoleBadge(item.role)}</td>
+        <td>${item.phone ? `<span style="color:#4b5563;font-variant-numeric:tabular-nums;">${escapeHtmlText(formatPhoneForDisplay(item.phone))}</span>` : '<span style="color:#9ca3af;font-size:0.8125rem;">Not set</span>'}</td>
+        <td>${renderStaffStatusBadge(false)}</td>
+        <td><span style="color:#64748b;font-size:0.8125rem;">${deactDate}</span></td>
+        <td style="text-align:center;">
+          <div style="display:inline-flex;align-items:center;justify-content:center;">
+            ${reactivateBtn}
+          </div>
+        </td>
+      </tr>`;
+  });
+
+  renderPagination({
+    containerId: 'adminDeactivatedStaffPagination',
+    totalItems,
+    currentPage: deactivatedStaffPage,
+    pageSize: STAFF_PAGE_SIZE,
+    onPageChange: (newPage) => filterDeactivatedStaffAccounts(newPage),
+    ariaLabel: 'Deactivated Staff Pagination'
+  });
+}
+
+export function switchAdminStaffSubtab(tab) {
+  currentStaffSubtab = tab;
+  const activeBtn = document.getElementById('adminStaffTabActive');
+  const deactBtn = document.getElementById('adminStaffTabDeactivated');
+  const activeView = document.getElementById('adminStaffActiveView');
+  const deactView = document.getElementById('adminStaffDeactivatedView');
+
+  if (tab === 'deactivated') {
+    if (activeBtn) activeBtn.classList.remove('active');
+    if (deactBtn) deactBtn.classList.add('active');
+    if (activeView) activeView.style.display = 'none';
+    if (deactView) deactView.style.display = 'block';
+    filterDeactivatedStaffAccounts(deactivatedStaffPage);
+  } else {
+    if (deactBtn) deactBtn.classList.remove('active');
+    if (activeBtn) activeBtn.classList.add('active');
+    if (deactView) deactView.style.display = 'none';
+    if (activeView) activeView.style.display = 'block';
+    filterActiveStaffAccounts(activeStaffPage);
+  }
+}
+
+export function initAdminStaffControls() {
+  if (staffControlsInitialized) return;
+  staffControlsInitialized = true;
+
+  // Active accounts search & filter
+  const activeSearch = document.getElementById('adminActiveStaffSearch');
+  if (activeSearch) {
+    activeSearch.addEventListener('input', (e) => {
+      activeSearchQuery = e.target.value.trim();
+      filterActiveStaffAccounts(1);
+    });
+  }
+  const activeRole = document.getElementById('adminActiveStaffRoleFilter');
+  if (activeRole) {
+    activeRole.addEventListener('change', (e) => {
+      activeRoleFilter = e.target.value;
+      filterActiveStaffAccounts(1);
+    });
+  }
+  const activeReset = document.getElementById('adminActiveStaffResetFilters');
+  if (activeReset) {
+    activeReset.addEventListener('click', () => {
+      if (activeSearch) activeSearch.value = '';
+      if (activeRole) activeRole.value = 'all';
+      activeSearchQuery = '';
+      activeRoleFilter = 'all';
+      filterActiveStaffAccounts(1);
+    });
+  }
+
+  // Deactivated accounts search & filter
+  const deactSearch = document.getElementById('adminDeactivatedStaffSearch');
+  if (deactSearch) {
+    deactSearch.addEventListener('input', (e) => {
+      deactivatedSearchQuery = e.target.value.trim();
+      filterDeactivatedStaffAccounts(1);
+    });
+  }
+  const deactRole = document.getElementById('adminDeactivatedStaffRoleFilter');
+  if (deactRole) {
+    deactRole.addEventListener('change', (e) => {
+      deactivatedRoleFilter = e.target.value;
+      filterDeactivatedStaffAccounts(1);
+    });
+  }
+  const deactReset = document.getElementById('adminDeactivatedStaffResetFilters');
+  if (deactReset) {
+    deactReset.addEventListener('click', () => {
+      if (deactSearch) deactSearch.value = '';
+      if (deactRole) deactRole.value = 'all';
+      deactivatedSearchQuery = '';
+      deactivatedRoleFilter = 'all';
+      filterDeactivatedStaffAccounts(1);
+    });
+  }
+}
+
 export async function loadStaffAccountsList() {
+  initAdminStaffControls();
+  const activeTbody = document.getElementById('staffAccountsList');
+  const deactTbody = document.getElementById('deactivatedStaffAccountsList');
+  if (activeTbody && activeStaffAccounts.length === 0) {
+    activeTbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#6b7280;padding:2rem;"><span class="kd-spinner" aria-hidden="true"></span>Loading active accounts...</td></tr>';
+  }
+  if (deactTbody && deactivatedStaffAccounts.length === 0) {
+    deactTbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#6b7280;padding:2rem;"><span class="kd-spinner" aria-hidden="true"></span>Loading deactivated accounts...</td></tr>';
+  }
+
   try {
     const result = await API.getStaff();
     if (result.success) {
-      const tbody = document.getElementById('staffAccountsList');
-      if (!tbody) return;
-      tbody.innerHTML = '';
       staffAccountsCache = {};
-      if (result.data.length === 0) { tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#9ca3af;">No accounts found</td></tr>'; return; }
-      result.data.forEach(item => {
+      activeStaffAccounts = [];
+      deactivatedStaffAccounts = [];
+
+      (result.data || []).forEach(item => {
         const isActive = item.is_active !== false && String(item.status || '').toLowerCase() !== 'deactivated';
-        staffAccountsCache[item.id] = { ...item, is_active: isActive };
-        const role = normalizeRole(item.role);
-        const isDriver = isDriverRole(item.role);
-        const editBtn = ['staff', 'manager', 'delivery_driver'].includes(role)
-          ? `<button class="action-btn edit" onclick="openEditStaffModal(${item.id})" title="Edit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Edit</button> `
-          : '';
-        const statusBtn = isActive
-          ? `<button class="action-btn delete" onclick="deactivateStaffAccount(${item.id})" title="Deactivate Account"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line></svg> Deactivate Account</button>`
-          : `<button class="action-btn activate" onclick="activateStaffAccount(${item.id})" title="Activate Account"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg> Activate Account</button>`;
-        const roleColor = role === 'manager' ? '#8b5cf6' : (isDriver ? '#1d4ed8' : '#065f46');
-        const roleBg = role === 'manager' ? '#ede9fe' : (isDriver ? '#dbeafe' : '#d1fae5');
-        const roleLabel = role === 'manager' ? 'Manager' : (isDriver ? 'Delivery Driver' : 'Staff');
-        const statusColor = isActive ? '#065f46' : '#991b1b';
-        const statusBg = isActive ? '#d1fae5' : '#fee2e2';
-        const statusLabel = isActive ? 'Active' : 'Deactivated';
-        tbody.innerHTML += `
-          <tr>
-            <td>${escapeHtmlText(item.name || '')}</td>
-            <td>${escapeHtmlText(item.email || '')}</td>
-            <td><span style="padding:0.25rem 0.75rem;background:${roleBg};color:${roleColor};border-radius:9999px;font-size:0.75rem;font-weight:600;">${roleLabel}</span></td>
-            <td>${item.phone ? escapeHtmlText(formatPhoneForDisplay(item.phone)) : '<span style="color:#9ca3af;">Not set</span>'}</td>
-            <td><span style="padding:0.25rem 0.75rem;background:${statusBg};color:${statusColor};border-radius:9999px;font-size:0.75rem;font-weight:600;">${statusLabel}</span></td>
-            <td>${formatDate(item.created_at)}</td>
-            <td>${editBtn}${statusBtn}</td>
-          </tr>`;
+        const record = { ...item, is_active: isActive };
+        staffAccountsCache[item.id] = record;
+        if (isActive) {
+          activeStaffAccounts.push(record);
+        } else {
+          deactivatedStaffAccounts.push(record);
+        }
       });
+
+      // Update tab badges
+      const activeBadge = document.getElementById('adminStaffActiveBadge');
+      if (activeBadge) {
+        activeBadge.textContent = activeStaffAccounts.length;
+        activeBadge.style.display = activeStaffAccounts.length > 0 ? 'inline-block' : 'none';
+      }
+      const deactBadge = document.getElementById('adminStaffDeactivatedBadge');
+      if (deactBadge) {
+        deactBadge.textContent = deactivatedStaffAccounts.length;
+        deactBadge.style.display = deactivatedStaffAccounts.length > 0 ? 'inline-block' : 'none';
+      }
+
+      filterActiveStaffAccounts(activeStaffPage);
+      filterDeactivatedStaffAccounts(deactivatedStaffPage);
     } else {
       showToast('❌ ' + (result.message || 'Failed to load accounts'), 'error');
     }
-  } catch (error) { showToast('❌ Failed to load accounts', 'error'); }
+  } catch (error) {
+    showToast('❌ Failed to load accounts', 'error');
+  }
 }
 
 export function openAddStaffModal() {
@@ -127,8 +423,18 @@ async function handleStaffAccountSubmit(event) {
 
 export async function deactivateStaffAccount(id) {
   const account = staffAccountsCache[id];
+  const currentUser = JSON.parse(sessionStorage.getItem('currentUser') || '{}');
+  if (currentUser && currentUser.id && String(currentUser.id) === String(id)) {
+    showToast('You cannot deactivate your own account.', 'warning');
+    return;
+  }
   const label = account && account.name ? `${account.name} (${account.email})` : 'this account';
-  if (!(await kdConfirm(`Are you sure you want to deactivate ${label}?\n\nThis account will no longer be able to log in until reactivated by an administrator.`, { title: 'Deactivate Account', confirmText: 'Deactivate Account' }))) return;
+  const confirmed = await kdConfirm(
+    `Are you sure you want to deactivate ${label}?\n\nThis account will lose access to the system and will not be able to log in until reactivated by an administrator.`,
+    { title: 'Deactivate Account', confirmText: 'Deactivate Account' }
+  );
+  if (!confirmed) return;
+
   try {
     const result = await API.deactivateStaff(id);
     if (result && result.success) {
@@ -137,22 +443,31 @@ export async function deactivateStaffAccount(id) {
     } else {
       showToast('❌ ' + ((result && result.message) || 'Failed to deactivate account'), 'error');
     }
-  } catch (error) { showToast('❌ Failed to deactivate account', 'error'); }
+  } catch (error) {
+    showToast('❌ Failed to deactivate account', 'error');
+  }
 }
 
 export async function activateStaffAccount(id) {
   const account = staffAccountsCache[id];
   const label = account && account.name ? `${account.name} (${account.email})` : 'this account';
-  if (!(await kdConfirm(`Are you sure you want to activate ${label}?\n\nThis account will be able to log in again.`, { title: 'Activate Account', confirmText: 'Activate Account' }))) return;
+  const confirmed = await kdConfirm(
+    `Are you sure you want to reactivate ${label}?\n\nThis account will regain access to the system with its existing role and account information.`,
+    { title: 'Reactivate Account', confirmText: 'Reactivate Account' }
+  );
+  if (!confirmed) return;
+
   try {
     const result = await API.activateStaff(id);
     if (result && result.success) {
-      showToast(result.message || 'Account activated successfully.', 'success');
+      showToast(result.message || 'Account reactivated successfully.', 'success');
       await loadStaffAccountsList();
     } else {
-      showToast('❌ ' + ((result && result.message) || 'Failed to activate account'), 'error');
+      showToast('❌ ' + ((result && result.message) || 'Failed to reactivate account'), 'error');
     }
-  } catch (error) { showToast('❌ Failed to activate account', 'error'); }
+  } catch (error) {
+    showToast('❌ Failed to reactivate account', 'error');
+  }
 }
 
 export function closeEditStaffModal() {
