@@ -6,7 +6,31 @@
 
 
 
-export const API_URL = 'https://modern-koncept.onrender.com';
+export const API_URL = (() => {
+  if (typeof window === 'undefined' || !window.location) {
+    return 'https://modern-koncept.onrender.com';
+  }
+  const { hostname, port, protocol } = window.location;
+  // If running locally (localhost, 127.0.0.1, or local subnet)
+  if (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname.startsWith('192.168.') ||
+    hostname.startsWith('10.') ||
+    hostname.endsWith('.local')
+  ) {
+    // If opened via LiveServer or another static port (e.g., 5500), connect to Node API on port 3000
+    if (port && port !== '3000' && (port === '5500' || port === '5501' || port === '8080')) {
+      return `${protocol}//${hostname}:3000`;
+    }
+    return `${protocol}//${window.location.host}`;
+  }
+  // If hosted on Render or another web domain, use same origin
+  if (protocol.startsWith('http')) {
+    return window.location.origin;
+  }
+  return 'https://modern-koncept.onrender.com';
+})();
 
 // -----------------------------------------------------------------------------
 // Idempotency keys for create requests
