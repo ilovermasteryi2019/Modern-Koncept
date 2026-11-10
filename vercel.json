@@ -33,6 +33,7 @@
     { "source": "/login/staff.html", "destination": "/Pages/staff.html" },
     { "source": "/login/driver.html", "destination": "/Pages/driver.html" },
     { "source": "/placeholder-furniture.jpg", "destination": "/Images/sofa.png" },
-    { "source": "/Pages/placeholder-furniture.jpg", "destination": "/Images/sofa.png" }
+    { "source": "/Pages/placeholder-furniture.jpg", "destination": "/Images/sofa.png" },
+    { "source": "/Pages/Images/:path*", "destination": "/Images/:path*" }
   ]
 }
